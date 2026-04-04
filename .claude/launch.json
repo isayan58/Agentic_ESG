@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Streamlit Dashboard",
+      "runtimeExecutable": "/Users/sayanadhikary/Library/Python/3.9/bin/streamlit",
+      "runtimeArgs": ["run", "app.py", "--server.port", "8501"],
+      "port": 8501
+    },
+    {
+      "name": "Gradio App",
+      "runtimeExecutable": "/usr/bin/python3",
+      "runtimeArgs": ["gradio_app.py"],
+      "port": 7860
+    }
+  ]
+}
