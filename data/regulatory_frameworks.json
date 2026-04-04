@@ -1,0 +1,76 @@
+{
+  "frameworks": {
+    "BRSR": {
+      "full_name": "Business Responsibility and Sustainability Reporting",
+      "jurisdiction": "India (SEBI)",
+      "mandatory": true,
+      "requirements": [
+        {"id": "BRSR-E1", "section": "Principle 6", "requirement": "GHG Emissions (Scope 1 & 2)", "data_fields": ["emissions_scope1", "emissions_scope2"], "priority": "critical"},
+        {"id": "BRSR-E2", "section": "Principle 6", "requirement": "Energy Consumption & Intensity", "data_fields": ["energy_consumption", "energy_intensity"], "priority": "critical"},
+        {"id": "BRSR-E3", "section": "Principle 6", "requirement": "Water Withdrawal & Consumption", "data_fields": ["water_consumption", "water_recycling"], "priority": "high"},
+        {"id": "BRSR-E4", "section": "Principle 6", "requirement": "Waste Generation & Management", "data_fields": ["waste_generated", "waste_recycled"], "priority": "high"},
+        {"id": "BRSR-S1", "section": "Principle 3", "requirement": "Employee Well-being & Safety", "data_fields": ["ltifr", "safety_training"], "priority": "critical"},
+        {"id": "BRSR-S2", "section": "Principle 5", "requirement": "Human Rights Due Diligence", "data_fields": ["hr_training", "hr_assessment"], "priority": "high"},
+        {"id": "BRSR-S3", "section": "Principle 8", "requirement": "CSR Expenditure & Impact", "data_fields": ["csr_spending", "beneficiaries"], "priority": "medium"},
+        {"id": "BRSR-S4", "section": "Principle 4", "requirement": "Stakeholder Engagement", "data_fields": ["stakeholder_engagement"], "priority": "medium"},
+        {"id": "BRSR-G1", "section": "Principle 1", "requirement": "Business Ethics & Transparency", "data_fields": ["anti_corruption", "whistleblower"], "priority": "critical"},
+        {"id": "BRSR-G2", "section": "Principle 7", "requirement": "Policy Advocacy & Lobbying", "data_fields": ["policy_advocacy"], "priority": "low"},
+        {"id": "BRSR-G3", "section": "Principle 2", "requirement": "Product Lifecycle Sustainability", "data_fields": ["product_sustainability"], "priority": "medium"},
+        {"id": "BRSR-G4", "section": "Principle 9", "requirement": "Consumer Responsibility", "data_fields": ["consumer_complaints", "data_privacy"], "priority": "high"}
+      ]
+    },
+    "CSRD": {
+      "full_name": "Corporate Sustainability Reporting Directive",
+      "jurisdiction": "European Union",
+      "mandatory": true,
+      "requirements": [
+        {"id": "CSRD-E1", "section": "ESRS E1", "requirement": "Climate Change Mitigation & Adaptation", "data_fields": ["emissions_all_scopes", "climate_targets"], "priority": "critical"},
+        {"id": "CSRD-E2", "section": "ESRS E1", "requirement": "Scope 3 Value Chain Emissions", "data_fields": ["emissions_scope3", "supply_chain_emissions"], "priority": "critical"},
+        {"id": "CSRD-E3", "section": "ESRS E2", "requirement": "Pollution Prevention", "data_fields": ["air_pollution", "water_pollution"], "priority": "high"},
+        {"id": "CSRD-E4", "section": "ESRS E3", "requirement": "Water & Marine Resources", "data_fields": ["water_consumption", "water_stress"], "priority": "high"},
+        {"id": "CSRD-E5", "section": "ESRS E4", "requirement": "Biodiversity & Ecosystems", "data_fields": ["biodiversity_impact", "land_use"], "priority": "medium"},
+        {"id": "CSRD-S1", "section": "ESRS S1", "requirement": "Own Workforce Conditions", "data_fields": ["employee_wellbeing", "diversity", "pay_equity"], "priority": "critical"},
+        {"id": "CSRD-S2", "section": "ESRS S2", "requirement": "Workers in Value Chain", "data_fields": ["supply_chain_labor", "supplier_audits"], "priority": "high"},
+        {"id": "CSRD-S3", "section": "ESRS S3", "requirement": "Affected Communities", "data_fields": ["community_impact", "indigenous_rights"], "priority": "medium"},
+        {"id": "CSRD-S4", "section": "ESRS S4", "requirement": "Consumers and End-Users", "data_fields": ["product_safety", "data_privacy"], "priority": "high"},
+        {"id": "CSRD-G1", "section": "ESRS G1", "requirement": "Business Conduct & Governance", "data_fields": ["board_governance", "anti_corruption", "lobbying"], "priority": "critical"},
+        {"id": "CSRD-DM", "section": "ESRS 1", "requirement": "Double Materiality Assessment", "data_fields": ["materiality_assessment"], "priority": "critical"}
+      ]
+    },
+    "GRI": {
+      "full_name": "Global Reporting Initiative Standards",
+      "jurisdiction": "Global (Voluntary)",
+      "mandatory": false,
+      "requirements": [
+        {"id": "GRI-302", "section": "GRI 302", "requirement": "Energy Consumption & Reduction", "data_fields": ["energy_consumption", "renewable_energy", "energy_intensity"], "priority": "high"},
+        {"id": "GRI-303", "section": "GRI 303", "requirement": "Water & Effluents", "data_fields": ["water_consumption", "water_discharge", "water_recycling"], "priority": "high"},
+        {"id": "GRI-305", "section": "GRI 305", "requirement": "Emissions (Scope 1, 2, 3)", "data_fields": ["emissions_scope1", "emissions_scope2", "emissions_scope3"], "priority": "critical"},
+        {"id": "GRI-306", "section": "GRI 306", "requirement": "Waste Management", "data_fields": ["waste_generated", "waste_recycled", "hazardous_waste"], "priority": "high"},
+        {"id": "GRI-401", "section": "GRI 401", "requirement": "Employment Practices", "data_fields": ["new_hires", "turnover", "benefits"], "priority": "medium"},
+        {"id": "GRI-403", "section": "GRI 403", "requirement": "Occupational Health & Safety", "data_fields": ["ltifr", "safety_training", "incidents"], "priority": "critical"},
+        {"id": "GRI-404", "section": "GRI 404", "requirement": "Training & Education", "data_fields": ["training_hours", "skill_development"], "priority": "medium"},
+        {"id": "GRI-405", "section": "GRI 405", "requirement": "Diversity & Equal Opportunity", "data_fields": ["gender_diversity", "board_diversity", "pay_equity"], "priority": "high"},
+        {"id": "GRI-205", "section": "GRI 205", "requirement": "Anti-Corruption", "data_fields": ["anti_corruption_training", "corruption_incidents"], "priority": "critical"},
+        {"id": "GRI-308", "section": "GRI 308", "requirement": "Supplier Environmental Assessment", "data_fields": ["supplier_env_screening", "supplier_env_audits"], "priority": "medium"},
+        {"id": "GRI-414", "section": "GRI 414", "requirement": "Supplier Social Assessment", "data_fields": ["supplier_social_screening", "supplier_social_audits"], "priority": "medium"}
+      ]
+    },
+    "SASB": {
+      "full_name": "Sustainability Accounting Standards Board",
+      "jurisdiction": "Global (Investor-focused)",
+      "mandatory": false,
+      "requirements": [
+        {"id": "SASB-TC-SI-130a.1", "section": "Energy Management", "requirement": "Total Energy Consumed & Grid Electricity %", "data_fields": ["energy_consumption", "grid_electricity_pct"], "priority": "high"},
+        {"id": "SASB-TC-SI-130a.2", "section": "Energy Management", "requirement": "Renewable Energy Percentage", "data_fields": ["renewable_energy_pct"], "priority": "high"},
+        {"id": "SASB-TC-SI-130a.3", "section": "Energy Management", "requirement": "Energy Management Strategy", "data_fields": ["energy_strategy"], "priority": "medium"},
+        {"id": "SASB-TC-SI-220a.1", "section": "Data Privacy", "requirement": "Data Breaches & PII Compromised", "data_fields": ["data_breaches", "pii_records"], "priority": "critical"},
+        {"id": "SASB-TC-SI-220a.2", "section": "Data Privacy", "requirement": "Privacy Compliance Approach", "data_fields": ["privacy_policy", "gdpr_compliance"], "priority": "high"},
+        {"id": "SASB-TC-SI-330a.1", "section": "Employee Engagement", "requirement": "Employee Engagement Percentage", "data_fields": ["engagement_score"], "priority": "medium"},
+        {"id": "SASB-TC-SI-330a.2", "section": "Employee Engagement", "requirement": "Gender & Racial Diversity", "data_fields": ["gender_diversity", "racial_diversity"], "priority": "high"},
+        {"id": "SASB-TC-SI-330a.3", "section": "Employee Engagement", "requirement": "Voluntary & Involuntary Turnover", "data_fields": ["voluntary_turnover", "involuntary_turnover"], "priority": "medium"},
+        {"id": "SASB-TC-SI-520a.1", "section": "IP & Competitive", "requirement": "Revenue from Ethical AI/IP", "data_fields": ["ethical_ai_revenue"], "priority": "low"},
+        {"id": "SASB-TC-SI-550a.1", "section": "Supply Chain", "requirement": "Critical IP Supplier Dependency", "data_fields": ["supplier_dependency", "supply_risk"], "priority": "high"}
+      ]
+    }
+  }
+}
