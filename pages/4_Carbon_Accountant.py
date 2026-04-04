@@ -1,12 +1,13 @@
-"""Streamlit page for the Carbon Accountant Agent."""
+"""Streamlit page for the Carbon Accountant Agent — with Scope 3 X-Ray Map."""
 import streamlit as st
 import pandas as pd
 from agents.carbon_accountant import CarbonAccountantAgent
-from utils.charts import emissions_donut, emissions_trend, supplier_risk_heatmap
+from utils.charts import emissions_donut, emissions_trend, scope3_xray_map
+from utils.data_processing import load_supply_chain
 
 st.set_page_config(page_title="Carbon Accountant | ESG CoPilot", page_icon="🌱", layout="wide")
 st.title("🌱 Carbon Accountant Agent")
-st.markdown("*Tracks Scope 1/2/3 emissions with supply chain hotspot detection*")
+st.markdown("*Tracks Scope 1/2/3 emissions with AI-driven supply chain hotspot detection*")
 st.markdown("---")
 
 if "carbon_agent" not in st.session_state:
@@ -43,8 +44,8 @@ if results and "error" not in results:
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Scope Breakdown", "Emissions Trend", "Scope 3 X-Ray", "AI Narrative"
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Scope Breakdown", "Emissions Trend", "Scope 3 X-Ray Map", "Energy Mix", "AI Narrative"
     ])
 
     with tab1:
@@ -68,26 +69,47 @@ if results and "error" not in results:
             st.plotly_chart(fig, use_container_width=True)
 
     with tab3:
-        st.markdown("#### Top Supply Chain Emission Hotspots")
+        st.markdown("#### Scope 3 X-Ray — Global Supply Chain Emission Hotspots")
+        st.caption("Bubble size = emission contribution. Color = risk level (Red=High, Yellow=Medium, Green=Low)")
+        supply_chain_df = load_supply_chain()
+        if not supply_chain_df.empty:
+            fig = scope3_xray_map(supply_chain_df)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Hotspot details
         hotspots = results.get("hotspots", [])
         if hotspots:
-            for h in hotspots:
+            st.markdown("#### Top Emission Hotspots")
+            for i, h in enumerate(hotspots, 1):
                 st.markdown(f"""
-                **{h['supplier']}** ({h['country']} — {h['sector']})
-                - Emissions: {h['emissions']:,.1f} tCO2e | ESG Score: {h['esg_score']}/100
+                **{i}. {h['supplier']}** ({h['country']} — {h['sector']})
+                - Emissions: **{h['emissions']:,.1f} tCO2e** | ESG Score: {h['esg_score']}/100
                 - Risk Factors: {h['risk_factors']}
                 """)
-        else:
-            st.info("No high-risk supply chain hotspots identified.")
-
-        # Category breakdown
-        st.markdown("#### Emissions by Category (2024)")
-        cat_data = results.get("category_breakdown", [])
-        if cat_data:
-            cat_df = pd.DataFrame(cat_data)
-            st.dataframe(cat_df, use_container_width=True, hide_index=True)
 
     with tab4:
+        energy_data = results.get("energy_analysis", {})
+        if energy_data:
+            st.metric("Total Energy", f"{energy_data.get('total_mwh', 0):,.0f} MWh")
+            by_source = energy_data.get("by_source", {})
+            if by_source:
+                import plotly.graph_objects as go
+                fig = go.Figure(go.Pie(
+                    labels=list(by_source.keys()),
+                    values=list(by_source.values()),
+                    hole=0.4,
+                    marker=dict(colors=["#F44336", "#4CAF50", "#FF9800", "#2196F3"]),
+                ))
+                fig.update_layout(title="Energy Mix by Source", height=350)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Category breakdown table
+        cat_data = results.get("category_breakdown", [])
+        if cat_data:
+            st.markdown("#### Emissions by Category (2024)")
+            st.dataframe(pd.DataFrame(cat_data), use_container_width=True, hide_index=True)
+
+    with tab5:
         narrative = results.get("narrative", "")
         if narrative:
             st.markdown("#### AI-Generated Carbon Narrative")

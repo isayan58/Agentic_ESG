@@ -1,12 +1,13 @@
-"""Streamlit page for the Risk Predictor Agent."""
+"""Streamlit page for the Risk Predictor Agent — with interactive scenario sliders and deep-tier risk."""
 import streamlit as st
 import pandas as pd
 from agents.risk_predictor import RiskPredictorAgent
 from utils.charts import risk_gauge
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="Risk Predictor | ESG CoPilot", page_icon="⚠️", layout="wide")
 st.title("⚠️ Risk Predictor Agent")
-st.markdown("*Climate risk forecasting, ESG rating prediction, and scenario analysis*")
+st.markdown("*Advanced climate risk forecasting, ESG rating prediction, and dynamic scenario analysis*")
 st.markdown("---")
 
 if "risk_agent" not in st.session_state:
@@ -25,7 +26,6 @@ results = st.session_state.risk_results
 if results and "error" not in results:
     st.markdown("---")
 
-    # Overall risk score
     climate_risks = results.get("climate_risks", {})
     rating = results.get("rating_prediction", {})
 
@@ -37,12 +37,14 @@ if results and "error" not in results:
     with k3:
         st.metric("Current ESG Rating", rating.get("current", "N/A"))
     with k4:
-        st.metric("Predicted Rating", rating.get("predicted", "N/A"), help=f"Confidence: {rating.get('confidence', 0)}%")
+        st.metric("Predicted Rating", rating.get("predicted", "N/A"),
+                   help=f"Confidence: {rating.get('confidence', 0)}%")
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Risk Dashboard", "ESG Rating", "Supplier Risks", "Scenario Analysis"
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Risk Dashboard", "ESG Rating", "Deep-Tier Supplier Risk",
+        "Dynamic Scenario Analysis", "AI Narrative"
     ])
 
     with tab1:
@@ -71,21 +73,20 @@ if results and "error" not in results:
             st.markdown(f"**Predicted Rating:** {rating.get('predicted', 'N/A')}")
             st.markdown(f"**Confidence:** {rating.get('confidence', 0)}%")
             st.markdown(f"**Targets Met:** {rating.get('metrics_met_pct', 0)}%")
-
         with col2:
             pillar_scores = rating.get("pillar_scores", {})
             if pillar_scores:
                 for pillar, score in pillar_scores.items():
                     st.progress(score / 100, text=f"{pillar}: {score}%")
 
-        # Improvement areas
         areas = rating.get("improvement_areas", [])
         if areas:
             st.markdown("#### Areas Needing Improvement")
-            df = pd.DataFrame(areas)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(areas), use_container_width=True, hide_index=True)
 
     with tab3:
+        st.markdown("#### Deep-Tier Supplier Risk Identification")
+        st.caption("Risk analysis across Tier 1, Tier 2, and Tier 3 suppliers")
         supplier_risks = results.get("supplier_risks", {})
         k1, k2, k3 = st.columns(3)
         with k1:
@@ -100,9 +101,65 @@ if results and "error" not in results:
             df = pd.DataFrame(suppliers)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
+        # Deep-tier visualization
+        st.markdown("#### Supply Chain Tier Risk Distribution")
+        from utils.data_processing import load_supply_chain
+        sc_df = load_supply_chain()
+        if not sc_df.empty:
+            tier_risk = sc_df.groupby(["tier", "risk_rating"]).size().reset_index(name="count")
+            fig = go.Figure()
+            for risk in ["High", "Medium", "Low"]:
+                rdf = tier_risk[tier_risk["risk_rating"] == risk]
+                fig.add_trace(go.Bar(
+                    x=rdf["tier"], y=rdf["count"], name=f"{risk} Risk",
+                    marker_color={"High": "#F44336", "Medium": "#FF9800", "Low": "#4CAF50"}[risk],
+                ))
+            fig.update_layout(title="Risk by Supply Chain Tier", barmode="stack", height=350)
+            st.plotly_chart(fig, use_container_width=True)
+
     with tab4:
+        st.markdown("#### Dynamic Scenario Analysis")
+        st.caption("Adjust parameters to see projected outcomes in real-time")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            renewable_target = st.slider("Renewable Energy Target (%)", 30, 100, 60, 5)
+            supplier_engagement = st.slider("Supplier Engagement Level (%)", 20, 100, 50, 5)
+        with col2:
+            investment_level = st.slider("ESG Investment (INR Lakhs)", 100, 1000, 400, 50)
+            timeline_months = st.slider("Implementation Timeline (months)", 6, 36, 18, 3)
+
+        # Compute dynamic scenario based on sliders
+        base_emissions = results.get("scenarios", {}).get("base_case", {}).get("projected_emissions", 32000)
+        renewable_impact = (renewable_target - 45) * 0.3
+        supplier_impact = (supplier_engagement - 30) * 0.25
+        investment_impact = (investment_level - 200) * 0.02
+        total_reduction = min(55, max(5, renewable_impact + supplier_impact + investment_impact))
+        projected = base_emissions * (1 - total_reduction / 100)
+
+        if total_reduction >= 30:
+            proj_rating = "A"
+        elif total_reduction >= 20:
+            proj_rating = "A-"
+        elif total_reduction >= 10:
+            proj_rating = "BBB+"
+        else:
+            proj_rating = "BBB"
+
+        st.markdown("---")
+        r1, r2, r3 = st.columns(3)
+        with r1:
+            st.metric("Projected Reduction", f"{total_reduction:.1f}%")
+        with r2:
+            st.metric("Projected Emissions", f"{projected:,.0f} tCO2e")
+        with r3:
+            st.metric("Projected Rating", proj_rating)
+
+        # Pre-built scenarios comparison
         scenarios = results.get("scenarios", {})
         if scenarios:
+            st.markdown("---")
+            st.markdown("#### Pre-Built Scenario Comparison")
             cols = st.columns(3)
             for i, (key, scenario) in enumerate(scenarios.items()):
                 with cols[i]:
@@ -111,11 +168,8 @@ if results and "error" not in results:
                     st.markdown(f"*{scenario['description']}*")
                     st.metric("Emission Reduction", f"{scenario['emission_reduction_pct']}%")
                     st.metric("Projected Emissions", f"{scenario['projected_emissions']:,.0f} tCO2e")
-                    st.markdown(f"**Projected Rating:** {scenario['projected_rating']}")
-                    st.markdown(f"**Investment:** {scenario['investment_required']}")
-                    st.markdown(f"**Timeline:** {scenario['timeline']}")
+                    st.markdown(f"**Rating:** {scenario['projected_rating']} | **Timeline:** {scenario['timeline']}")
 
-    # Narrative
-    st.markdown("---")
-    st.markdown("#### AI Risk Narrative")
-    st.markdown(results.get("narrative", ""))
+    with tab5:
+        st.markdown("#### AI Risk Narrative")
+        st.markdown(results.get("narrative", ""))
