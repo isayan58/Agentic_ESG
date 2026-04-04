@@ -1,0 +1,237 @@
+"""Agent 7: Action Agent — Generates prioritized recommendations from ESG insights."""
+from datetime import datetime, timedelta
+from core.base_agent import BaseAgent
+from core.state_manager import state_manager
+
+
+class ActionAgent(BaseAgent):
+    def __init__(self):
+        super().__init__(
+            name="Action Agent",
+            description="Generates prioritized, actionable ESG recommendations with timelines.",
+        )
+
+    def execute(self, **kwargs):
+        self.log("Generating action recommendations")
+
+        # Gather insights from other agents
+        risk_results = state_manager.subscribe("risk_results") or {}
+        audit_results = state_manager.subscribe("audit_results") or {}
+        carbon_results = state_manager.subscribe("carbon_results") or {}
+        regulatory_results = state_manager.subscribe("regulatory_results") or {}
+
+        # Generate recommendations from each source
+        actions = []
+        actions.extend(self._actions_from_risks(risk_results))
+        actions.extend(self._actions_from_audit(audit_results))
+        actions.extend(self._actions_from_carbon(carbon_results))
+        actions.extend(self._actions_from_regulatory(regulatory_results))
+
+        # Remove duplicates and sort by priority
+        actions = self._deduplicate_and_rank(actions)
+
+        # Generate AI-enhanced descriptions
+        for action in actions:
+            action["detailed_description"] = self._enhance_description(action)
+
+        # Compute summary statistics
+        summary = {
+            "total_actions": len(actions),
+            "critical": sum(1 for a in actions if a["priority"] == "Critical"),
+            "high": sum(1 for a in actions if a["priority"] == "High"),
+            "medium": sum(1 for a in actions if a["priority"] == "Medium"),
+            "low": sum(1 for a in actions if a["priority"] == "Low"),
+            "total_investment": sum(a.get("estimated_cost_lakhs", 0) for a in actions),
+        }
+
+        results = {
+            "actions": actions,
+            "summary": summary,
+            "roadmap_narrative": self._generate_roadmap_narrative(actions, summary),
+        }
+
+        state_manager.publish("action_results", results, self.name)
+        return results
+
+    def _actions_from_risks(self, risk_results):
+        actions = []
+        supplier_risks = risk_results.get("supplier_risks", {})
+
+        if supplier_risks.get("high_risk_count", 0) > 0:
+            actions.append({
+                "action": "Implement supplier ESG engagement program",
+                "category": "Supply Chain",
+                "priority": "Critical",
+                "source": "Risk Predictor",
+                "duration_weeks": 12,
+                "estimated_cost_lakhs": 50,
+                "impact": "Reduce supply chain risk exposure by 40%",
+                "kpi": "Supplier ESG score improvement",
+            })
+
+        if supplier_risks.get("overdue_audits", 0) > 0:
+            actions.append({
+                "action": "Complete overdue supplier audits",
+                "category": "Supply Chain",
+                "priority": "High",
+                "source": "Risk Predictor",
+                "duration_weeks": 8,
+                "estimated_cost_lakhs": 25,
+                "impact": "Close audit gaps for regulatory readiness",
+                "kpi": "Audit completion rate",
+            })
+
+        climate_risks = risk_results.get("climate_risks", {})
+        if climate_risks.get("transition_risk", 0) > 50:
+            actions.append({
+                "action": "Accelerate transition risk mitigation strategy",
+                "category": "Climate",
+                "priority": "High",
+                "source": "Risk Predictor",
+                "duration_weeks": 16,
+                "estimated_cost_lakhs": 100,
+                "impact": "Reduce transition risk score by 20 points",
+                "kpi": "Transition risk score",
+            })
+
+        return actions
+
+    def _actions_from_audit(self, audit_results):
+        actions = []
+        checklist = audit_results.get("compliance_checklist", [])
+
+        for item in checklist:
+            if item.get("status") == "Fail":
+                actions.append({
+                    "action": f"Remediate: {item.get('requirement', 'Unknown')}",
+                    "category": "Compliance",
+                    "priority": "Critical",
+                    "source": "Audit Agent",
+                    "duration_weeks": 6,
+                    "estimated_cost_lakhs": 15,
+                    "impact": f"Achieve compliance for {item.get('framework', 'General')}",
+                    "kpi": "Compliance score",
+                })
+
+        readiness = audit_results.get("readiness_score", {})
+        if readiness.get("evidence", 0) < 80:
+            actions.append({
+                "action": "Strengthen evidence documentation and data traceability",
+                "category": "Audit Readiness",
+                "priority": "Medium",
+                "source": "Audit Agent",
+                "duration_weeks": 8,
+                "estimated_cost_lakhs": 10,
+                "impact": "Improve evidence score to 90%+",
+                "kpi": "Evidence verifiability rate",
+            })
+
+        return actions
+
+    def _actions_from_carbon(self, carbon_results):
+        actions = []
+        yoy = carbon_results.get("yoy_change_pct", 0)
+
+        if yoy > -10:
+            actions.append({
+                "action": "Increase renewable energy procurement to 60%",
+                "category": "Emissions",
+                "priority": "High",
+                "source": "Carbon Accountant",
+                "duration_weeks": 20,
+                "estimated_cost_lakhs": 150,
+                "impact": "Reduce Scope 2 emissions by 25%",
+                "kpi": "Renewable energy percentage",
+            })
+
+        hotspots = carbon_results.get("hotspots", [])
+        if hotspots:
+            actions.append({
+                "action": "Engage top 5 emission-intensive suppliers in reduction programs",
+                "category": "Scope 3",
+                "priority": "High",
+                "source": "Carbon Accountant",
+                "duration_weeks": 16,
+                "estimated_cost_lakhs": 40,
+                "impact": "Target 15% Scope 3 reduction from key suppliers",
+                "kpi": "Scope 3 emissions from top suppliers",
+            })
+
+        energy = carbon_results.get("energy_analysis", {})
+        if energy.get("renewable_pct", 0) < 50:
+            actions.append({
+                "action": "Install additional solar capacity at Bangalore office",
+                "category": "Energy",
+                "priority": "Medium",
+                "source": "Carbon Accountant",
+                "duration_weeks": 24,
+                "estimated_cost_lakhs": 200,
+                "impact": "Add 500 kW solar capacity, reduce grid dependency",
+                "kpi": "Solar generation capacity (kW)",
+            })
+
+        return actions
+
+    def _actions_from_regulatory(self, regulatory_results):
+        actions = []
+        framework_results = regulatory_results.get("framework_results", {})
+
+        for fw_name, fw_result in framework_results.items():
+            critical_gaps = [
+                g for g in fw_result.get("gaps", []) if g.get("priority") == "critical"
+            ]
+            if critical_gaps:
+                actions.append({
+                    "action": f"Address critical {fw_name} compliance gaps ({len(critical_gaps)} items)",
+                    "category": "Regulatory",
+                    "priority": "Critical",
+                    "source": "Regulatory Tracker",
+                    "duration_weeks": 10,
+                    "estimated_cost_lakhs": 30,
+                    "impact": f"Close {len(critical_gaps)} critical gaps in {fw_name}",
+                    "kpi": f"{fw_name} compliance percentage",
+                })
+
+        return actions
+
+    def _deduplicate_and_rank(self, actions):
+        seen = set()
+        unique = []
+        for a in actions:
+            key = a["action"][:50]
+            if key not in seen:
+                seen.add(key)
+                unique.append(a)
+
+        priority_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+        unique.sort(key=lambda x: priority_order.get(x.get("priority", "Low"), 3))
+
+        # Add sequential IDs and timelines
+        start = datetime.now()
+        for i, action in enumerate(unique):
+            action["id"] = f"ACT-{i+1:03d}"
+            action["start_date"] = (start + timedelta(weeks=i * 2)).strftime("%Y-%m-%d")
+            end = start + timedelta(weeks=i * 2 + action.get("duration_weeks", 4))
+            action["end_date"] = end.strftime("%Y-%m-%d")
+
+        return unique
+
+    def _enhance_description(self, action):
+        prompt = (
+            f"Write a 2-sentence implementation description for this ESG action item: "
+            f"'{action['action']}'. Category: {action['category']}. "
+            f"Expected impact: {action.get('impact', 'N/A')}. "
+            f"Duration: {action.get('duration_weeks', 4)} weeks."
+        )
+        return self.hf.generate_text(prompt, max_tokens=100)
+
+    def _generate_roadmap_narrative(self, actions, summary):
+        prompt = (
+            f"Generate a brief implementation roadmap summary. "
+            f"Total actions: {summary['total_actions']}. "
+            f"Critical: {summary['critical']}, High: {summary['high']}. "
+            f"Total estimated investment: INR {summary['total_investment']} lakhs. "
+            f"Top priorities: {', '.join(a['action'] for a in actions[:3])}. "
+            f"Provide a strategic overview in 3-4 sentences."
+        )
+        return self.hf.generate_text(prompt)

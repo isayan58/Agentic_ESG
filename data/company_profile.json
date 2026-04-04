@@ -1,0 +1,36 @@
+{
+  "company_name": "GreenTech Solutions Pvt. Ltd.",
+  "sector": "Information Technology",
+  "sub_sector": "Software & IT Services",
+  "headquarters": "Mumbai, Maharashtra, India",
+  "founded": 2008,
+  "employees": 5200,
+  "revenue_inr_crores": 3850,
+  "revenue_usd_millions": 462,
+  "offices": ["Mumbai HQ", "Bangalore Office", "Pune Office", "Hyderabad Office"],
+  "operating_countries": ["India", "USA", "UK", "Germany", "Singapore", "Japan"],
+  "listed_exchanges": ["BSE", "NSE"],
+  "market_cap_inr_crores": 18500,
+  "esg_rating_current": "BBB",
+  "esg_rating_target": "A",
+  "sustainability_report_years": [2021, 2022, 2023, 2024],
+  "frameworks_adopted": ["BRSR", "GRI", "SASB"],
+  "frameworks_planned": ["CSRD"],
+  "key_commitments": [
+    "Net Zero by 2040",
+    "100% Renewable Energy by 2030",
+    "50% Women in Leadership by 2028",
+    "Zero Waste to Landfill by 2030",
+    "Science-Based Targets Initiative (SBTi) committed"
+  ],
+  "material_topics": [
+    "Climate Change & Emissions",
+    "Energy Management",
+    "Data Privacy & Security",
+    "Talent Attraction & Retention",
+    "Diversity & Inclusion",
+    "Supply Chain Responsibility",
+    "Business Ethics & Governance",
+    "Community Impact"
+  ]
+}
