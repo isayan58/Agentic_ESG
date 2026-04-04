@@ -1,12 +1,13 @@
-"""Streamlit page for the Regulatory Tracker Agent."""
+"""Streamlit page for the Regulatory Tracker Agent — with 24h auto-updates and Compliance Radar."""
 import streamlit as st
 import pandas as pd
 from agents.regulatory_tracker import RegulatoryTrackerAgent
 from utils.charts import compliance_radar
+from utils.monitoring import regulatory_updater
 
 st.set_page_config(page_title="Regulatory Tracker | ESG CoPilot", page_icon="📋", layout="wide")
 st.title("📋 Regulatory Tracker Agent")
-st.markdown("*Monitors global ESG frameworks and performs compliance gap analysis*")
+st.markdown("*Monitors global ESG frameworks — auto-updates within 24 hours of any mandate shift*")
 st.markdown("---")
 
 if "reg_tracker" not in st.session_state:
@@ -33,21 +34,23 @@ if results and "error" not in results:
     st.markdown("---")
 
     # Overall compliance KPI
-    k1, k2, k3 = st.columns(3)
+    k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.metric("Overall Compliance", f"{results.get('overall_compliance', 0)}%")
     with k2:
         st.metric("Frameworks Analyzed", results.get("frameworks_analyzed", 0))
     with k3:
-        total_gaps = sum(
-            len(fr.get("gaps", []))
-            for fr in results.get("framework_results", {}).values()
-        )
+        total_gaps = sum(len(fr.get("gaps", [])) for fr in results.get("framework_results", {}).values())
         st.metric("Total Gaps", total_gaps)
+    with k4:
+        updates = regulatory_updater.check_for_updates()
+        st.metric("Pending Updates", updates.get("pending", 0))
 
     st.markdown("---")
 
-    tab1, tab2, tab3 = st.tabs(["Compliance Radar", "Gap Analysis", "AI Narrative"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "Compliance Radar", "Gap Analysis", "24h Auto-Updates", "AI Narrative"
+    ])
 
     with tab1:
         fw_results = results.get("framework_results", {})
@@ -93,6 +96,24 @@ if results and "error" not in results:
                 st.dataframe(pd.DataFrame(gap_rows), use_container_width=True, hide_index=True)
 
     with tab3:
+        update_data = regulatory_updater.check_for_updates()
+        st.markdown("#### Regulatory Auto-Update Engine")
+        st.markdown(f"**All updates detected within 24 hours:** {'✅ Yes' if update_data['within_24h'] else '❌ No'}")
+        st.markdown(f"**Average response time:** {update_data['avg_response_hours']} hours")
+
+        for update in update_data.get("updates", []):
+            status_icon = {"integrated": "✅", "analyzing": "🔄", "pending": "⏳"}.get(update["status"], "⚪")
+            impact_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(update["impact"], "⚪")
+            with st.expander(f"{status_icon} {update['framework']} — {update['update_type']}: {update['description'][:80]}"):
+                st.markdown(f"**Detected at:** {update['detected_at'][:19]}")
+                st.markdown(f"**Response time:** {update['response_time_hours']} hours")
+                st.markdown(f"**Impact:** {impact_icon} {update['impact'].capitalize()}")
+                st.markdown(f"**Status:** {update['status'].capitalize()}")
+                st.markdown("**Changes:**")
+                for change in update.get("changes", []):
+                    st.markdown(f"  - {change}")
+
+    with tab4:
         narrative = results.get("gap_narrative", "")
         if narrative:
             st.markdown("#### AI-Generated Gap Analysis")

@@ -303,5 +303,88 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
 
         btn.click(run_report, outputs=output)
 
+    with gr.Tab("🔌 Enterprise Connectors"):
+        gr.Markdown("Connect to ERP, HR, IoT, Supplier Portal, SQL, and API data sources.")
+        btn = gr.Button("Fetch from All Connectors", variant="primary")
+        out_connectors = gr.Markdown()
+
+        def run_connectors():
+            from utils.connectors import fetch_all_external_data
+            data, statuses = fetch_all_external_data()
+            text = "## Enterprise Connector Status\n\n"
+            for key, status in statuses.items():
+                icon = {"synced": "✅", "streaming": "📡", "error": "❌"}.get(status.get("status", ""), "⚪")
+                text += (f"- {icon} **{status['name']}** ({status['type']}) — "
+                         f"Status: {status['status']} | Records: {status.get('records', 0)}\n")
+            text += f"\n**Total data sources connected:** {len(data)}\n"
+            text += f"**Total records fetched:** {sum(len(df) for df in data.values()):,}\n"
+            return text
+
+        btn.click(run_connectors, outputs=out_connectors)
+
+    with gr.Tab("📡 24/7 Monitoring"):
+        gr.Markdown("Always-on ESG monitoring with real-time alerts.")
+        btn = gr.Button("Check Monitoring Status", variant="primary")
+        out_monitor = gr.Markdown()
+
+        def run_monitoring():
+            from utils.monitoring import monitoring_engine, regulatory_updater
+            mon = monitoring_engine.get_dashboard_data()
+            reg = regulatory_updater.check_for_updates()
+
+            health_icon = {"healthy": "🟢", "degraded": "🟡", "critical": "🔴"}.get(mon["health"], "⚪")
+            text = (
+                f"## 24/7 Monitoring Dashboard\n\n"
+                f"- **Health:** {health_icon} {mon['health'].capitalize()}\n"
+                f"- **Uptime:** {mon['uptime_days']} days\n"
+                f"- **Events Processed:** {mon['events_processed']:,}\n"
+                f"- **Active Streams:** {mon['active_streams']}/{mon['total_streams']}\n"
+                f"- **Critical Alerts:** {mon['critical_alerts']}\n\n"
+                f"### Active Alerts\n\n"
+            )
+            for alert in mon.get("alerts", []):
+                sev_icon = {"critical": "🔴", "warning": "🟡", "info": "🔵"}.get(alert["severity"], "⚪")
+                text += f"- {sev_icon} **[{alert['type'].upper()}]** {alert['message']}\n"
+
+            text += f"\n### Regulatory Auto-Updates\n\n"
+            text += f"- **All within 24h:** {'✅ Yes' if reg['within_24h'] else '❌ No'}\n"
+            text += f"- **Avg response:** {reg['avg_response_hours']} hours\n\n"
+            for upd in reg.get("updates", []):
+                text += f"- **{upd['framework']}** ({upd['update_type']}): {upd['description'][:80]} — {upd['status']}\n"
+            return text
+
+        btn.click(run_monitoring, outputs=out_monitor)
+
+    with gr.Tab("⚡ Spark Analytics"):
+        gr.Markdown("Distributed ESG processing with PySpark.")
+        btn = gr.Button("Run Spark Analysis", variant="primary")
+        out_spark = gr.Markdown()
+
+        def run_spark():
+            from utils.spark_processing import spark_processor, PYSPARK_AVAILABLE
+            if PYSPARK_AVAILABLE:
+                results = spark_processor.run_full_analysis()
+            else:
+                from utils.data_processing import (
+                    load_emissions, compute_scope_totals, compute_data_quality,
+                )
+                emissions = load_emissions()
+                results = {
+                    "scope_totals_2024": compute_scope_totals(emissions, 2024),
+                    "scope_totals_2023": compute_scope_totals(emissions, 2023),
+                    "engine": "Pandas (PySpark not installed)",
+                }
+
+            text = f"## Spark Analysis Results\n\n**Engine:** {results.get('engine', 'N/A')}\n\n"
+            text += "### Scope Totals 2024\n"
+            for scope, total in results.get("scope_totals_2024", {}).items():
+                text += f"- **{scope}:** {total:,.1f} tCO2e\n"
+            text += "\n### Scope Totals 2023\n"
+            for scope, total in results.get("scope_totals_2023", {}).items():
+                text += f"- **{scope}:** {total:,.1f} tCO2e\n"
+            return text
+
+        btn.click(run_spark, outputs=out_spark)
+
 if __name__ == "__main__":
     demo.launch(server_port=7860)
