@@ -226,3 +226,289 @@ def action_timeline(actions_df):
         **LAYOUT_DEFAULTS,
     )
     return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW CHARTS — Presentation features not previously implemented
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def scope3_xray_map(supply_chain_df):
+    """Geographic scatter-map showing Scope 3 supply chain hotspots worldwide."""
+    country_coords = {
+        "China": (35.86, 104.19), "Taiwan": (23.69, 120.96), "India": (20.59, 78.96),
+        "South Korea": (35.90, 127.76), "Germany": (51.16, 10.45), "Singapore": (1.35, 103.82),
+        "Brazil": (-14.23, -51.92), "Japan": (36.20, 138.25), "Indonesia": (-0.78, 113.92),
+        "Switzerland": (46.81, 8.22), "Bangladesh": (23.68, 90.35), "Sweden": (60.12, 18.64),
+        "Chile": (-35.67, -71.54), "UAE": (23.42, 53.84), "USA": (37.09, -95.71),
+        "Thailand": (15.87, 100.99),
+    }
+
+    df = supply_chain_df.copy()
+    df["lat"] = df["country"].map(lambda c: country_coords.get(c, (0, 0))[0])
+    df["lon"] = df["country"].map(lambda c: country_coords.get(c, (0, 0))[1])
+
+    risk_colors = {"Low": COLORS["success"], "Medium": COLORS["warning"], "High": COLORS["danger"]}
+    df["color"] = df["risk_rating"].map(risk_colors)
+
+    fig = go.Figure()
+    for risk in ["High", "Medium", "Low"]:
+        rdf = df[df["risk_rating"] == risk]
+        if rdf.empty:
+            continue
+        fig.add_trace(go.Scattergeo(
+            lat=rdf["lat"], lon=rdf["lon"],
+            text=rdf.apply(
+                lambda r: f"<b>{r['supplier_name']}</b><br>{r['country']} — {r['sector']}<br>"
+                          f"Emissions: {r['emission_contribution_tco2e']:,.0f} tCO2e<br>"
+                          f"ESG Score: {r['esg_score']}/100",
+                axis=1,
+            ),
+            marker=dict(
+                size=rdf["emission_contribution_tco2e"] / 40,
+                color=risk_colors[risk],
+                opacity=0.75,
+                line=dict(width=1, color="white"),
+                sizemin=6,
+            ),
+            name=f"{risk} Risk",
+            hoverinfo="text",
+        ))
+
+    fig.update_geos(
+        showcountries=True, countrycolor="#d0d0d0",
+        showcoastlines=True, coastlinecolor="#aaa",
+        showland=True, landcolor="#f8f8f8",
+        showocean=True, oceancolor="#eef4fb",
+        projection_type="natural earth",
+    )
+    fig.update_layout(
+        title="Scope 3 X-Ray — Global Supply Chain Emission Hotspots",
+        height=500,
+        margin=dict(l=0, r=0, t=50, b=0),
+        font=dict(family="Calibri, sans-serif"),
+    )
+    return fig
+
+
+def pipeline_flow_diagram():
+    """Sankey diagram showing data flow between the 8 agents."""
+    labels = [
+        "Data Collector",          # 0
+        "Regulatory Tracker",      # 1
+        "Carbon Accountant",       # 2
+        "Risk Predictor",          # 3
+        "Audit Agent",             # 4
+        "Report Generator",        # 5
+        "Action Agent",            # 6
+        "Stakeholder Agent",       # 7
+    ]
+    node_colors = [
+        "#2196F3", "#FF9800", "#4CAF50", "#F44336",
+        "#607D8B", "#9C27B0", "#E91E63", "#00BCD4",
+    ]
+
+    # source -> target -> value (data flow weight)
+    links = {
+        "source": [0, 0, 0, 1, 2, 1, 2, 3, 3, 4, 5, 5, 6],
+        "target": [1, 2, 3, 3, 4, 4, 5, 4, 5, 5, 6, 7, 7],
+        "value":  [3, 3, 2, 2, 2, 2, 3, 2, 2, 3, 3, 2, 3],
+    }
+
+    fig = go.Figure(go.Sankey(
+        node=dict(
+            pad=20, thickness=25,
+            label=labels,
+            color=node_colors,
+            line=dict(color="white", width=1),
+        ),
+        link=dict(
+            source=links["source"],
+            target=links["target"],
+            value=links["value"],
+            color=[f"rgba({int(c[1:3],16)},{int(c[3:5],16)},{int(c[5:7],16)},0.25)"
+                   for c in [node_colors[s] for s in links["source"]]],
+        ),
+    ))
+    fig.update_layout(
+        title="Agent Pipeline — Data Flow Between 8 Agents",
+        height=450,
+        font=dict(family="Calibri, sans-serif", size=13),
+    )
+    return fig
+
+
+def business_impact_gauges():
+    """Four large KPI gauges matching Slide 12 — 80%, 5000+, 95%, 24/7."""
+    from plotly.subplots import make_subplots
+
+    fig = make_subplots(
+        rows=1, cols=4,
+        specs=[[{"type": "indicator"}] * 4],
+    )
+    metrics = [
+        ("Faster Reporting", 80, "%", "Compared to manual frameworks"),
+        ("Hours Saved", 5000, "+", "Freed annually across teams"),
+        ("Data Accuracy", 95, "%", "AI-driven validation"),
+        ("Uptime", 99.7, "%", "Always-on monitoring"),
+    ]
+    colors = [COLORS["accent"], COLORS["primary"], COLORS["success"], COLORS["info"]]
+
+    for i, (title, value, suffix, desc) in enumerate(metrics):
+        fig.add_trace(go.Indicator(
+            mode="number+delta",
+            value=value,
+            number=dict(suffix=suffix, font=dict(size=48, color=colors[i])),
+            title=dict(text=f"<b>{title}</b><br><span style='font-size:11px;color:#888'>{desc}</span>", font=dict(size=14)),
+        ), row=1, col=i+1)
+
+    fig.update_layout(height=220, margin=dict(l=20, r=20, t=30, b=10))
+    return fig
+
+
+def before_after_comparison():
+    """Before/After transformation bar comparison (Slide 13)."""
+    categories = ["Reporting Cycle", "Scope 3 Coverage", "Data Accuracy", "ESG Rating", "Audit Readiness"]
+    before = [100, 60, 72, 65, 55]  # percentages (reporting = weeks mapped to %)
+    after = [20, 90, 95, 88, 92]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=categories, x=before, orientation="h",
+        name="Before (Manual)", marker_color="#bbb",
+        text=[f"{v}%" for v in before], textposition="inside",
+    ))
+    fig.add_trace(go.Bar(
+        y=categories, x=after, orientation="h",
+        name="After (ESG CoPilot)", marker_color=COLORS["accent"],
+        text=[f"{v}%" for v in after], textposition="inside",
+    ))
+    fig.update_layout(
+        title="Real-World Transformation — Before vs. After",
+        xaxis_title="Score / Coverage (%)",
+        barmode="group",
+        height=350,
+        legend=dict(orientation="h", y=1.12),
+        **LAYOUT_DEFAULTS,
+    )
+    return fig
+
+
+def enterprise_stack_layers():
+    """Horizontal stacked bar representing the 7-layer Enterprise Stack Architecture (Slide 10)."""
+    layers = [
+        ("Layer 7", "Command Center UI", "Streamlit + Gradio dashboards", COLORS["accent"]),
+        ("Layer 6", "8 Orchestrated Agents", "Autonomous AI agents", "#E91E63"),
+        ("Layer 5", "Foundational AI Models", "HuggingFace / LLM inference", "#9C27B0"),
+        ("Layer 4", "Integration & Connectors", "ERP, HR, IoT, API connectors", "#2196F3"),
+        ("Layer 3", "Data Lake", "Unified ESG data storage", "#00BCD4"),
+        ("Layer 2", "Governance & Security", "Access control, encryption, audit logs", "#607D8B"),
+        ("Layer 1", "Cloud Foundation", "Infrastructure & compute", "#455A64"),
+    ]
+
+    fig = go.Figure()
+    for i, (layer_id, name, desc, color) in enumerate(layers):
+        width = 100 - i * 4  # pyramid narrowing
+        fig.add_trace(go.Bar(
+            y=[layer_id],
+            x=[width],
+            orientation="h",
+            marker=dict(color=color, opacity=0.85),
+            text=f"<b>{name}</b> — {desc}",
+            textposition="inside",
+            textfont=dict(color="white", size=12),
+            showlegend=False,
+        ))
+
+    fig.update_layout(
+        title="Enterprise Stack Architecture",
+        xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        yaxis=dict(autorange="reversed"),
+        height=400,
+        bargap=0.15,
+        **LAYOUT_DEFAULTS,
+    )
+    return fig
+
+
+def connector_status_chart(statuses):
+    """Horizontal bar chart showing connector sync status."""
+    names = [s["name"] for s in statuses.values()]
+    status_map = {"synced": 100, "streaming": 100, "connected": 75, "error": 20, "disconnected": 0}
+    values = [status_map.get(s["status"], 0) for s in statuses.values()]
+    colors = [
+        COLORS["success"] if v >= 90 else COLORS["warning"] if v >= 50 else COLORS["danger"]
+        for v in values
+    ]
+
+    fig = go.Figure(go.Bar(
+        y=names, x=values, orientation="h",
+        marker=dict(color=colors),
+        text=[s["status"].capitalize() for s in statuses.values()],
+        textposition="inside",
+    ))
+    fig.update_layout(
+        title="Enterprise Connector Status",
+        xaxis=dict(range=[0, 110], title="Sync Health (%)"),
+        height=300,
+        **LAYOUT_DEFAULTS,
+    )
+    return fig
+
+
+def monitoring_timeline(alerts):
+    """Timeline scatter plot of monitoring alerts by severity."""
+    if not alerts:
+        return go.Figure()
+
+    severity_y = {"critical": 3, "warning": 2, "info": 1}
+    severity_colors = {"critical": COLORS["danger"], "warning": COLORS["warning"], "info": COLORS["info"]}
+
+    fig = go.Figure()
+    for sev in ["critical", "warning", "info"]:
+        sev_alerts = [a for a in alerts if a["severity"] == sev]
+        if not sev_alerts:
+            continue
+        fig.add_trace(go.Scatter(
+            x=[a["timestamp"][:16] for a in sev_alerts],
+            y=[severity_y[sev]] * len(sev_alerts),
+            mode="markers+text",
+            marker=dict(size=14, color=severity_colors[sev], symbol="circle"),
+            text=[a["type"][:12] for a in sev_alerts],
+            textposition="top center",
+            name=sev.capitalize(),
+            hovertext=[a["message"] for a in sev_alerts],
+            hoverinfo="text",
+        ))
+
+    fig.update_layout(
+        title="24/7 Monitoring — Alert Timeline",
+        yaxis=dict(tickvals=[1, 2, 3], ticktext=["Info", "Warning", "Critical"], range=[0.5, 3.5]),
+        xaxis_title="Timestamp",
+        height=300,
+        **LAYOUT_DEFAULTS,
+    )
+    return fig
+
+
+def tier_comparison_chart():
+    """Grouped bar chart comparing Starter / Professional / Enterprise tiers (Slide 14)."""
+    features = ["Agents Active", "Frameworks", "Data Sources", "Refresh Rate", "Support", "Custom Reports"]
+    starter = [3, 1, 2, 10, 30, 20]
+    professional = [6, 3, 4, 60, 70, 60]
+    enterprise = [8, 4, 6, 100, 100, 100]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(name="Starter", y=features, x=starter, orientation="h", marker_color="#bbb"))
+    fig.add_trace(go.Bar(name="Professional", y=features, x=professional, orientation="h", marker_color=COLORS["warning"]))
+    fig.add_trace(go.Bar(name="Enterprise", y=features, x=enterprise, orientation="h", marker_color=COLORS["accent"]))
+
+    fig.update_layout(
+        title="Tier Comparison — Feature Coverage (%)",
+        barmode="group",
+        xaxis_title="Capability Level",
+        height=350,
+        legend=dict(orientation="h", y=1.12),
+        **LAYOUT_DEFAULTS,
+    )
+    return fig
