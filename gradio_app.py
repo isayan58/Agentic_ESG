@@ -1,49 +1,33 @@
 """ESG CoPilot — Gradio Interface with tabs for all 8 agents."""
 import os
 
-# ── Fix jinja2 LRUCache bug (unhashable dict key in starlette templates) ──
-# Must run BEFORE importing gradio, which triggers jinja2 + starlette imports.
-import jinja2.utils
+# ── Fix jinja2 + starlette incompatibility ──────────────────────────────────
+# Newer starlette passes a dict as `globals` to jinja2's get_template(),
+# which becomes part of an unhashable cache key. Patch the method directly
+# on jinja2.Environment so it catches TypeError and loads without caching.
+import jinja2
 
-_OrigLRUCache = jinja2.utils.LRUCache
-
-
-class _SafeLRUCache(_OrigLRUCache):
-    """LRUCache that gracefully handles unhashable keys (e.g. dicts)."""
-
-    def __getitem__(self, key):
-        try:
-            return super().__getitem__(key)
-        except TypeError:
-            raise KeyError(key)
-
-    def get(self, key, default=None):
-        try:
-            return self[key]
-        except (KeyError, TypeError):
-            return default
-
-    def __setitem__(self, key, value):
-        try:
-            super().__setitem__(key, value)
-        except TypeError:
-            pass
-
-    def __contains__(self, key):
-        try:
-            return super().__contains__(key)
-        except TypeError:
-            return False
+_orig_get_template = jinja2.Environment.get_template
 
 
-jinja2.utils.LRUCache = _SafeLRUCache
-# ── End jinja2 fix ──
+def _safe_get_template(self, name, parent=None, globals=None):
+    try:
+        return _orig_get_template(self, name, parent, globals)
+    except TypeError:
+        # Unhashable globals dict — bypass the cache and load directly
+        if self.loader is None:
+            raise TypeError("no loader for this environment specified")
+        return self.loader.load(self, name, self.make_globals(globals))
+
+
+jinja2.Environment.get_template = _safe_get_template
+# ── End jinja2 fix ──────────────────────────────────────────────────────────
 
 import gradio as gr
 
 # ── Fix Gradio health-check in Docker containers ──
-# Gradio tries to verify localhost is reachable after launch; in HF Spaces
-# Docker containers this fails. HF has its own health-check via the proxy.
+# Gradio's launch() verifies localhost is reachable, which fails in HF Spaces
+# Docker. HF has its own reverse-proxy health check so this is safe to skip.
 import gradio.networking
 gradio.networking.url_ok = lambda url: True
 # ── End health-check fix ──
