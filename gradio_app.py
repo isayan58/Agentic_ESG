@@ -1,6 +1,37 @@
 """ESG CoPilot — Gradio Interface with tabs for all 8 agents."""
 import os
+
+# ── Fix jinja2 + starlette incompatibility ──────────────────────────────────
+# Newer starlette passes a dict as `globals` to jinja2's get_template(),
+# which becomes part of an unhashable cache key. Patch the method directly
+# on jinja2.Environment so it catches TypeError and loads without caching.
+import jinja2
+
+_orig_get_template = jinja2.Environment.get_template
+
+
+def _safe_get_template(self, name, parent=None, globals=None):
+    try:
+        return _orig_get_template(self, name, parent, globals)
+    except TypeError:
+        # Unhashable globals dict — bypass the cache and load directly
+        if self.loader is None:
+            raise TypeError("no loader for this environment specified")
+        return self.loader.load(self, name, self.make_globals(globals))
+
+
+jinja2.Environment.get_template = _safe_get_template
+# ── End jinja2 fix ──────────────────────────────────────────────────────────
+
 import gradio as gr
+
+# ── Fix Gradio health-check in Docker containers ──
+# Gradio's launch() verifies localhost is reachable, which fails in HF Spaces
+# Docker. HF has its own reverse-proxy health check so this is safe to skip.
+import gradio.networking
+gradio.networking.url_ok = lambda url: True
+# ── End health-check fix ──
+
 import pandas as pd
 import json
 from agents.data_collector import DataCollectorAgent
@@ -388,8 +419,9 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
         btn.click(run_spark, outputs=out_spark)
 
 if __name__ == "__main__":
-    # Detect HuggingFace Spaces environment
-    if os.environ.get("SPACE_ID"):
-        demo.launch()
-    else:
-        demo.launch(server_port=7860)
+    # HuggingFace Spaces (Docker SDK) or local
+    demo.queue().launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False,
+    )
