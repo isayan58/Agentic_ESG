@@ -1,5 +1,44 @@
 """ESG CoPilot — Gradio Interface with tabs for all 8 agents."""
 import os
+
+# ── Fix jinja2 LRUCache bug (unhashable dict key in starlette templates) ──
+# Must run BEFORE importing gradio, which triggers jinja2 + starlette imports.
+import jinja2.utils
+
+_OrigLRUCache = jinja2.utils.LRUCache
+
+
+class _SafeLRUCache(_OrigLRUCache):
+    """LRUCache that gracefully handles unhashable keys (e.g. dicts)."""
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except TypeError:
+            raise KeyError(key)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except (KeyError, TypeError):
+            return default
+
+    def __setitem__(self, key, value):
+        try:
+            super().__setitem__(key, value)
+        except TypeError:
+            pass
+
+    def __contains__(self, key):
+        try:
+            return super().__contains__(key)
+        except TypeError:
+            return False
+
+
+jinja2.utils.LRUCache = _SafeLRUCache
+# ── End jinja2 fix ──
+
 import gradio as gr
 import pandas as pd
 import json
@@ -388,8 +427,9 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
         btn.click(run_spark, outputs=out_spark)
 
 if __name__ == "__main__":
-    # Detect HuggingFace Spaces environment
-    if os.environ.get("SPACE_ID"):
-        demo.launch()
-    else:
-        demo.launch(server_port=7860)
+    # HuggingFace Spaces (Docker SDK) or local
+    demo.queue().launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False,
+    )
