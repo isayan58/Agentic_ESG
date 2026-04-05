@@ -1,4 +1,5 @@
 """ESG CoPilot — Gradio Interface with tabs for all 8 agents."""
+import os
 import gradio as gr
 import pandas as pd
 import json
@@ -387,4 +388,8 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
         btn.click(run_spark, outputs=out_spark)
 
 if __name__ == "__main__":
-    demo.launch(server_port=7860)
+    # Detect HuggingFace Spaces environment
+    if os.environ.get("SPACE_ID"):
+        demo.launch()
+    else:
+        demo.launch(server_port=7860)
