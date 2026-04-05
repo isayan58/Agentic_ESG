@@ -1,6 +1,4 @@
-# Delve AI
-
-## ESG CoPilot: Autonomous ESG Intelligence
+# ESG CoPilot: Autonomous ESG Intelligence
 
 > From manual compliance to autonomous ESG excellence.
 
