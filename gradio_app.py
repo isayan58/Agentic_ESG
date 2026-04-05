@@ -40,6 +40,14 @@ jinja2.utils.LRUCache = _SafeLRUCache
 # ── End jinja2 fix ──
 
 import gradio as gr
+
+# ── Fix Gradio health-check in Docker containers ──
+# Gradio tries to verify localhost is reachable after launch; in HF Spaces
+# Docker containers this fails. HF has its own health-check via the proxy.
+import gradio.networking
+gradio.networking.url_ok = lambda url: True
+# ── End health-check fix ──
+
 import pandas as pd
 import json
 from agents.data_collector import DataCollectorAgent
