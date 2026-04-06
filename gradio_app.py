@@ -32,6 +32,26 @@ import gradio.networking
 gradio.networking.url_ok = lambda url: True
 # ── End health-check fix ──
 
+# ── Fix Gradio API info crash with bool additionalProperties ──
+# gradio_client.utils.get_type() does `"const" in schema` where schema
+# can be a bool (from additionalProperties: True), causing TypeError.
+import gradio_client.utils as _gc_utils
+
+_orig_json_schema_to_python_type = _gc_utils._json_schema_to_python_type
+
+
+def _safe_json_schema_to_python_type(schema, defs=None):
+    if not isinstance(schema, dict):
+        return "Any"
+    try:
+        return _orig_json_schema_to_python_type(schema, defs)
+    except TypeError:
+        return "Any"
+
+
+_gc_utils._json_schema_to_python_type = _safe_json_schema_to_python_type
+# ── End API info fix ──
+
 import pandas as pd
 import json
 from agents.data_collector import DataCollectorAgent
