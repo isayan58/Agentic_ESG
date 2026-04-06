@@ -26,7 +26,7 @@ COMPANY_SECTOR = "Information Technology"
 COMPANY_COUNTRY = "India"
 
 # ESG Frameworks
-FRAMEWORKS = ["BRSR", "CSRD", "GRI", "SASB"]
+FRAMEWORKS = ["BRSR", "CSRD", "GRI", "SASB", "SEC Climate Change"]
 
 # Agent names and colors
 AGENT_CONFIG = {
