@@ -94,6 +94,236 @@ def run_data_collector():
     return summary, issues_text
 
 
+# --- Real data connector functions ---
+from utils.schema_mapper import (
+    auto_detect_schema, suggest_column_mapping, apply_column_mapping,
+    validate_mapped_data, get_schema_names, get_schema_columns, ESG_SCHEMAS,
+)
+from utils.real_connectors import get_connector, get_available_connectors
+from utils.connection_manager import ConnectionManager
+
+# Session-level connection manager (shared across Gradio callbacks)
+_conn_manager = ConnectionManager()
+_preview_state = {"df": None, "source_type": None, "config": None}
+
+
+def test_file_upload(file):
+    """Test a file upload and return preview + detected schema."""
+    if file is None:
+        return "❌ No file uploaded", "", "{}"
+    try:
+        connector = get_connector("file_upload")
+        with open(file.name, "rb") as f:
+            file_bytes = f.read()
+        file_name = os.path.basename(file.name)
+        result = connector.test_connection(file_bytes=file_bytes, file_name=file_name)
+        if not result["success"]:
+            return f"❌ {result['message']}", "", "{}"
+
+        df = connector.fetch(file_bytes=file_bytes, file_name=file_name)
+        _preview_state["df"] = df
+        _preview_state["source_type"] = "file_upload"
+        _preview_state["config"] = {"file_bytes": file_bytes, "file_name": file_name}
+
+        detected = auto_detect_schema(df)
+        mapping = suggest_column_mapping(df, detected) if detected else {}
+
+        preview = f"✅ **{result['message']}**\n\n"
+        preview += f"**Auto-detected schema:** `{detected or 'Unknown — please select manually'}`\n\n"
+        preview += f"**Columns found:** {', '.join(df.columns)}\n\n"
+        preview += "**Preview (first 5 rows):**\n\n"
+        preview += df.head(5).to_markdown(index=False)
+
+        mapping_text = _format_mapping(mapping, detected) if detected else "Select a target schema to see mapping suggestions."
+
+        return preview, mapping_text, json.dumps({"detected_schema": detected, "mapping": mapping})
+    except Exception as e:
+        return f"❌ Error: {e}", "", "{}"
+
+
+def test_google_sheets(url, sheet_id):
+    """Test a Google Sheets connection."""
+    if not url:
+        return "❌ No URL provided", "", "{}"
+    try:
+        connector = get_connector("google_sheets")
+        result = connector.test_connection(url=url, sheet_id=sheet_id or "0")
+        if not result["success"]:
+            return f"❌ {result['message']}", "", "{}"
+
+        df = connector.fetch(url=url, sheet_id=sheet_id or "0")
+        _preview_state["df"] = df
+        _preview_state["source_type"] = "google_sheets"
+        _preview_state["config"] = {"url": url, "sheet_id": sheet_id or "0"}
+
+        detected = auto_detect_schema(df)
+        mapping = suggest_column_mapping(df, detected) if detected else {}
+
+        preview = f"✅ **{result['message']}**\n\n"
+        preview += f"**Auto-detected schema:** `{detected or 'Unknown'}`\n\n"
+        preview += f"**Columns found:** {', '.join(df.columns)}\n\n"
+        preview += "**Preview (first 5 rows):**\n\n"
+        preview += df.head(5).to_markdown(index=False)
+
+        mapping_text = _format_mapping(mapping, detected) if detected else "Select a target schema to see mapping."
+        return preview, mapping_text, json.dumps({"detected_schema": detected, "mapping": mapping})
+    except Exception as e:
+        return f"❌ Error: {e}", "", "{}"
+
+
+def test_rest_api(url, method, headers_str, body, json_path):
+    """Test a REST API connection."""
+    if not url:
+        return "❌ No URL provided", "", "{}"
+    try:
+        headers = {}
+        if headers_str:
+            for line in headers_str.strip().split("\n"):
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    headers[k.strip()] = v.strip()
+
+        connector = get_connector("rest_api")
+        result = connector.test_connection(url=url, method=method, headers=headers,
+                                           body=body, json_path=json_path)
+        if not result["success"]:
+            return f"❌ {result['message']}", "", "{}"
+
+        df = connector.fetch(url=url, method=method, headers=headers,
+                             body=body, json_path=json_path)
+        _preview_state["df"] = df
+        _preview_state["source_type"] = "rest_api"
+        _preview_state["config"] = {"url": url, "method": method, "headers": headers,
+                                     "body": body, "json_path": json_path}
+
+        detected = auto_detect_schema(df)
+        mapping = suggest_column_mapping(df, detected) if detected else {}
+
+        preview = f"✅ **{result['message']}**\n\n"
+        preview += f"**Auto-detected schema:** `{detected or 'Unknown'}`\n\n"
+        preview += f"**Columns:** {', '.join(df.columns)}\n\n"
+        preview += "**Preview (first 5 rows):**\n\n"
+        preview += df.head(5).to_markdown(index=False)
+
+        mapping_text = _format_mapping(mapping, detected) if detected else "Select a target schema to see mapping."
+        return preview, mapping_text, json.dumps({"detected_schema": detected, "mapping": mapping})
+    except Exception as e:
+        return f"❌ Error: {e}", "", "{}"
+
+
+def save_data_source(source_name, target_schema, mapping_json):
+    """Save the current previewed data source with its column mapping."""
+    if _preview_state["df"] is None:
+        return "❌ No data previewed yet. Test a connection first."
+    if not source_name:
+        return "❌ Please provide a name for this data source."
+    if not target_schema:
+        return "❌ Please select a target ESG schema."
+
+    try:
+        # Parse mapping from JSON state
+        state = json.loads(mapping_json) if mapping_json else {}
+        mapping = state.get("mapping", {})
+
+        # If no mapping, create auto-mapping
+        if not mapping:
+            mapping = suggest_column_mapping(_preview_state["df"], target_schema)
+
+        # Validate
+        mapped_df = apply_column_mapping(_preview_state["df"], mapping, target_schema)
+        validation = validate_mapped_data(mapped_df, target_schema)
+
+        # Register the source
+        source_id = source_name.lower().replace(" ", "_")
+        _conn_manager.add_source(
+            source_id=source_id,
+            connector_type=_preview_state["source_type"],
+            config=_preview_state["config"],
+            target_schema=target_schema,
+            column_mapping=mapping,
+            display_name=source_name,
+        )
+
+        result = f"✅ **Data source '{source_name}' saved!**\n\n"
+        result += f"- **Type:** {_preview_state['source_type']}\n"
+        result += f"- **Target schema:** {target_schema}\n"
+        result += f"- **Rows:** {validation['stats']['rows']}\n"
+        result += f"- **Columns mapped:** {validation['stats']['columns_mapped']}/{validation['stats']['columns_total']}\n"
+        result += f"- **Completeness:** {validation['stats']['completeness']}%\n\n"
+
+        if validation["warnings"]:
+            result += "**Warnings:**\n"
+            for w in validation["warnings"]:
+                result += f"- ⚠️ {w}\n"
+        if validation["errors"]:
+            result += "\n**Errors:**\n"
+            for e in validation["errors"]:
+                result += f"- ❌ {e}\n"
+
+        # Show all registered sources
+        result += "\n---\n### All Registered Data Sources\n\n"
+        for src in _conn_manager.list_sources():
+            result += f"- **{src['display_name']}** → `{src['target_schema']}` ({src['connector_type']}) | Status: {src['status']}\n"
+
+        return result
+    except Exception as e:
+        return f"❌ Error saving: {e}"
+
+
+def run_real_collection():
+    """Run data collection using all registered real data sources + demo data."""
+    if not _conn_manager.has_sources():
+        return "❌ No real data sources registered. Add a source first, or use the Demo Collection tab."
+
+    try:
+        results_text = "## Real Data Collection Results\n\n"
+        by_schema = _conn_manager.fetch_all_by_schema()
+
+        total_rows = 0
+        for schema_name, df in by_schema.items():
+            total_rows += len(df)
+            validation = validate_mapped_data(df, schema_name)
+            results_text += f"### {schema_name}\n"
+            results_text += f"- **Rows:** {len(df)}\n"
+            results_text += f"- **Completeness:** {validation['stats']['completeness']}%\n"
+            results_text += f"- **Columns mapped:** {validation['stats']['columns_mapped']}/{validation['stats']['columns_total']}\n"
+            if validation["warnings"]:
+                for w in validation["warnings"]:
+                    results_text += f"- ⚠️ {w}\n"
+            results_text += "\n**Preview:**\n\n"
+            results_text += df.head(5).to_markdown(index=False)
+            results_text += "\n\n"
+
+        results_text += f"---\n**Total: {total_rows:,} rows across {len(by_schema)} schemas**\n"
+
+        # Also list source statuses
+        results_text += "\n### Source Status\n"
+        for src in _conn_manager.list_sources():
+            icon = {"active": "✅", "error": "❌", "configured": "⚪"}.get(src["status"], "⚪")
+            results_text += f"- {icon} **{src['display_name']}** — {src['status']}"
+            if src.get("error"):
+                results_text += f" ({src['error']})"
+            results_text += "\n"
+
+        return results_text
+    except Exception as e:
+        return f"❌ Error during collection: {e}"
+
+
+def _format_mapping(mapping: dict, schema_name: str) -> str:
+    """Format a column mapping as a readable markdown table."""
+    schema = ESG_SCHEMAS.get(schema_name, {})
+    text = f"### Column Mapping → `{schema_name}`\n\n"
+    text += "| ESG Column | Required | Mapped To | Description |\n"
+    text += "|-----------|----------|-----------|-------------|\n"
+    for esg_col, spec in schema.items():
+        mapped = mapping.get(esg_col, None)
+        req = "✅" if spec["required"] else ""
+        mapped_str = f"`{mapped}`" if mapped else "⚠️ *unmapped*"
+        text += f"| {esg_col} | {req} | {mapped_str} | {spec['description']} |\n"
+    return text
+
+
 def run_regulatory_tracker():
     agent = orchestrator.get_agent("regulatory_tracker")
     results = agent.run()
@@ -264,11 +494,102 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
         run_btn.click(run_full_pipeline, outputs=output)
 
     with gr.Tab("📊 Data Collector"):
-        gr.Markdown("Auto-discovers and validates ESG data.")
-        btn = gr.Button("Run Data Collection", variant="primary")
-        out1 = gr.Markdown(label="Results")
-        out2 = gr.Markdown(label="Issues")
-        btn.click(run_data_collector, outputs=[out1, out2])
+        gr.Markdown("### Connect Real Data Sources or Run Demo Collection\n"
+                     "Connect your own ESG data via file upload, Google Sheets, REST API, "
+                     "or SQL database. The system auto-detects the ESG schema and maps columns.")
+
+        with gr.Tabs():
+            # ── Sub-tab: Connect Data Sources ──
+            with gr.Tab("🔌 Connect Data Source"):
+                source_name_input = gr.Textbox(label="Data Source Name", placeholder="e.g. My Emissions Data")
+                with gr.Tabs():
+                    # File Upload
+                    with gr.Tab("📁 File Upload"):
+                        gr.Markdown("Upload a **CSV**, **Excel**, or **JSON** file with your ESG data.")
+                        file_input = gr.File(label="Upload File", file_types=[".csv", ".xlsx", ".xls", ".json"])
+                        test_file_btn = gr.Button("Test & Preview", variant="primary")
+                        file_preview = gr.Markdown()
+                        file_mapping = gr.Markdown()
+                        file_state = gr.Textbox(visible=False)
+                        test_file_btn.click(test_file_upload, inputs=[file_input],
+                                            outputs=[file_preview, file_mapping, file_state])
+
+                    # Google Sheets
+                    with gr.Tab("📊 Google Sheets"):
+                        gr.Markdown("Paste the URL of a **public** Google Sheet. "
+                                    "Ensure sharing is set to *'Anyone with the link'*.")
+                        gs_url = gr.Textbox(label="Google Sheets URL",
+                                            placeholder="https://docs.google.com/spreadsheets/d/.../edit")
+                        gs_sheet_id = gr.Textbox(label="Sheet GID (optional)", value="0",
+                                                 placeholder="0 for first sheet")
+                        test_gs_btn = gr.Button("Test & Preview", variant="primary")
+                        gs_preview = gr.Markdown()
+                        gs_mapping = gr.Markdown()
+                        gs_state = gr.Textbox(visible=False)
+                        test_gs_btn.click(test_google_sheets, inputs=[gs_url, gs_sheet_id],
+                                          outputs=[gs_preview, gs_mapping, gs_state])
+
+                    # REST API
+                    with gr.Tab("🌐 REST API"):
+                        gr.Markdown("Fetch data from any REST API that returns JSON.")
+                        api_url = gr.Textbox(label="API URL", placeholder="https://api.example.com/data")
+                        api_method = gr.Radio(["GET", "POST"], label="HTTP Method", value="GET")
+                        api_headers = gr.Textbox(label="Headers (one per line: Key: Value)", lines=3,
+                                                 placeholder="Authorization: Bearer TOKEN\nContent-Type: application/json")
+                        api_body = gr.Textbox(label="Request Body (JSON, for POST)", lines=3, visible=True,
+                                              placeholder='{"query": "emissions", "year": 2024}')
+                        api_json_path = gr.Textbox(label="JSON Path (dot-separated)",
+                                                   placeholder="data.results (navigate to nested array)")
+                        test_api_btn = gr.Button("Test & Preview", variant="primary")
+                        api_preview = gr.Markdown()
+                        api_mapping = gr.Markdown()
+                        api_state = gr.Textbox(visible=False)
+                        test_api_btn.click(test_rest_api,
+                                           inputs=[api_url, api_method, api_headers, api_body, api_json_path],
+                                           outputs=[api_preview, api_mapping, api_state])
+
+                gr.Markdown("---")
+                gr.Markdown("### Save Data Source")
+                target_schema = gr.Dropdown(
+                    choices=get_schema_names(),
+                    label="Target ESG Schema",
+                    info="Select the ESG dataset type this data maps to. Auto-detected if possible.",
+                )
+                # Use whichever state is populated
+                save_btn = gr.Button("💾 Save Data Source", variant="primary")
+                save_output = gr.Markdown()
+
+                # Save uses the latest test state
+                def save_any_source(name, schema, fs, gs, apis):
+                    """Pick the most recently populated state for saving."""
+                    state = fs or gs or apis or "{}"
+                    if schema is None:
+                        # Try auto-detect from state
+                        try:
+                            s = json.loads(state)
+                            schema = s.get("detected_schema", "")
+                        except Exception:
+                            schema = ""
+                    return save_data_source(name, schema, state)
+
+                save_btn.click(save_any_source,
+                               inputs=[source_name_input, target_schema, file_state, gs_state, api_state],
+                               outputs=save_output)
+
+            # ── Sub-tab: Fetch from Real Sources ──
+            with gr.Tab("📥 Fetch Real Data"):
+                gr.Markdown("Fetch and process data from all registered real data sources.")
+                fetch_real_btn = gr.Button("📥 Fetch from All Real Sources", variant="primary")
+                fetch_real_output = gr.Markdown()
+                fetch_real_btn.click(run_real_collection, outputs=fetch_real_output)
+
+            # ── Sub-tab: Demo Collection (original) ──
+            with gr.Tab("🧪 Demo Collection"):
+                gr.Markdown("Run the standard demo pipeline with sample ESG data.")
+                btn = gr.Button("Run Demo Data Collection", variant="secondary")
+                out1 = gr.Markdown(label="Results")
+                out2 = gr.Markdown(label="Issues")
+                btn.click(run_data_collector, outputs=[out1, out2])
 
     with gr.Tab("📋 Regulatory Tracker"):
         gr.Markdown("Monitors BRSR, CSRD, GRI, SASB compliance.")
