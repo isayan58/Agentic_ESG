@@ -171,7 +171,7 @@ with main_tab1:
     with conn_tab5:
         bq_project = st.text_input("GCP Project ID", placeholder="my-gcp-project")
         bq_query = st.text_area("SQL Query", placeholder="SELECT * FROM `project.dataset.table`", height=100)
-        bq_creds = st.text_area("Service Account JSON (optional)", height=100, type="password")
+        bq_creds = st.text_input("Service Account JSON (optional)", type="password")
         avail = get_available_connectors()["gcp_bigquery"]
         if not avail["available"]:
             st.warning(f"google-cloud-bigquery not installed. Run: `{avail['install_hint']}`")
@@ -199,7 +199,7 @@ with main_tab1:
     with conn_tab6:
         gcs_bucket = st.text_input("GCS Bucket Name", placeholder="my-esg-bucket")
         gcs_blob = st.text_input("Blob Path", placeholder="data/emissions.csv")
-        gcs_creds = st.text_area("Service Account JSON (optional)", height=100, key="gcs_creds", type="password")
+        gcs_creds = st.text_input("Service Account JSON (optional)", key="gcs_creds", type="password")
         avail = get_available_connectors()["gcp_storage"]
         if not avail["available"]:
             st.warning(f"google-cloud-storage not installed. Run: `{avail['install_hint']}`")
