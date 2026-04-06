@@ -231,6 +231,56 @@ def test_rest_api(url, method, headers_str, body, json_path):
         return f"❌ Error: {e}", "", "{}"
 
 
+def test_cloud_connector(connector_type, **config):
+    """Generic test for cloud connectors (S3, GCS, BigQuery, Azure)."""
+    try:
+        connector = get_connector(connector_type)
+        result = connector.test_connection(**config)
+        if not result["success"]:
+            return f"❌ {result['message']}", "", "{}"
+
+        df = connector.fetch(**config)
+        _preview_state["df"] = df
+        _preview_state["source_type"] = connector_type
+        _preview_state["config"] = config
+
+        detected = auto_detect_schema(df)
+        mapping = suggest_column_mapping(df, detected) if detected else {}
+
+        preview = f"✅ **{result['message']}**\n\n"
+        preview += f"**Auto-detected schema:** `{detected or 'Unknown'}`\n\n"
+        preview += f"**Columns:** {', '.join(df.columns)}\n\n"
+        preview += "**Preview (first 5 rows):**\n\n"
+        preview += df.head(5).to_markdown(index=False)
+
+        mapping_text = _format_mapping(mapping, detected) if detected else "Select a target schema to see mapping."
+        return preview, mapping_text, json.dumps({"detected_schema": detected, "mapping": mapping})
+    except Exception as e:
+        return f"❌ Error: {e}", "", "{}"
+
+
+def test_aws_s3(bucket, key, access_key, secret_key, region):
+    return test_cloud_connector("aws_s3", bucket=bucket, key=key,
+                                aws_access_key_id=access_key,
+                                aws_secret_access_key=secret_key,
+                                region=region or "us-east-1")
+
+
+def test_gcp_bigquery(project, query, credentials_json):
+    return test_cloud_connector("gcp_bigquery", project=project, query=query,
+                                credentials_json=credentials_json)
+
+
+def test_gcp_storage(bucket, blob_path, credentials_json):
+    return test_cloud_connector("gcp_storage", bucket=bucket, blob_path=blob_path,
+                                credentials_json=credentials_json)
+
+
+def test_azure_blob(conn_str, container, blob_name):
+    return test_cloud_connector("azure_blob", connection_string=conn_str,
+                                container=container, blob_name=blob_name)
+
+
 def save_data_source(source_name, target_schema, mapping_json):
     """Save the current previewed data source with its column mapping."""
     if _preview_state["df"] is None:
@@ -568,6 +618,66 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
                                            inputs=[api_url, api_method, api_headers, api_body, api_json_path],
                                            outputs=[api_preview, api_mapping, api_state])
 
+                    # AWS S3
+                    with gr.Tab("☁️ AWS S3"):
+                        gr.Markdown("Read CSV/Excel/JSON/Parquet files from an **AWS S3** bucket.")
+                        s3_bucket = gr.Textbox(label="Bucket Name", placeholder="my-esg-data-bucket")
+                        s3_key = gr.Textbox(label="Object Key (path)", placeholder="data/emissions_2024.csv")
+                        s3_access = gr.Textbox(label="Access Key ID (optional if using IAM role)", type="password")
+                        s3_secret = gr.Textbox(label="Secret Access Key", type="password")
+                        s3_region = gr.Textbox(label="Region", value="us-east-1")
+                        test_s3_btn = gr.Button("Test & Preview", variant="primary")
+                        s3_preview = gr.Markdown()
+                        s3_mapping = gr.Markdown()
+                        s3_state = gr.Textbox(visible=False)
+                        test_s3_btn.click(test_aws_s3,
+                                          inputs=[s3_bucket, s3_key, s3_access, s3_secret, s3_region],
+                                          outputs=[s3_preview, s3_mapping, s3_state])
+
+                    # GCP BigQuery
+                    with gr.Tab("🔷 BigQuery"):
+                        gr.Markdown("Run a SQL query against **Google BigQuery**.")
+                        bq_project = gr.Textbox(label="GCP Project ID", placeholder="my-gcp-project")
+                        bq_query = gr.Textbox(label="SQL Query", lines=3,
+                                              placeholder="SELECT * FROM `project.dataset.table` WHERE year = 2024")
+                        bq_creds = gr.Textbox(label="Service Account JSON (paste full JSON)", lines=4, type="password")
+                        test_bq_btn = gr.Button("Test & Preview", variant="primary")
+                        bq_preview = gr.Markdown()
+                        bq_mapping = gr.Markdown()
+                        bq_state = gr.Textbox(visible=False)
+                        test_bq_btn.click(test_gcp_bigquery,
+                                          inputs=[bq_project, bq_query, bq_creds],
+                                          outputs=[bq_preview, bq_mapping, bq_state])
+
+                    # GCP Cloud Storage
+                    with gr.Tab("🔷 GCS"):
+                        gr.Markdown("Read files from **Google Cloud Storage**.")
+                        gcs_bucket = gr.Textbox(label="Bucket Name", placeholder="my-esg-bucket")
+                        gcs_blob = gr.Textbox(label="Blob Path", placeholder="data/emissions.csv")
+                        gcs_creds = gr.Textbox(label="Service Account JSON (paste full JSON)", lines=4, type="password")
+                        test_gcs_btn = gr.Button("Test & Preview", variant="primary")
+                        gcs_preview = gr.Markdown()
+                        gcs_mapping = gr.Markdown()
+                        gcs_state = gr.Textbox(visible=False)
+                        test_gcs_btn.click(test_gcp_storage,
+                                           inputs=[gcs_bucket, gcs_blob, gcs_creds],
+                                           outputs=[gcs_preview, gcs_mapping, gcs_state])
+
+                    # Azure Blob
+                    with gr.Tab("🔵 Azure Blob"):
+                        gr.Markdown("Read files from **Azure Blob Storage**.")
+                        az_conn = gr.Textbox(label="Connection String", type="password",
+                                             placeholder="DefaultEndpointsProtocol=https;AccountName=...")
+                        az_container = gr.Textbox(label="Container Name", placeholder="esg-data")
+                        az_blob = gr.Textbox(label="Blob Name", placeholder="emissions_2024.csv")
+                        test_az_btn = gr.Button("Test & Preview", variant="primary")
+                        az_preview = gr.Markdown()
+                        az_mapping = gr.Markdown()
+                        az_state = gr.Textbox(visible=False)
+                        test_az_btn.click(test_azure_blob,
+                                          inputs=[az_conn, az_container, az_blob],
+                                          outputs=[az_preview, az_mapping, az_state])
+
                 gr.Markdown("---")
                 gr.Markdown("### Save Data Source")
                 target_schema = gr.Dropdown(
@@ -580,11 +690,10 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
                 save_output = gr.Markdown()
 
                 # Save uses the latest test state
-                def save_any_source(name, schema, fs, gs, apis):
+                def save_any_source(name, schema, fs, gs, apis, s3s, bqs, gcss, azs):
                     """Pick the most recently populated state for saving."""
-                    state = fs or gs or apis or "{}"
+                    state = fs or gs or apis or s3s or bqs or gcss or azs or "{}"
                     if schema is None:
-                        # Try auto-detect from state
                         try:
                             s = json.loads(state)
                             schema = s.get("detected_schema", "")
@@ -593,7 +702,8 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
                     return save_data_source(name, schema, state)
 
                 save_btn.click(save_any_source,
-                               inputs=[source_name_input, target_schema, file_state, gs_state, api_state],
+                               inputs=[source_name_input, target_schema, file_state, gs_state,
+                                       api_state, s3_state, bq_state, gcs_state, az_state],
                                outputs=save_output)
 
             # ── Sub-tab: Fetch from Real Sources ──
