@@ -32,6 +32,26 @@ import gradio.networking
 gradio.networking.url_ok = lambda url: True
 # ── End health-check fix ──
 
+# ── Fix Gradio API info crash with bool additionalProperties ──
+# gradio_client.utils.get_type() does `"const" in schema` where schema
+# can be a bool (from additionalProperties: True), causing TypeError.
+import gradio_client.utils as _gc_utils
+
+_orig_json_schema_to_python_type = _gc_utils._json_schema_to_python_type
+
+
+def _safe_json_schema_to_python_type(schema, defs=None):
+    if not isinstance(schema, dict):
+        return "Any"
+    try:
+        return _orig_json_schema_to_python_type(schema, defs)
+    except TypeError:
+        return "Any"
+
+
+_gc_utils._json_schema_to_python_type = _safe_json_schema_to_python_type
+# ── End API info fix ──
+
 import pandas as pd
 import json
 from agents.data_collector import DataCollectorAgent
@@ -639,22 +659,188 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
         btn.click(run_stakeholder_agent, outputs=[out1, out2, out3, out4])
 
     with gr.Tab("📄 Report Generator"):
-        gr.Markdown("Generate comprehensive ESG report. Run other agents first for best results.")
-        btn = gr.Button("Generate Report", variant="primary")
-        output = gr.Markdown()
+        gr.Markdown("### Generate Comprehensive ESG Reports\n"
+                     "Run other agents first (Data Collector, Carbon Accountant, Regulatory Tracker, "
+                     "Audit Agent) for the most complete report. Select a report type below.")
 
-        def run_report():
+        report_type = gr.Radio(
+            ["Full ESG Report", "Framework Compliance", "Carbon & Environment",
+             "Social & Governance", "Executive Summary Only"],
+            label="Report Type",
+            value="Full ESG Report",
+        )
+        btn = gr.Button("Generate Report", variant="primary")
+
+        with gr.Tabs():
+            with gr.Tab("Report"):
+                report_output = gr.Markdown()
+            with gr.Tab("Metrics Tables"):
+                metrics_output = gr.Markdown()
+            with gr.Tab("Framework Compliance"):
+                framework_output = gr.Markdown()
+            with gr.Tab("Audit Trail"):
+                audit_output = gr.Markdown()
+
+        def run_report(rtype):
             agent = orchestrator.get_agent("report_generator")
             results = agent.run()
             if "error" in results:
-                return f"Error: {results['error']}"
-            text = f"# {results.get('report_title', 'ESG Report')}\n\n"
-            text += f"## Executive Summary\n{results.get('executive_summary', '')}\n\n"
-            for key, section in results.get("sections", {}).items():
-                text += f"## {section['title']}\n{section.get('narrative', '')}\n\n"
-            return text
+                err = f"Error: {results['error']}"
+                return err, err, err, err
 
-        btn.click(run_report, outputs=output)
+            # ── Build report text based on type ──
+            report = ""
+            metrics_text = ""
+            framework_text = ""
+            audit_text = ""
+
+            company = results.get("company", {})
+            sections = results.get("sections", {})
+            framework_sections = results.get("framework_sections", {})
+            carbon = results.get("carbon_highlights", {})
+            compliance = results.get("compliance_summary", {})
+            audit_trail = results.get("audit_trail", [])
+
+            # ── Company header ──
+            if company and rtype in ("Full ESG Report", "Executive Summary Only"):
+                report += f"# {results.get('report_title', 'ESG Report')}\n\n"
+                report += f"**Company:** {company.get('company_name', 'N/A')}  \n"
+                report += f"**Sector:** {company.get('sector', 'N/A')} | "
+                report += f"**Employees:** {company.get('employees', 'N/A'):,}  \n"
+                report += f"**Revenue:** INR {company.get('revenue_inr_crores', 'N/A')} Crores | "
+                report += f"**Market Cap:** INR {company.get('market_cap_inr_crores', 'N/A')} Crores  \n"
+                commitments = company.get("key_commitments", [])
+                if commitments:
+                    report += f"**Key Commitments:** {', '.join(commitments)}  \n"
+                report += f"**Generated:** {results.get('generated_at', '')}\n\n"
+                report += "---\n\n"
+            else:
+                report += f"# {results.get('report_title', 'ESG Report')}\n\n"
+
+            # ── Executive Summary ──
+            exec_summary = results.get("executive_summary", "")
+            if exec_summary and rtype != "Framework Compliance":
+                report += f"## Executive Summary\n\n{exec_summary}\n\n"
+
+            # ── Carbon Highlights ──
+            if rtype in ("Full ESG Report", "Carbon & Environment"):
+                total_em = carbon.get("total_emissions", "N/A")
+                yoy = carbon.get("yoy_change", "N/A")
+                intensity = carbon.get("carbon_intensity", "N/A")
+
+                report += "## Carbon & Emissions Highlights\n\n"
+                report += "| Metric | Value |\n|--------|-------|\n"
+                if total_em != "N/A":
+                    report += f"| Total Emissions (FY2024) | {total_em:,.0f} tCO2e |\n"
+                else:
+                    report += f"| Total Emissions (FY2024) | {total_em} |\n"
+                report += f"| Year-over-Year Change | {yoy}% |\n"
+                report += f"| Carbon Intensity | {intensity} tCO2e/$M |\n\n"
+
+            # ── Compliance Overview ──
+            if rtype in ("Full ESG Report", "Framework Compliance"):
+                overall_comp = compliance.get("overall", "N/A")
+                fw_comps = compliance.get("frameworks", {})
+
+                report += f"## Regulatory Compliance Overview\n\n"
+                report += f"**Overall Compliance:** {overall_comp}%\n\n"
+                if fw_comps:
+                    report += "| Framework | Compliance |\n|-----------|------------|\n"
+                    for fw, pct in fw_comps.items():
+                        bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
+                        report += f"| {fw} | {bar} {pct}% |\n"
+                    report += "\n"
+
+            # ── E/S/G Section Narratives ──
+            if rtype in ("Full ESG Report", "Carbon & Environment", "Social & Governance"):
+                for key, section in sections.items():
+                    if rtype == "Carbon & Environment" and key not in ("environmental",):
+                        continue
+                    if rtype == "Social & Governance" and key not in ("social", "governance"):
+                        continue
+                    report += f"## {section['title']}\n\n"
+                    narrative = section.get("narrative", "")
+                    if narrative:
+                        report += f"{narrative}\n\n"
+                    # Inline top 3 metrics as quick reference
+                    sec_metrics = section.get("metrics", [])
+                    if sec_metrics:
+                        report += "**Key Metrics:**\n\n"
+                        for m in sec_metrics[:3]:
+                            status_icon = {"Met": "✅", "Not Met": "❌", "On Track": "🔄"}.get(
+                                m.get("status", ""), "⚪"
+                            )
+                            report += (f"- {status_icon} **{m.get('metric_name', '')}**: "
+                                       f"{m.get('value_2024', 'N/A')} {m.get('unit', '')} "
+                                       f"(target: {m.get('target_2024', 'N/A')})\n")
+                        if len(sec_metrics) > 3:
+                            report += f"\n*...and {len(sec_metrics) - 3} more metrics — see Metrics Tables tab*\n"
+                        report += "\n"
+
+            # ── Metrics Tables (full detail) ──
+            for key, section in sections.items():
+                sec_metrics = section.get("metrics", [])
+                if sec_metrics:
+                    metrics_text += f"## {section['title']} — All Metrics\n\n"
+                    metrics_text += "| ID | Metric | 2023 | 2024 | Target | Unit | Status |\n"
+                    metrics_text += "|-----|--------|------|------|--------|------|--------|\n"
+                    for m in sec_metrics:
+                        status_icon = {"Met": "✅", "Not Met": "❌", "On Track": "🔄"}.get(
+                            m.get("status", ""), "⚪"
+                        )
+                        metrics_text += (
+                            f"| {m.get('metric_id', '')} "
+                            f"| {m.get('metric_name', '')} "
+                            f"| {m.get('value_2023', 'N/A')} "
+                            f"| {m.get('value_2024', 'N/A')} "
+                            f"| {m.get('target_2024', 'N/A')} "
+                            f"| {m.get('unit', '')} "
+                            f"| {status_icon} {m.get('status', '')} |\n"
+                        )
+                    metrics_text += "\n"
+
+            if not metrics_text:
+                metrics_text = "*No metrics data available. Run the Data Collector agent first.*"
+
+            # ── Framework Sections (full detail) ──
+            if framework_sections:
+                framework_text += "## Framework-by-Framework Compliance\n\n"
+                for fw, info in framework_sections.items():
+                    pct = info.get("compliance_pct", 0)
+                    bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
+                    framework_text += f"### {fw} — {info.get('name', '')}\n\n"
+                    framework_text += f"**Compliance:** {bar} **{pct}%**\n\n"
+                    framework_text += (
+                        f"- Requirements Covered: **{info.get('covered', 0)}** / {info.get('total', 0)}\n"
+                        f"- Gaps Remaining: **{info.get('gaps_count', 0)}**\n\n"
+                    )
+            else:
+                framework_text = ("*No framework compliance data available. "
+                                  "Run the Regulatory Tracker agent first.*")
+
+            # ── Audit Trail ──
+            if audit_trail:
+                audit_text += "## Report Audit Trail\n\n"
+                audit_text += "| Step | Timestamp | Details | Status |\n"
+                audit_text += "|------|-----------|---------|--------|\n"
+                for entry in audit_trail:
+                    status_icon = {"completed": "✅", "pending": "⏳", "error": "❌"}.get(
+                        entry.get("status", ""), "⚪"
+                    )
+                    audit_text += (
+                        f"| {entry.get('step', '')} "
+                        f"| {entry.get('timestamp', '')[:19]} "
+                        f"| {entry.get('details', '')} "
+                        f"| {status_icon} {entry.get('status', '')} |\n"
+                    )
+                audit_text += "\n*This audit trail provides verifiable provenance for all report data.*"
+            else:
+                audit_text = "*No audit trail available. Run the full pipeline for complete provenance tracking.*"
+
+            return report, metrics_text, framework_text, audit_text
+
+        btn.click(run_report, inputs=[report_type],
+                  outputs=[report_output, metrics_output, framework_output, audit_output])
 
     with gr.Tab("🔌 Enterprise Connectors"):
         gr.Markdown("Connect to ERP, HR, IoT, Supplier Portal, SQL, and API data sources.")
