@@ -19,10 +19,27 @@ class DataCollectorAgent(BaseAgent):
         self.connector_statuses = {}
         self.missing_data_alerts = []
 
-    def execute(self, uploaded_files=None, use_connectors=True, **kwargs):
+    def execute(self, uploaded_files=None, use_connectors=True,
+                connection_manager=None, **kwargs):
         self.log("Starting autonomous data collection")
         datasets = {}
         quality_scores = {}
+
+        # ── Phase 0: Fetch from real data sources (if configured) ──
+        if connection_manager is not None and connection_manager.has_sources():
+            self.log("Fetching from real data sources...")
+            try:
+                by_schema = connection_manager.fetch_all_by_schema()
+                for schema_name, df in by_schema.items():
+                    if not df.empty:
+                        key = f"real_{schema_name}"
+                        datasets[key] = df
+                        quality = compute_data_quality(df)
+                        quality_scores[key] = quality
+                        self.log(f"Real source [{schema_name}]: {len(df)} records, "
+                                 f"completeness={quality['completeness']}%")
+            except Exception as e:
+                self.log(f"Real source error: {e}")
 
         # ── Phase 1: Load local sample datasets ──
         sources = {
@@ -155,7 +172,13 @@ class DataCollectorAgent(BaseAgent):
             raw_confidence = q.get("avg_confidence", 0)
 
             # Weighted confidence: 40% completeness + 40% source confidence + 20% freshness
-            source_bonus = 20 if name.startswith("connector_") else 10  # enterprise sources get trust bonus
+            # Real verified sources get highest trust, enterprise connectors next, sample data lowest
+            if name.startswith("real_"):
+                source_bonus = 25
+            elif name.startswith("connector_"):
+                source_bonus = 20
+            else:
+                source_bonus = 10
             freshness = 18  # sample data is assumed recent
             weighted = round(completeness * 0.4 + raw_confidence * 0.4 + source_bonus + freshness * 0.2, 1)
             weighted = min(100, weighted)
