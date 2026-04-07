@@ -43,6 +43,12 @@ try:
 except ImportError:
     AZURE_BLOB_AVAILABLE = False
 
+try:
+    import deltalake
+    DELTALAKE_AVAILABLE = True
+except ImportError:
+    DELTALAKE_AVAILABLE = False
+
 
 # ── Base ─────────────────────────────────────────────────────────────────────
 
@@ -277,11 +283,18 @@ class SQLDatabaseConnector(RealConnector):
 # ── AWS S3 ──────────────────────────────────────────────────────────────────
 
 class AWSS3Connector(RealConnector):
-    """Read CSV/Excel/JSON files from an AWS S3 bucket."""
+    """Read CSV/Excel/JSON/Parquet files from an AWS S3 bucket.
+
+    Supports single file (key = 'data/file.csv') or folder mode
+    (key = 'data/folder/' ending with '/') which reads and concatenates
+    all supported files under that prefix.
+    """
 
     connector_type = "aws_s3"
     display_name = "AWS S3 Bucket"
     icon = "☁️"
+
+    _SUPPORTED_EXT = (".csv", ".json", ".xlsx", ".xls", ".parquet")
 
     def test_connection(self, bucket: str = "", key: str = "",
                         aws_access_key_id: str = "", aws_secret_access_key: str = "",
@@ -289,13 +302,20 @@ class AWSS3Connector(RealConnector):
         if not BOTO3_AVAILABLE:
             return {"success": False, "message": "boto3 not installed. Run: pip install boto3"}
         if not bucket or not key:
-            return {"success": False, "message": "Bucket name and object key are required"}
+            return {"success": False, "message": "Bucket name and object key/prefix are required"}
         try:
             client = self._get_client(aws_access_key_id, aws_secret_access_key, region)
-            resp = client.head_object(Bucket=bucket, Key=key)
-            size = resp["ContentLength"]
-            return {"success": True,
-                    "message": f"Found object: {key} ({size:,} bytes)"}
+            if key.endswith("/"):
+                files = self._list_prefix(client, bucket, key)
+                if not files:
+                    return {"success": False, "message": f"No supported files found under prefix: {key}"}
+                return {"success": True,
+                        "message": f"Found {len(files)} file(s) under {key}: {', '.join(f.rsplit('/',1)[-1] for f in files[:5])}{'...' if len(files) > 5 else ''}"}
+            else:
+                resp = client.head_object(Bucket=bucket, Key=key)
+                size = resp["ContentLength"]
+                return {"success": True,
+                        "message": f"Found object: {key} ({size:,} bytes)"}
         except Exception as e:
             return {"success": False, "message": f"S3 error: {e}"}
 
@@ -305,9 +325,39 @@ class AWSS3Connector(RealConnector):
         if not BOTO3_AVAILABLE:
             raise ImportError("boto3 not installed. Run: pip install boto3")
         client = self._get_client(aws_access_key_id, aws_secret_access_key, region)
+        if key.endswith("/"):
+            return self._fetch_prefix(client, bucket, key)
         obj = client.get_object(Bucket=bucket, Key=key)
         body = obj["Body"].read()
         return self._parse_bytes(body, key)
+
+    def _list_prefix(self, client, bucket, prefix):
+        """List all supported files under a prefix."""
+        paginator = client.get_paginator("list_objects_v2")
+        files = []
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                k = obj["Key"]
+                if k.lower().endswith(self._SUPPORTED_EXT) and obj["Size"] > 0:
+                    files.append(k)
+        return files
+
+    def _fetch_prefix(self, client, bucket, prefix):
+        """Fetch and concatenate all supported files under a prefix."""
+        files = self._list_prefix(client, bucket, prefix)
+        if not files:
+            raise ValueError(f"No supported files found under prefix: {prefix}")
+        dfs = []
+        for f in files:
+            try:
+                obj = client.get_object(Bucket=bucket, Key=f)
+                body = obj["Body"].read()
+                dfs.append(self._parse_bytes(body, f))
+            except Exception:
+                continue  # skip unparseable files
+        if not dfs:
+            raise ValueError(f"Could not parse any files under {prefix}")
+        return pd.concat(dfs, ignore_index=True)
 
     def _get_client(self, access_key, secret_key, region):
         kwargs = {"region_name": region}
@@ -380,11 +430,17 @@ class GCPBigQueryConnector(RealConnector):
 # ── GCP Cloud Storage ───────────────────────────────────────────────────────
 
 class GCPStorageConnector(RealConnector):
-    """Read files from a Google Cloud Storage bucket."""
+    """Read files from a Google Cloud Storage bucket.
+
+    Supports single blob or folder mode (path ending with '/') to
+    read and concatenate all supported files under that prefix.
+    """
 
     connector_type = "gcp_storage"
     display_name = "Google Cloud Storage"
     icon = "🔷"
+
+    _SUPPORTED_EXT = (".csv", ".json", ".xlsx", ".xls", ".parquet")
 
     def test_connection(self, bucket: str = "", blob_path: str = "",
                         credentials_json: str = "", **kw) -> dict:
@@ -396,12 +452,19 @@ class GCPStorageConnector(RealConnector):
             return {"success": False, "message": "Bucket and blob path are required"}
         try:
             client = self._get_client(credentials_json)
-            blob = client.bucket(bucket).blob(blob_path)
-            if blob.exists():
-                blob.reload()
+            if blob_path.endswith("/"):
+                files = self._list_prefix(client, bucket, blob_path)
+                if not files:
+                    return {"success": False, "message": f"No supported files found under: {blob_path}"}
                 return {"success": True,
-                        "message": f"Found: {blob_path} ({blob.size:,} bytes)"}
-            return {"success": False, "message": f"Blob not found: {blob_path}"}
+                        "message": f"Found {len(files)} file(s) under {blob_path}"}
+            else:
+                blob = client.bucket(bucket).blob(blob_path)
+                if blob.exists():
+                    blob.reload()
+                    return {"success": True,
+                            "message": f"Found: {blob_path} ({blob.size:,} bytes)"}
+                return {"success": False, "message": f"Blob not found: {blob_path}"}
         except Exception as e:
             return {"success": False, "message": f"GCS error: {e}"}
 
@@ -410,9 +473,32 @@ class GCPStorageConnector(RealConnector):
         if not GCP_AVAILABLE:
             raise ImportError("google-cloud-storage not installed")
         client = self._get_client(credentials_json)
+        if blob_path.endswith("/"):
+            return self._fetch_prefix(client, bucket, blob_path)
         blob = client.bucket(bucket).blob(blob_path)
         data = blob.download_as_bytes()
         return self._parse_bytes(data, blob_path)
+
+    def _list_prefix(self, client, bucket, prefix):
+        blobs = client.list_blobs(bucket, prefix=prefix)
+        return [b.name for b in blobs
+                if b.name.lower().endswith(self._SUPPORTED_EXT) and b.size > 0]
+
+    def _fetch_prefix(self, client, bucket, prefix):
+        files = self._list_prefix(client, bucket, prefix)
+        if not files:
+            raise ValueError(f"No supported files under {prefix}")
+        dfs = []
+        for f in files:
+            try:
+                blob = client.bucket(bucket).blob(f)
+                data = blob.download_as_bytes()
+                dfs.append(self._parse_bytes(data, f))
+            except Exception:
+                continue
+        if not dfs:
+            raise ValueError(f"Could not parse any files under {prefix}")
+        return pd.concat(dfs, ignore_index=True)
 
     def _get_client(self, credentials_json):
         if credentials_json:
@@ -440,11 +526,17 @@ class GCPStorageConnector(RealConnector):
 # ── Azure Blob Storage ──────────────────────────────────────────────────────
 
 class AzureBlobConnector(RealConnector):
-    """Read files from Azure Blob Storage."""
+    """Read files from Azure Blob Storage.
+
+    Supports single blob or folder mode (blob_name ending with '/') to
+    read and concatenate all supported files under that prefix.
+    """
 
     connector_type = "azure_blob"
     display_name = "Azure Blob Storage"
     icon = "🔵"
+
+    _SUPPORTED_EXT = (".csv", ".json", ".xlsx", ".xls", ".parquet")
 
     def test_connection(self, connection_string: str = "", container: str = "",
                         blob_name: str = "", **kw) -> dict:
@@ -454,13 +546,20 @@ class AzureBlobConnector(RealConnector):
                                "Run: pip install azure-storage-blob"}
         if not connection_string or not container or not blob_name:
             return {"success": False,
-                    "message": "Connection string, container, and blob name are required"}
+                    "message": "Connection string, container, and blob name/prefix are required"}
         try:
             client = BlobServiceClient.from_connection_string(connection_string)
-            blob_client = client.get_blob_client(container, blob_name)
-            props = blob_client.get_blob_properties()
-            return {"success": True,
-                    "message": f"Found: {blob_name} ({props.size:,} bytes)"}
+            if blob_name.endswith("/"):
+                files = self._list_prefix(client, container, blob_name)
+                if not files:
+                    return {"success": False, "message": f"No supported files under: {blob_name}"}
+                return {"success": True,
+                        "message": f"Found {len(files)} file(s) under {blob_name}"}
+            else:
+                blob_client = client.get_blob_client(container, blob_name)
+                props = blob_client.get_blob_properties()
+                return {"success": True,
+                        "message": f"Found: {blob_name} ({props.size:,} bytes)"}
         except Exception as e:
             return {"success": False, "message": f"Azure error: {e}"}
 
@@ -469,9 +568,32 @@ class AzureBlobConnector(RealConnector):
         if not AZURE_BLOB_AVAILABLE:
             raise ImportError("azure-storage-blob not installed")
         client = BlobServiceClient.from_connection_string(connection_string)
+        if blob_name.endswith("/"):
+            return self._fetch_prefix(client, container, blob_name)
         blob_client = client.get_blob_client(container, blob_name)
         data = blob_client.download_blob().readall()
         return self._parse_bytes(data, blob_name)
+
+    def _list_prefix(self, client, container, prefix):
+        container_client = client.get_container_client(container)
+        return [b.name for b in container_client.list_blobs(name_starts_with=prefix)
+                if b.name.lower().endswith(self._SUPPORTED_EXT) and b.size > 0]
+
+    def _fetch_prefix(self, client, container, prefix):
+        files = self._list_prefix(client, container, prefix)
+        if not files:
+            raise ValueError(f"No supported files under {prefix}")
+        dfs = []
+        for f in files:
+            try:
+                blob_client = client.get_blob_client(container, f)
+                data = blob_client.download_blob().readall()
+                dfs.append(self._parse_bytes(data, f))
+            except Exception:
+                continue
+        if not dfs:
+            raise ValueError(f"Could not parse any files under {prefix}")
+        return pd.concat(dfs, ignore_index=True)
 
     def _parse_bytes(self, data: bytes, name: str) -> pd.DataFrame:
         buf = io.BytesIO(data)
@@ -487,6 +609,118 @@ class AzureBlobConnector(RealConnector):
         return pd.read_csv(buf)
 
 
+# ── Delta Lake ───────────────────────────────────────────────────────────────
+
+class DeltaLakeConnector(RealConnector):
+    """Read Delta Lake tables from local paths, S3, GCS, or Azure.
+
+    Supports:
+      - Local file system:  /path/to/delta_table
+      - AWS S3:             s3://bucket/path/to/delta_table
+      - GCS:                gs://bucket/path/to/delta_table
+      - Azure:              az://container/path/to/delta_table
+
+    For cloud paths, provide storage_options (credentials) as a JSON dict.
+    """
+
+    connector_type = "delta_lake"
+    display_name = "Delta Lake Table"
+    icon = "🔺"
+
+    def test_connection(self, table_uri: str = "", version: int = None,
+                        storage_options_json: str = "", **kw) -> dict:
+        if not DELTALAKE_AVAILABLE:
+            return {"success": False,
+                    "message": "deltalake not installed. Run: pip install deltalake"}
+        if not table_uri:
+            return {"success": False, "message": "Delta table URI is required"}
+        try:
+            storage_options = self._parse_storage_options(storage_options_json)
+            dt_kwargs = {"table_uri": table_uri}
+            if storage_options:
+                dt_kwargs["storage_options"] = storage_options
+            if version is not None and version >= 0:
+                dt_kwargs["version"] = version
+
+            dt = deltalake.DeltaTable(**dt_kwargs)
+            schema = dt.schema()
+            num_files = len(dt.files())
+            col_names = [f.name for f in schema.fields]
+            version_info = dt.version()
+
+            return {
+                "success": True,
+                "message": (f"Delta table v{version_info}: "
+                            f"{len(col_names)} columns, {num_files} file(s)"),
+                "preview_cols": col_names,
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Delta Lake error: {e}"}
+
+    def fetch(self, table_uri: str = "", version: int = None,
+              columns: str = "", row_filter: str = "",
+              storage_options_json: str = "", row_limit: int = 50000,
+              **kw) -> pd.DataFrame:
+        if not DELTALAKE_AVAILABLE:
+            raise ImportError("deltalake not installed. Run: pip install deltalake")
+        if not table_uri:
+            raise ValueError("Delta table URI is required")
+
+        storage_options = self._parse_storage_options(storage_options_json)
+        dt_kwargs = {"table_uri": table_uri}
+        if storage_options:
+            dt_kwargs["storage_options"] = storage_options
+        if version is not None and version >= 0:
+            dt_kwargs["version"] = version
+
+        dt = deltalake.DeltaTable(**dt_kwargs)
+
+        # Build read options
+        read_kwargs = {}
+        if columns:
+            read_kwargs["columns"] = [c.strip() for c in columns.split(",") if c.strip()]
+        if row_filter:
+            read_kwargs["filters"] = self._parse_filters(row_filter)
+
+        df = dt.to_pandas(**read_kwargs)
+
+        if len(df) > row_limit:
+            df = df.head(row_limit)
+        return df
+
+    def _parse_storage_options(self, json_str: str) -> dict:
+        if not json_str or not json_str.strip():
+            return {}
+        import json as _json
+        return _json.loads(json_str)
+
+    def _parse_filters(self, filter_str: str):
+        """Parse simple filter expressions like 'year = 2024, scope = Scope 1'.
+
+        Returns list of tuples compatible with deltalake's partition filter format:
+          [("year", "=", "2024"), ("scope", "=", "Scope 1")]
+        """
+        filters = []
+        for part in filter_str.split(","):
+            part = part.strip()
+            for op in [">=", "<=", "!=", "=", ">", "<"]:
+                if op in part:
+                    key, val = part.split(op, 1)
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    # Try to convert numeric values
+                    try:
+                        val = int(val)
+                    except ValueError:
+                        try:
+                            val = float(val)
+                        except ValueError:
+                            pass
+                    filters.append((key, "==" if op == "=" else op, val))
+                    break
+        return filters
+
+
 # ── Connector Registry ───────────────────────────────────────────────────────
 
 REAL_CONNECTORS = {
@@ -498,6 +732,7 @@ REAL_CONNECTORS = {
     "gcp_bigquery":   GCPBigQueryConnector,
     "gcp_storage":    GCPStorageConnector,
     "azure_blob":     AzureBlobConnector,
+    "delta_lake":     DeltaLakeConnector,
 }
 
 
@@ -530,4 +765,7 @@ def get_available_connectors() -> dict:
         "azure_blob":    {"name": "Azure Blob Storage",           "icon": "🔵",
                           "available": AZURE_BLOB_AVAILABLE,
                           "install_hint": "pip install azure-storage-blob"},
+        "delta_lake":    {"name": "Delta Lake Table",              "icon": "🔺",
+                          "available": DELTALAKE_AVAILABLE,
+                          "install_hint": "pip install deltalake"},
     }

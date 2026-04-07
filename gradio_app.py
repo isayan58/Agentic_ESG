@@ -281,6 +281,13 @@ def test_azure_blob(conn_str, container, blob_name):
                                 container=container, blob_name=blob_name)
 
 
+def test_delta_lake(table_uri, version, columns, row_filter, storage_options_json):
+    ver = int(version) if version and str(version).strip().isdigit() else None
+    return test_cloud_connector("delta_lake", table_uri=table_uri, version=ver,
+                                columns=columns, row_filter=row_filter,
+                                storage_options_json=storage_options_json)
+
+
 def save_data_source(source_name, target_schema, mapping_json):
     """Save the current previewed data source with its column mapping."""
     if _preview_state["df"] is None:
@@ -678,6 +685,27 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
                                           inputs=[az_conn, az_container, az_blob],
                                           outputs=[az_preview, az_mapping, az_state])
 
+                    # Delta Lake
+                    with gr.Tab("🔺 Delta Lake"):
+                        gr.Markdown("Read a **Delta Lake** table from local path, S3 (`s3://`), GCS (`gs://`), or Azure (`az://`).")
+                        dl_uri = gr.Textbox(label="Table URI",
+                                            placeholder="s3://my-bucket/delta-tables/emissions  or  /data/delta/emissions")
+                        dl_version = gr.Textbox(label="Version (optional)", placeholder="Leave blank for latest")
+                        dl_columns = gr.Textbox(label="Columns (optional, comma-separated)",
+                                                placeholder="year, scope, emissions_tco2e")
+                        dl_filter = gr.Textbox(label="Row Filter (optional)",
+                                               placeholder="year = 2024, scope = Scope 1")
+                        dl_storage = gr.Textbox(label="Storage Options JSON (credentials for cloud paths)",
+                                                type="password",
+                                                placeholder='{"AWS_ACCESS_KEY_ID": "...", "AWS_SECRET_ACCESS_KEY": "..."}')
+                        test_dl_btn = gr.Button("Test & Preview", variant="primary")
+                        dl_preview = gr.Markdown()
+                        dl_mapping = gr.Markdown()
+                        dl_state = gr.Textbox(visible=False)
+                        test_dl_btn.click(test_delta_lake,
+                                          inputs=[dl_uri, dl_version, dl_columns, dl_filter, dl_storage],
+                                          outputs=[dl_preview, dl_mapping, dl_state])
+
                 gr.Markdown("---")
                 gr.Markdown("### Save Data Source")
                 target_schema = gr.Dropdown(
@@ -690,9 +718,9 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
                 save_output = gr.Markdown()
 
                 # Save uses the latest test state
-                def save_any_source(name, schema, fs, gs, apis, s3s, bqs, gcss, azs):
+                def save_any_source(name, schema, fs, gs, apis, s3s, bqs, gcss, azs, dls):
                     """Pick the most recently populated state for saving."""
-                    state = fs or gs or apis or s3s or bqs or gcss or azs or "{}"
+                    state = fs or gs or apis or s3s or bqs or gcss or azs or dls or "{}"
                     if schema is None:
                         try:
                             s = json.loads(state)
@@ -703,7 +731,7 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
 
                 save_btn.click(save_any_source,
                                inputs=[source_name_input, target_schema, file_state, gs_state,
-                                       api_state, s3_state, bq_state, gcs_state, az_state],
+                                       api_state, s3_state, bq_state, gcs_state, az_state, dl_state],
                                outputs=save_output)
 
             # ── Sub-tab: Fetch from Real Sources ──

@@ -17,7 +17,7 @@ Complete technical reference for all 8 AI agents: architecture, calculations, sc
 9. [Agent 6: Audit Agent](#agent-6-audit-agent)
 10. [Agent 7: Action Agent](#agent-7-action-agent)
 11. [Agent 8: Stakeholder Agent](#agent-8-stakeholder-agent)
-12. [Data Connectors](#data-connectors)
+12. [Data Connectors](#data-connectors) (incl. Delta Lake, folder/prefix mode)
 13. [Schema Mapping & Validation](#schema-mapping--validation)
 14. [AI Models & Fallbacks](#ai-models--fallbacks)
 15. [Deployment](#deployment)
@@ -31,7 +31,7 @@ Complete technical reference for all 8 AI agents: architecture, calculations, sc
 ┌─────────────────────────────────────────────────────────────┐
 │                    ESG CoPilot Platform                      │
 ├─────────────────────────────────────────────────────────────┤
-│  UI Layer:  Streamlit (10 pages)  |  Gradio (tabbed)        │
+│  UI Layer:  Streamlit (9 pages)   |  Gradio (tabbed)        │
 ├─────────────────────────────────────────────────────────────┤
 │  Orchestrator: Manages dependency graph & pipeline execution │
 ├─────────────────────────────────────────────────────────────┤
@@ -56,7 +56,7 @@ Complete technical reference for all 8 AI agents: architecture, calculations, sc
 - Streamlit (dashboard) / Gradio (single-page app)
 - HuggingFace Inference API (Mistral-7B, BART, DistilBERT)
 - Pandas, Plotly, NumPy
-- Optional: boto3 (AWS), google-cloud-bigquery (GCP), azure-storage-blob (Azure)
+- Optional: boto3 (AWS), google-cloud-bigquery (GCP), azure-storage-blob (Azure), deltalake (Delta Lake)
 
 ---
 
@@ -631,23 +631,94 @@ For each audience:
 
 ## Data Connectors
 
+ESG CoPilot supports 9 data connector types. All are defined in `utils/real_connectors.py`.
+
 ### Local Connectors (always available)
 
 | Type | Class | Description |
 |------|-------|-------------|
 | File Upload | `FileUploadConnector` | CSV, Excel (.xlsx/.xls), JSON |
 | Google Sheets | `GoogleSheetsConnector` | Public Google Sheets via CSV export URL |
-| REST API | `RESTAPIConnector` | Any JSON REST endpoint (GET/POST) |
+| REST API | `RESTAPIConnector` | Any JSON REST endpoint (GET/POST), custom headers |
 | SQL Database | `SQLDatabaseConnector` | PostgreSQL, MySQL, SQLite via SQLAlchemy |
 
 ### Cloud Connectors (optional dependencies)
 
+| Type | Class | Install | Folder Mode |
+|------|-------|---------|-------------|
+| AWS S3 | `AWSS3Connector` | `pip install boto3` | Yes |
+| Google BigQuery | `GCPBigQueryConnector` | `pip install google-cloud-bigquery` | N/A (SQL queries) |
+| Google Cloud Storage | `GCPStorageConnector` | `pip install google-cloud-storage` | Yes |
+| Azure Blob Storage | `AzureBlobConnector` | `pip install azure-storage-blob` | Yes |
+
+### Delta Lake Connector (optional)
+
 | Type | Class | Install |
 |------|-------|---------|
-| AWS S3 | `AWSS3Connector` | `pip install boto3` |
-| Google BigQuery | `GCPBigQueryConnector` | `pip install google-cloud-bigquery` |
-| Google Cloud Storage | `GCPStorageConnector` | `pip install google-cloud-storage` |
-| Azure Blob Storage | `AzureBlobConnector` | `pip install azure-storage-blob` |
+| Delta Lake | `DeltaLakeConnector` | `pip install deltalake` |
+
+The Delta Lake connector reads Delta tables without requiring Apache Spark (uses the `deltalake` / delta-rs Python package).
+
+**Supported table URIs:**
+- Local file system: `/path/to/delta_table`
+- AWS S3: `s3://bucket/path/to/delta_table`
+- Google Cloud Storage: `gs://bucket/path/to/delta_table`
+- Azure: `az://container/path/to/delta_table`
+
+**Features:**
+- **Version pinning:** Read a specific Delta table version (time travel)
+- **Column selection:** Provide a comma-separated list to read only specific columns
+- **Row filters:** Simple filter expressions like `year = 2024, scope = Scope 1` (parsed into partition filter tuples)
+- **Cloud credentials:** Provide `storage_options` as a JSON dict for cloud-hosted tables
+- **Row limit:** Default 50,000 row cap per fetch (configurable)
+
+```python
+from utils.real_connectors import get_connector
+
+connector = get_connector("delta_lake")
+
+# Test connection
+result = connector.test_connection(
+    table_uri="s3://my-bucket/esg/emissions_delta",
+    storage_options_json='{"AWS_ACCESS_KEY_ID": "...", "AWS_SECRET_ACCESS_KEY": "..."}'
+)
+
+# Fetch data with column selection and row filters
+df = connector.fetch(
+    table_uri="s3://my-bucket/esg/emissions_delta",
+    version=5,
+    columns="scope, category, emissions_tco2e, year",
+    row_filter="year = 2024, scope = Scope 1",
+    storage_options_json='{"AWS_ACCESS_KEY_ID": "...", "AWS_SECRET_ACCESS_KEY": "..."}'
+)
+```
+
+### Folder / Prefix Mode (S3, GCS, Azure)
+
+Cloud storage connectors support **folder mode** for batch ingestion. When the object key/path ends with `/`, the connector:
+
+1. Lists all objects under that prefix
+2. Filters for supported file extensions: `.csv`, `.json`, `.xlsx`, `.xls`, `.parquet`
+3. Reads each file into a DataFrame
+4. Concatenates all DataFrames with `pd.concat(ignore_index=True)`
+
+**Example (S3):**
+```python
+connector = get_connector("aws_s3")
+
+# Single file
+df = connector.fetch(bucket="my-bucket", key="data/emissions.csv", ...)
+
+# Folder mode — reads ALL supported files under data/esg/
+df = connector.fetch(bucket="my-bucket", key="data/esg/", ...)
+```
+
+**Implementation details:**
+- **S3:** Uses `list_objects_v2` paginator with `Prefix` filter
+- **GCS:** Uses `bucket.list_blobs(prefix=...)` via google-cloud-storage
+- **Azure:** Uses `container_client.list_blobs(name_starts_with=...)` via azure-storage-blob
+
+The `test_connection()` method in folder mode reports the number of discovered files and lists the first 5 filenames.
 
 ### Connector Interface
 
@@ -665,7 +736,13 @@ class RealConnector:
 ### Using Connectors
 
 ```python
-from utils.real_connectors import get_connector
+from utils.real_connectors import get_connector, get_available_connectors
+
+# Check what's available on this installation
+available = get_available_connectors()
+for key, info in available.items():
+    status = "ready" if info["available"] else f"install: {info.get('install_hint', '?')}"
+    print(f"  {info['icon']} {info['name']}: {status}")
 
 # Get a connector instance
 connector = get_connector("aws_s3")
@@ -680,7 +757,7 @@ df = connector.fetch(bucket="my-bucket", key="data.csv", ...)
 
 ### Connection Manager
 
-The `ConnectionManager` class (`utils/connection_manager.py`) manages multiple registered data sources:
+The `ConnectionManager` class (`utils/connection_manager.py`) manages multiple registered data sources in a session-scoped registry:
 
 ```python
 from utils.connection_manager import ConnectionManager
@@ -691,6 +768,11 @@ mgr = ConnectionManager()
 mgr.add_source(source_id="my_s3_data", connector_type="aws_s3",
                config={...}, target_schema="emissions",
                column_mapping={...}, display_name="S3 Emissions")
+
+# Register a Delta Lake source
+mgr.add_source(source_id="delta_emissions", connector_type="delta_lake",
+               config={"table_uri": "s3://bucket/delta_table", "columns": "scope,emissions_tco2e"},
+               target_schema="emissions", display_name="Delta Lake Emissions")
 
 # Fetch all sources, grouped by schema
 by_schema = mgr.fetch_all_by_schema()
@@ -770,6 +852,10 @@ The fallback ensures the platform always works without an API token — ideal fo
 ### Local Development
 
 ```bash
+# Clone the repository
+git clone https://github.com/isayan58/Agentic_ESG.git
+cd Agentic_ESG
+
 # Install dependencies
 pip install -r requirements.txt
 
@@ -780,16 +866,26 @@ streamlit run app.py --server.port 8501
 python gradio_app.py
 ```
 
+### Optional: AI Narratives
+
+Set a HuggingFace API token for AI-generated narratives (agents work without it via rule-based fallbacks):
+
+```bash
+export HF_API_TOKEN="hf_your_token_here"
+```
+
+Or enter the token in the Streamlit sidebar at runtime.
+
 ### HuggingFace Spaces
 
-Two Spaces are deployed:
+Two Spaces are deployed using Docker SDK:
 
 | Space | SDK | URL |
 |-------|-----|-----|
-| ESG-CoPilot (Gradio) | Docker | `huggingface.co/spaces/isayan58/ESG-CoPilot` |
-| ESG-CoPilot-Dashboard (Streamlit) | Docker | `huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard` |
+| ESG-CoPilot (Gradio) | Docker | [huggingface.co/spaces/isayan58/ESG-CoPilot](https://huggingface.co/spaces/isayan58/ESG-CoPilot) |
+| ESG-CoPilot-Dashboard (Streamlit) | Docker | [huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard](https://huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard) |
 
-**Dockerfile pattern:**
+**Dockerfile pattern (Streamlit):**
 ```dockerfile
 FROM python:3.11-slim
 COPY requirements.txt .
@@ -799,21 +895,26 @@ CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0
 ```
 
 **Gradio-specific patches** (in `gradio_app.py`):
-1. `jinja2.Environment.get_template` — fixes unhashable dict in template cache
-2. `gradio.networking.url_ok` — bypasses localhost health check in Docker
-3. `gradio_client.utils._json_schema_to_python_type` — handles bool `additionalProperties`
 
-### Adding Cloud Connector Dependencies
+These monkey-patches resolve known issues when running Gradio inside Docker/HuggingFace Spaces:
 
-For cloud deployments, add to `requirements.txt`:
+1. `jinja2.Environment.get_template` — fixes unhashable dict in template cache (jinja2 + starlette version interaction)
+2. `gradio.networking.url_ok` — bypasses localhost health check that fails in containerized environments
+3. `gradio_client.utils._json_schema_to_python_type` — handles bool `additionalProperties` that causes `TypeError: argument of type 'bool' is not iterable`
+
+### Cloud Connector Dependencies
+
+All cloud connector imports are optional (`try/except`), so missing packages never crash the app. For cloud data access, install only the packages you need:
+
 ```
 boto3>=1.28.0              # AWS S3
 google-cloud-bigquery>=3.0  # GCP BigQuery
 google-cloud-storage>=2.0   # GCP Cloud Storage
 azure-storage-blob>=12.0    # Azure Blob Storage
+deltalake>=0.17.0           # Delta Lake tables (no Spark required)
 ```
 
-All cloud imports are optional (`try/except`), so missing packages won't crash the app.
+The deployed HuggingFace Spaces already include all cloud dependencies in their `requirements.txt`.
 
 ---
 
@@ -824,11 +925,16 @@ All cloud imports are optional (`try/except`), so missing packages won't crash t
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | `TypeError: unhashable type: 'dict'` | jinja2 + starlette version mismatch | Force-install `starlette==0.36.3 jinja2==3.1.4` |
-| `TypeError: argument of type 'bool' is not iterable` | Gradio API info generation bug | Monkey-patch `_json_schema_to_python_type` |
-| `ValueError: Could not find a server` | Gradio localhost health check fails in Docker | Patch `gradio.networking.url_ok = lambda url: True` |
+| `TypeError: argument of type 'bool' is not iterable` | Gradio API info generation bug | Monkey-patch `_json_schema_to_python_type` (already applied in `gradio_app.py`) |
+| `ValueError: Could not find a server` | Gradio localhost health check fails in Docker | Patch `gradio.networking.url_ok = lambda url: True` (already applied) |
+| `TypeError: text_area() got an unexpected keyword argument 'type'` | Streamlit `st.text_area()` doesn't support `type="password"` | Use `st.text_input(type="password")` for credential fields |
 | Agents return empty/N/A data | Dependencies not run first | Run full pipeline or run prerequisite agents first |
 | No AI narratives generated | HF_API_TOKEN not set | Set token in sidebar or env var (fallback mode still works) |
 | Cloud connector "not installed" | Optional dependency missing | Install with pip (see Connectors section) |
+| Delta Lake "deltalake not installed" | `deltalake` package not installed | `pip install deltalake` |
+| Delta Lake cloud table fails | Missing storage credentials | Provide `storage_options_json` with cloud credentials (see Delta Lake Connector section) |
+| Folder mode returns empty DataFrame | No supported files under prefix | Ensure files have extensions: `.csv`, `.json`, `.xlsx`, `.xls`, `.parquet` |
+| S3/GCS/Azure "No supported files found" | Path doesn't end with `/` | Append `/` to enable folder mode (e.g., `data/esg/` not `data/esg`) |
 
 ### Checking Agent State
 
