@@ -136,10 +136,10 @@ class HFClient:
             )
         if "stakeholder" in prompt_lower or "investor" in prompt_lower:
             return (
-                "Dear Stakeholders, GreenTech Solutions has made significant progress in "
-                "its ESG journey this quarter. Carbon intensity decreased by 12% YoY, "
-                "workforce diversity improved with 38% women in leadership, and we achieved "
-                "92% compliance across all regulatory frameworks. Our commitment to "
+                "Dear Stakeholders, the company has made significant progress in "
+                "its ESG journey this reporting period. Carbon intensity decreased YoY, "
+                "workforce diversity targets are advancing, and compliance levels "
+                "across regulatory frameworks continue to improve. Our commitment to "
                 "sustainable operations continues to drive long-term value creation."
             )
         if "audit" in prompt_lower or "compliance" in prompt_lower:
@@ -152,11 +152,11 @@ class HFClient:
             )
         if "carbon" in prompt_lower or "emission" in prompt_lower:
             return (
-                "Carbon accounting analysis reveals total emissions of 45,200 tCO2e. "
-                "Scope 1 contributes 12% (fleet and refrigerants), Scope 2 at 28% "
-                "(purchased electricity and heating), and Scope 3 dominates at 60% "
-                "(supply chain and business travel). Key hotspot: electronics manufacturing "
-                "suppliers in the value chain contribute 35% of Scope 3 emissions."
+                "Carbon accounting analysis reveals emissions distributed across three scopes. "
+                "Scope 1 includes direct operational emissions (fleet and facilities), "
+                "Scope 2 covers purchased electricity and heating, and Scope 3 encompasses "
+                "supply chain and business travel. Supply chain suppliers represent the "
+                "largest share of Scope 3 emissions and are key decarbonization targets."
             )
         return (
             "The ESG analysis indicates strong progress across environmental, social, "

@@ -1,6 +1,7 @@
 """Agent 8: Stakeholder Agent — Audience-tailored ESG communications."""
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.company_config import company_cfg
 
 
 AUDIENCE_PROFILES = {
@@ -76,23 +77,23 @@ class StakeholderAgent(BaseAgent):
     def _build_context(self, report_results, action_results, carbon_results, risk_results):
         return {
             "company_name": report_results.get("company", {}).get(
-                "company_name", "GreenTech Solutions"
+                "company_name", company_cfg.company_name
             ),
-            "total_emissions": carbon_results.get("total_emissions_current", "38,500"),
-            "yoy_change": carbon_results.get("yoy_change_pct", "-14.8"),
-            "carbon_intensity": carbon_results.get("carbon_intensity", "83.3"),
+            "total_emissions": carbon_results.get("total_emissions_current", "N/A"),
+            "yoy_change": carbon_results.get("yoy_change_pct", "N/A"),
+            "carbon_intensity": carbon_results.get("carbon_intensity", "N/A"),
             "renewable_pct": carbon_results.get("energy_analysis", {}).get(
-                "renewable_pct", 45
+                "renewable_pct", "N/A"
             ),
             "compliance_overall": report_results.get("compliance_summary", {}).get(
-                "overall", 82
+                "overall", "N/A"
             ),
-            "risk_score": risk_results.get("overall_risk_score", 42),
+            "risk_score": risk_results.get("overall_risk_score", "N/A"),
             "esg_rating": risk_results.get("rating_prediction", {}).get(
-                "predicted", "A-"
+                "predicted", company_cfg.esg_rating_target or "N/A"
             ),
-            "total_actions": action_results.get("summary", {}).get("total_actions", 12),
-            "critical_actions": action_results.get("summary", {}).get("critical", 3),
+            "total_actions": action_results.get("summary", {}).get("total_actions", "N/A"),
+            "critical_actions": action_results.get("summary", {}).get("critical", "N/A"),
         }
 
     def _generate_communication(self, audience_key, profile, context):

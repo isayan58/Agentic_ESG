@@ -2,6 +2,7 @@
 from datetime import datetime
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.company_config import company_cfg
 from utils.data_processing import load_company_profile, load_esg_metrics
 
 
@@ -23,6 +24,8 @@ class ReportGeneratorAgent(BaseAgent):
         audit_results = state_manager.subscribe("audit_results") or {}
         data_results = state_manager.subscribe("data_collection_results") or {}
 
+        fy_label = f"FY{company_cfg.current_fy}" if company_cfg.current_fy else "Current FY"
+
         # Generate executive summary
         exec_summary = self._generate_executive_summary(
             company, carbon_results, regulatory_results
@@ -43,7 +46,7 @@ class ReportGeneratorAgent(BaseAgent):
         audit_trail = self._compile_audit_trail(data_results, audit_results)
 
         results = {
-            "report_title": f"{company.get('company_name', 'Company')} ESG Report FY2024",
+            "report_title": f"{company_cfg.company_name} ESG Report {fy_label}",
             "generated_at": datetime.now().isoformat(),
             "company": company,
             "executive_summary": exec_summary,
@@ -84,17 +87,18 @@ class ReportGeneratorAgent(BaseAgent):
         return results
 
     def _generate_executive_summary(self, company, carbon_results, regulatory_results):
-        company_name = company.get("company_name", "The company")
+        company_name = company_cfg.company_name
         total_emissions = carbon_results.get("total_emissions_current", "N/A")
         yoy = carbon_results.get("yoy_change_pct", "N/A")
         compliance = regulatory_results.get("overall_compliance", "N/A")
+        commitments = company_cfg.commitments_text()
 
         prompt = (
             f"Write a 3-4 sentence executive summary for an ESG annual report. "
-            f"Company: {company_name}, sector: {company.get('sector', 'IT')}. "
+            f"Company: {company_name}, sector: {company_cfg.sector}. "
             f"Total emissions: {total_emissions} tCO2e (YoY change: {yoy}%). "
             f"Overall regulatory compliance: {compliance}%. "
-            f"Key commitments: Net Zero by 2040, 100% renewable by 2030. "
+            f"Key commitments: {commitments}. "
             f"Tone: professional, forward-looking."
         )
         return self.hf.generate_text(prompt)
@@ -108,6 +112,9 @@ class ReportGeneratorAgent(BaseAgent):
         pillar = pillar_map.get(section, "")
         pillar_metrics = metrics_df[metrics_df["pillar"] == pillar] if not metrics_df.empty else None
 
+        current_val_col = f"value_{company_cfg.current_fy}" if company_cfg.current_fy else "value_2024"
+        target_col = f"target_{company_cfg.current_fy}" if company_cfg.current_fy else "target_2024"
+
         context_parts = [f"Generate a brief narrative for the {section} section of an ESG report."]
         if pillar_metrics is not None and not pillar_metrics.empty:
             met = (pillar_metrics["status"] == "Met").sum()
@@ -115,9 +122,10 @@ class ReportGeneratorAgent(BaseAgent):
             context_parts.append(f"{met}/{total} targets met.")
             top_metrics = pillar_metrics.head(3)
             for _, row in top_metrics.iterrows():
+                val = row.get(current_val_col, row.get("value_2024", "N/A"))
+                target = row.get(target_col, row.get("target_2024", "N/A"))
                 context_parts.append(
-                    f"{row['metric_name']}: {row['value_2024']} {row['unit']} "
-                    f"(target: {row['target_2024']})."
+                    f"{row['metric_name']}: {val} {row['unit']} (target: {target})."
                 )
 
         return self.hf.generate_text(" ".join(context_parts))
@@ -126,11 +134,18 @@ class ReportGeneratorAgent(BaseAgent):
         tables = {}
         if metrics_df.empty:
             return tables
+
+        current_val_col = f"value_{company_cfg.current_fy}" if company_cfg.current_fy else "value_2024"
+        prev_val_col = f"value_{company_cfg.previous_fy}" if company_cfg.previous_fy else "value_2023"
+        target_col = f"target_{company_cfg.current_fy}" if company_cfg.current_fy else "target_2024"
+
+        # Use the columns that actually exist in the dataframe
+        desired_cols = ["metric_id", "metric_name", "unit", prev_val_col, current_val_col, target_col, "status"]
+        available_cols = [c for c in desired_cols if c in metrics_df.columns]
+
         for pillar in ["Environmental", "Social", "Governance"]:
             pdf = metrics_df[metrics_df["pillar"] == pillar]
-            tables[pillar] = pdf[
-                ["metric_id", "metric_name", "unit", "value_2023", "value_2024", "target_2024", "status"]
-            ].to_dict("records")
+            tables[pillar] = pdf[available_cols].to_dict("records")
         return tables
 
     def _compile_framework_sections(self, regulatory_results):
