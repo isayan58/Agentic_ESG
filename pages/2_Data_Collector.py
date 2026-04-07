@@ -45,9 +45,9 @@ with main_tab1:
 
     source_name = st.text_input("Data Source Name", placeholder="e.g. My Emissions Data")
 
-    conn_tab1, conn_tab2, conn_tab3, conn_tab4, conn_tab5, conn_tab6, conn_tab7 = st.tabs([
+    conn_tab1, conn_tab2, conn_tab3, conn_tab4, conn_tab5, conn_tab6, conn_tab7, conn_tab8 = st.tabs([
         "📁 File Upload", "📊 Google Sheets", "🌐 REST API",
-        "☁️ AWS S3", "🔷 BigQuery", "🔷 GCS", "🔵 Azure Blob",
+        "☁️ AWS S3", "🔷 BigQuery", "🔷 GCS", "🔵 Azure Blob", "🔺 Delta Lake",
     ])
 
     # ── File Upload ──
@@ -241,6 +241,46 @@ with main_tab1:
                     df = connector.fetch(**config)
                     st.session_state.preview_df = df
                     st.session_state.preview_source_type = "azure_blob"
+                    st.session_state.preview_config = config
+                    st.success(result["message"])
+                    st.dataframe(df.head(10), use_container_width=True)
+                    detected = auto_detect_schema(df)
+                    if detected:
+                        st.info(f"Auto-detected schema: **{detected}**")
+                else:
+                    st.error(result["message"])
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    # ── Delta Lake ──
+    with conn_tab8:
+        st.markdown("Read a **Delta Lake** table from a local path, S3 (`s3://`), GCS (`gs://`), or Azure (`az://`).")
+        dl_uri = st.text_input("Table URI",
+                               placeholder="s3://my-bucket/delta-tables/emissions  or  /data/delta/emissions")
+        dl_version = st.text_input("Version (optional, leave blank for latest)", placeholder="e.g. 5")
+        dl_columns = st.text_input("Columns (optional, comma-separated)",
+                                   placeholder="year, scope, emissions_tco2e")
+        dl_filter = st.text_input("Row Filter (optional)",
+                                  placeholder="year = 2024, scope = Scope 1")
+        dl_storage = st.text_input("Storage Options JSON (credentials for cloud paths)",
+                                   type="password",
+                                   placeholder='{"AWS_ACCESS_KEY_ID": "...", "AWS_SECRET_ACCESS_KEY": "..."}')
+        avail = get_available_connectors()["delta_lake"]
+        if not avail["available"]:
+            st.warning(f"deltalake not installed. Run: `{avail['install_hint']}`")
+        if st.button("Test & Preview", key="test_dl") and dl_uri:
+            try:
+                connector = get_connector("delta_lake")
+                ver = int(dl_version) if dl_version and dl_version.strip().isdigit() else None
+                config = {"table_uri": dl_uri, "version": ver,
+                          "columns": dl_columns, "row_filter": dl_filter,
+                          "storage_options_json": dl_storage}
+                result = connector.test_connection(**{k: v for k, v in config.items()
+                                                      if k != "columns" and k != "row_filter"})
+                if result["success"]:
+                    df = connector.fetch(**config)
+                    st.session_state.preview_df = df
+                    st.session_state.preview_source_type = "delta_lake"
                     st.session_state.preview_config = config
                     st.success(result["message"])
                     st.dataframe(df.head(10), use_container_width=True)
