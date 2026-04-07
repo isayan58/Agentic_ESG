@@ -2,6 +2,7 @@
 import pandas as pd
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.company_config import company_cfg
 from utils.data_processing import (
     load_emissions, load_esg_metrics, load_supply_chain,
     load_energy, load_waste, load_diversity, compute_data_quality,
@@ -137,6 +138,7 @@ class DataCollectorAgent(BaseAgent):
     def _detect_missing_data(self, datasets, quality_scores):
         """Proactively detect gaps before they compromise reporting."""
         alerts = []
+        t = company_cfg.thresholds
         expected = {
             "emissions": "Scope 1/2/3 Emissions data — required for BRSR, CSRD, GRI",
             "esg_metrics": "ESG KPI metrics — required for all framework reporting",
@@ -153,7 +155,7 @@ class DataCollectorAgent(BaseAgent):
                     "message": f"Missing: {desc}",
                     "action": f"Connect data source or upload {key} dataset",
                 })
-            elif quality_scores.get(key, {}).get("completeness", 0) < 80:
+            elif quality_scores.get(key, {}).get("completeness", 0) < t.completeness_warning:
                 comp = quality_scores[key]["completeness"]
                 alerts.append({
                     "severity": "warning",
@@ -166,31 +168,44 @@ class DataCollectorAgent(BaseAgent):
     def _compute_confidence_scores(self, datasets, quality_scores):
         """Assign verifiable trust scores per dataset for audit readiness."""
         scores = {}
+        t = company_cfg.thresholds
+        cw = company_cfg.confidence_weights
+
         for name in datasets:
             q = quality_scores.get(name, {})
             completeness = q.get("completeness", 0)
             raw_confidence = q.get("avg_confidence", 0)
 
-            # Weighted confidence: 40% completeness + 40% source confidence + 20% freshness
-            # Real verified sources get highest trust, enterprise connectors next, sample data lowest
+            # Source trust bonus
             if name.startswith("real_"):
-                source_bonus = 25
+                source_bonus = t.source_bonus_real
             elif name.startswith("connector_"):
-                source_bonus = 20
+                source_bonus = t.source_bonus_connector
             else:
-                source_bonus = 10
-            freshness = 18  # sample data is assumed recent
-            weighted = round(completeness * 0.4 + raw_confidence * 0.4 + source_bonus + freshness * 0.2, 1)
+                source_bonus = t.source_bonus_sample
+
+            weighted = round(
+                completeness * cw.completeness +
+                raw_confidence * cw.raw_confidence +
+                source_bonus +
+                t.freshness_bonus * cw.freshness, 1
+            )
             weighted = min(100, weighted)
 
-            level = "High" if weighted >= 80 else ("Medium" if weighted >= 60 else "Low")
-            scores[name] = {"score": weighted, "level": level, "audit_ready": weighted >= 75}
+            level = ("High" if weighted >= t.confidence_high
+                     else ("Medium" if weighted >= t.confidence_medium else "Low"))
+            scores[name] = {
+                "score": weighted,
+                "level": level,
+                "audit_ready": weighted >= t.confidence_audit_ready,
+            }
         return scores
 
     def _classify_quality_issues(self, quality_scores):
         issues = []
+        t = company_cfg.thresholds
         for name, quality in quality_scores.items():
-            if quality["completeness"] < 90:
+            if quality["completeness"] < t.quality_issue_completeness:
                 severity = self.hf.classify(
                     f"Data completeness for {name} is {quality['completeness']}% with {quality['null_count']} missing values",
                     ["critical issue", "moderate concern", "minor issue"],
@@ -203,7 +218,7 @@ class DataCollectorAgent(BaseAgent):
                     "null_count": quality["null_count"],
                 })
 
-            if quality["avg_confidence"] > 0 and quality["avg_confidence"] < 75:
+            if quality["avg_confidence"] > 0 and quality["avg_confidence"] < t.low_confidence_alert:
                 issues.append({
                     "dataset": name,
                     "issue": f"Low confidence scores (avg: {quality['avg_confidence']}%)",

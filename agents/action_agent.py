@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.company_config import company_cfg
 
 
 class ActionAgent(BaseAgent):
@@ -35,13 +36,15 @@ class ActionAgent(BaseAgent):
             action["detailed_description"] = self._enhance_description(action)
 
         # Compute summary statistics
+        cost_unit = company_cfg.currency_unit
         summary = {
             "total_actions": len(actions),
             "critical": sum(1 for a in actions if a["priority"] == "Critical"),
             "high": sum(1 for a in actions if a["priority"] == "High"),
             "medium": sum(1 for a in actions if a["priority"] == "Medium"),
             "low": sum(1 for a in actions if a["priority"] == "Low"),
-            "total_investment": sum(a.get("estimated_cost_lakhs", 0) for a in actions),
+            "total_investment": sum(a.get("estimated_cost", 0) for a in actions),
+            "cost_unit": cost_unit,
         }
 
         results = {
@@ -56,6 +59,8 @@ class ActionAgent(BaseAgent):
     def _actions_from_risks(self, risk_results):
         actions = []
         supplier_risks = risk_results.get("supplier_risks", {})
+        ac = company_cfg.action_costs
+        t = company_cfg.thresholds
 
         if supplier_risks.get("high_risk_count", 0) > 0:
             actions.append({
@@ -63,8 +68,8 @@ class ActionAgent(BaseAgent):
                 "category": "Supply Chain",
                 "priority": "Critical",
                 "source": "Risk Predictor",
-                "duration_weeks": 12,
-                "estimated_cost_lakhs": 50,
+                "duration_weeks": ac.supplier_engagement_weeks,
+                "estimated_cost": ac.supplier_engagement_cost,
                 "impact": "Reduce supply chain risk exposure by 40%",
                 "kpi": "Supplier ESG score improvement",
             })
@@ -75,21 +80,21 @@ class ActionAgent(BaseAgent):
                 "category": "Supply Chain",
                 "priority": "High",
                 "source": "Risk Predictor",
-                "duration_weeks": 8,
-                "estimated_cost_lakhs": 25,
+                "duration_weeks": ac.overdue_audit_weeks,
+                "estimated_cost": ac.overdue_audit_cost,
                 "impact": "Close audit gaps for regulatory readiness",
                 "kpi": "Audit completion rate",
             })
 
         climate_risks = risk_results.get("climate_risks", {})
-        if climate_risks.get("transition_risk", 0) > 50:
+        if climate_risks.get("transition_risk", 0) > t.transition_risk_trigger:
             actions.append({
                 "action": "Accelerate transition risk mitigation strategy",
                 "category": "Climate",
                 "priority": "High",
                 "source": "Risk Predictor",
-                "duration_weeks": 16,
-                "estimated_cost_lakhs": 100,
+                "duration_weeks": ac.transition_risk_weeks,
+                "estimated_cost": ac.transition_risk_cost,
                 "impact": "Reduce transition risk score by 20 points",
                 "kpi": "Transition risk score",
             })
@@ -99,6 +104,8 @@ class ActionAgent(BaseAgent):
     def _actions_from_audit(self, audit_results):
         actions = []
         checklist = audit_results.get("compliance_checklist", [])
+        ac = company_cfg.action_costs
+        t = company_cfg.thresholds
 
         for item in checklist:
             if item.get("status") == "Fail":
@@ -107,21 +114,21 @@ class ActionAgent(BaseAgent):
                     "category": "Compliance",
                     "priority": "Critical",
                     "source": "Audit Agent",
-                    "duration_weeks": 6,
-                    "estimated_cost_lakhs": 15,
+                    "duration_weeks": ac.compliance_remediation_weeks,
+                    "estimated_cost": ac.compliance_remediation_cost,
                     "impact": f"Achieve compliance for {item.get('framework', 'General')}",
                     "kpi": "Compliance score",
                 })
 
         readiness = audit_results.get("readiness_score", {})
-        if readiness.get("evidence", 0) < 80:
+        if readiness.get("evidence", 0) < t.evidence_score_trigger:
             actions.append({
                 "action": "Strengthen evidence documentation and data traceability",
                 "category": "Audit Readiness",
                 "priority": "Medium",
                 "source": "Audit Agent",
-                "duration_weeks": 8,
-                "estimated_cost_lakhs": 10,
+                "duration_weeks": ac.evidence_documentation_weeks,
+                "estimated_cost": ac.evidence_documentation_cost,
                 "impact": "Improve evidence score to 90%+",
                 "kpi": "Evidence verifiability rate",
             })
@@ -131,15 +138,17 @@ class ActionAgent(BaseAgent):
     def _actions_from_carbon(self, carbon_results):
         actions = []
         yoy = carbon_results.get("yoy_change_pct", 0)
+        ac = company_cfg.action_costs
+        t = company_cfg.thresholds
 
-        if yoy > -10:
+        if yoy > t.yoy_reduction_insufficient:
             actions.append({
                 "action": "Increase renewable energy procurement to 60%",
                 "category": "Emissions",
                 "priority": "High",
                 "source": "Carbon Accountant",
-                "duration_weeks": 20,
-                "estimated_cost_lakhs": 150,
+                "duration_weeks": ac.renewable_energy_weeks,
+                "estimated_cost": ac.renewable_energy_cost,
                 "impact": "Reduce Scope 2 emissions by 25%",
                 "kpi": "Renewable energy percentage",
             })
@@ -151,22 +160,23 @@ class ActionAgent(BaseAgent):
                 "category": "Scope 3",
                 "priority": "High",
                 "source": "Carbon Accountant",
-                "duration_weeks": 16,
-                "estimated_cost_lakhs": 40,
+                "duration_weeks": ac.scope3_supplier_weeks,
+                "estimated_cost": ac.scope3_supplier_cost,
                 "impact": "Target 15% Scope 3 reduction from key suppliers",
                 "kpi": "Scope 3 emissions from top suppliers",
             })
 
         energy = carbon_results.get("energy_analysis", {})
-        if energy.get("renewable_pct", 0) < 50:
+        if energy.get("renewable_pct", 0) < t.renewable_low_trigger:
+            office = company_cfg.primary_office()
             actions.append({
-                "action": "Install additional solar capacity at Bangalore office",
+                "action": f"Install additional solar capacity at {office}",
                 "category": "Energy",
                 "priority": "Medium",
                 "source": "Carbon Accountant",
-                "duration_weeks": 24,
-                "estimated_cost_lakhs": 200,
-                "impact": "Add 500 kW solar capacity, reduce grid dependency",
+                "duration_weeks": ac.solar_installation_weeks,
+                "estimated_cost": ac.solar_installation_cost,
+                "impact": "Add solar capacity, reduce grid dependency",
                 "kpi": "Solar generation capacity (kW)",
             })
 
@@ -175,6 +185,7 @@ class ActionAgent(BaseAgent):
     def _actions_from_regulatory(self, regulatory_results):
         actions = []
         framework_results = regulatory_results.get("framework_results", {})
+        ac = company_cfg.action_costs
 
         for fw_name, fw_result in framework_results.items():
             critical_gaps = [
@@ -186,8 +197,8 @@ class ActionAgent(BaseAgent):
                     "category": "Regulatory",
                     "priority": "Critical",
                     "source": "Regulatory Tracker",
-                    "duration_weeks": 10,
-                    "estimated_cost_lakhs": 30,
+                    "duration_weeks": ac.regulatory_gap_weeks,
+                    "estimated_cost": ac.regulatory_gap_cost,
                     "impact": f"Close {len(critical_gaps)} critical gaps in {fw_name}",
                     "kpi": f"{fw_name} compliance percentage",
                 })
@@ -226,11 +237,12 @@ class ActionAgent(BaseAgent):
         return self.hf.generate_text(prompt, max_tokens=100)
 
     def _generate_roadmap_narrative(self, actions, summary):
+        cost_unit = summary.get("cost_unit", company_cfg.currency_unit)
         prompt = (
-            f"Generate a brief implementation roadmap summary. "
+            f"Generate a brief implementation roadmap summary for {company_cfg.company_name}. "
             f"Total actions: {summary['total_actions']}. "
             f"Critical: {summary['critical']}, High: {summary['high']}. "
-            f"Total estimated investment: INR {summary['total_investment']} lakhs. "
+            f"Total estimated investment: {summary['total_investment']} ({cost_unit}). "
             f"Top priorities: {', '.join(a['action'] for a in actions[:3])}. "
             f"Provide a strategic overview in 3-4 sentences."
         )

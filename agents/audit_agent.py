@@ -2,6 +2,7 @@
 from datetime import datetime
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.company_config import company_cfg
 from utils.data_processing import load_esg_metrics, load_regulatory_frameworks
 
 
@@ -63,6 +64,7 @@ class AuditAgent(BaseAgent):
 
     def _audit_data_completeness(self, data_results):
         quality_scores = data_results.get("quality_scores", {})
+        t = company_cfg.thresholds
         items = []
 
         expected_datasets = [
@@ -77,8 +79,8 @@ class AuditAgent(BaseAgent):
         for dataset_key, label, priority in expected_datasets:
             quality = quality_scores.get(dataset_key, {})
             if quality:
-                status = "Pass" if quality["completeness"] >= 90 else (
-                    "Warning" if quality["completeness"] >= 70 else "Fail"
+                status = "Pass" if quality["completeness"] >= t.audit_completeness_pass else (
+                    "Warning" if quality["completeness"] >= t.audit_completeness_warning else "Fail"
                 )
                 items.append({
                     "dataset": label,
@@ -103,11 +105,12 @@ class AuditAgent(BaseAgent):
     def _generate_compliance_checklist(self, regulatory_results, metrics_df):
         checklist = []
         framework_results = regulatory_results.get("framework_results", {})
+        t = company_cfg.thresholds
 
         for fw_name, fw_result in framework_results.items():
             compliance = fw_result.get("compliance_pct", 0)
-            status = "Pass" if compliance >= 80 else (
-                "Warning" if compliance >= 60 else "Fail"
+            status = "Pass" if compliance >= t.audit_compliance_pass else (
+                "Warning" if compliance >= t.audit_compliance_warning else "Fail"
             )
             checklist.append({
                 "framework": fw_name,
@@ -123,14 +126,16 @@ class AuditAgent(BaseAgent):
         general_checks = [
             ("Data Traceability", "All data sources documented with timestamps", 88),
             ("Confidence Scoring", "All metrics have confidence scores assigned", 82),
-            ("Year-over-Year Comparability", "2023 and 2024 data available for comparison", 95),
+            ("Year-over-Year Comparability", "Prior and current year data available for comparison", 95),
             ("Third-Party Verification", "External audit conducted within last 12 months", 70),
             ("Board ESG Oversight", "ESG committee meeting minutes documented", 90),
             ("Materiality Assessment", "Double materiality assessment completed", 60),
         ]
 
         for check_name, description, score in general_checks:
-            status = "Pass" if score >= 80 else ("Warning" if score >= 60 else "Fail")
+            status = "Pass" if score >= t.audit_compliance_pass else (
+                "Warning" if score >= t.audit_compliance_warning else "Fail"
+            )
             checklist.append({
                 "framework": "General",
                 "requirement": check_name,
@@ -146,6 +151,7 @@ class AuditAgent(BaseAgent):
         if metrics_df.empty:
             return evidence
 
+        t = company_cfg.thresholds
         for _, row in metrics_df.iterrows():
             source = row.get("data_source", "Unknown")
             confidence = row.get("confidence", 0)
@@ -154,24 +160,31 @@ class AuditAgent(BaseAgent):
                 "metric_name": row["metric_name"],
                 "data_source": source,
                 "confidence": confidence,
-                "verifiable": confidence >= 0.8,
+                "verifiable": confidence >= t.audit_evidence_verifiable,
             })
         return evidence
 
     def _calculate_readiness_score(self, completeness_audit, compliance_checklist, evidence_map):
-        # Completeness component (30%)
+        aw = company_cfg.audit_weights
+        t = company_cfg.thresholds
+
+        # Completeness component
         comp_scores = [item["completeness"] for item in completeness_audit if item["completeness"] > 0]
         completeness_avg = sum(comp_scores) / len(comp_scores) if comp_scores else 0
 
-        # Compliance component (40%)
+        # Compliance component
         compliance_scores = [item.get("score", 0) for item in compliance_checklist if "score" in item]
         compliance_avg = sum(compliance_scores) / len(compliance_scores) if compliance_scores else 0
 
-        # Evidence component (30%)
+        # Evidence component
         verifiable = sum(1 for e in evidence_map if e.get("verifiable", False))
         evidence_pct = (verifiable / len(evidence_map) * 100) if evidence_map else 0
 
-        total = round(completeness_avg * 0.30 + compliance_avg * 0.40 + evidence_pct * 0.30, 1)
+        total = round(
+            completeness_avg * aw.completeness +
+            compliance_avg * aw.compliance +
+            evidence_pct * aw.evidence, 1
+        )
 
         return {
             "overall": total,
@@ -179,9 +192,9 @@ class AuditAgent(BaseAgent):
             "compliance": round(compliance_avg, 1),
             "evidence": round(evidence_pct, 1),
             "grade": (
-                "A" if total >= 90 else
-                "B" if total >= 75 else
-                "C" if total >= 60 else "D"
+                "A" if total >= t.audit_grade_a else
+                "B" if total >= t.audit_grade_b else
+                "C" if total >= t.audit_grade_c else "D"
             ),
         }
 
@@ -207,7 +220,7 @@ class AuditAgent(BaseAgent):
         missing = [item for item in completeness_audit if item["status"] == "Missing"]
 
         prompt = (
-            f"Summarize ESG audit findings. "
+            f"Summarize ESG audit findings for {company_cfg.company_name}. "
             f"Readiness score: {readiness['overall']}/100 (Grade: {readiness['grade']}). "
             f"Critical failures: {len(fails)}. Warnings: {len(warnings)}. Missing data: {len(missing)}. "
             f"Top issues: {'; '.join(f['requirement'] for f in fails[:3]) if fails else 'None critical'}. "
