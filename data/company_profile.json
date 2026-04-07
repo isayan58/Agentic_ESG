@@ -5,17 +5,28 @@
   "headquarters": "Mumbai, Maharashtra, India",
   "founded": 2008,
   "employees": 5200,
-  "revenue_inr_crores": 3850,
-  "revenue_usd_millions": 462,
   "offices": ["Mumbai HQ", "Bangalore Office", "Pune Office", "Hyderabad Office"],
   "operating_countries": ["India", "USA", "UK", "Germany", "Singapore", "Japan"],
   "listed_exchanges": ["BSE", "NSE"],
+
+  "currency_unit": "INR lakhs",
+  "revenue": {
+    "current_usd_millions": 462,
+    "previous_usd_millions": 420,
+    "current_local": 3850,
+    "previous_local": 3500
+  },
   "market_cap_inr_crores": 18500,
+
+  "current_fy": 2024,
+  "previous_fy": 2023,
+
   "esg_rating_current": "BBB",
   "esg_rating_target": "A",
   "sustainability_report_years": [2021, 2022, 2023, 2024],
   "frameworks_adopted": ["BRSR", "GRI", "SASB"],
   "frameworks_planned": ["CSRD"],
+
   "key_commitments": [
     "Net Zero by 2040",
     "100% Renewable Energy by 2030",
@@ -32,5 +43,30 @@
     "Supply Chain Responsibility",
     "Business Ethics & Governance",
     "Community Impact"
-  ]
+  ],
+
+  "_comment_thresholds": "Override any threshold below to tune agent scoring for this company.",
+  "thresholds": {},
+
+  "_comment_risk_weights": "Weights for composite climate risk score (must sum to 1.0).",
+  "risk_weights": {},
+
+  "_comment_audit_weights": "Weights for audit readiness score (must sum to 1.0).",
+  "audit_weights": {},
+
+  "_comment_sector_risk": "Sector-specific base risk scores. Defaults are tuned for IT services.",
+  "sector_risk_defaults": {
+    "physical_risk": 28,
+    "physical_risk_detail": "Low exposure — primarily office-based IT operations",
+    "reputational_risk": 35,
+    "reputational_detail": "Strong ESG reporting track record, improving scores",
+    "supply_chain_risk": 55,
+    "supply_chain_detail": "Exposure through high-emission tier 2/3 suppliers"
+  },
+
+  "_comment_scenarios": "Override scenario parameters for risk analysis.",
+  "scenarios": {},
+
+  "_comment_action_costs": "Cost templates in currency_unit. Adjust for company size.",
+  "action_cost_templates": {}
 }

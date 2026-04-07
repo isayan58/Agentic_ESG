@@ -2,3 +2,12 @@
 __pycache__
 \_pycache_
 *.pyc
+
+# Secrets — NEVER commit
+.env
+.env.local
+.env.production
+*.pem
+*.key
+credentials.json
+service-account*.json

@@ -1,4 +1,4 @@
-"""ESG CoPilot Configuration"""
+"""ESG CoPilot Configuration — loads company data from company_profile.json."""
 import os
 
 # HuggingFace API
@@ -14,21 +14,29 @@ MODELS = {
 }
 
 # Ports
-STREAMLIT_PORT = 8501
-GRADIO_PORT = 7860
+STREAMLIT_PORT = int(os.environ.get("STREAMLIT_PORT", 8501))
+GRADIO_PORT = int(os.environ.get("GRADIO_PORT", 7860))
 
 # Data paths
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
-# Company profile
-COMPANY_NAME = "GreenTech Solutions Pvt. Ltd."
-COMPANY_SECTOR = "Information Technology"
-COMPANY_COUNTRY = "India"
+# ── Company-level values (loaded from data/company_profile.json) ─────────
+from core.company_config import company_cfg  # noqa: E402
 
-# ESG Frameworks
-FRAMEWORKS = ["BRSR", "CSRD", "GRI", "SASB", "SEC Climate Change"]
+COMPANY_NAME = company_cfg.company_name
+COMPANY_SECTOR = company_cfg.sector
+COMPANY_COUNTRY = (company_cfg.headquarters.split(",")[-1].strip()
+                   if company_cfg.headquarters else "")
 
-# Agent names and colors
+# ESG Frameworks = adopted + planned (deduplicated, order-preserved)
+_seen: set[str] = set()
+FRAMEWORKS: list[str] = []
+for _fw in company_cfg.frameworks_adopted + company_cfg.frameworks_planned:
+    if _fw not in _seen:
+        FRAMEWORKS.append(_fw)
+        _seen.add(_fw)
+
+# Agent names and colors (UI only — not company-specific)
 AGENT_CONFIG = {
     "data_collector": {"name": "Data Collector", "icon": "📊", "color": "#2196F3"},
     "regulatory_tracker": {"name": "Regulatory Tracker", "icon": "📋", "color": "#FF9800"},
