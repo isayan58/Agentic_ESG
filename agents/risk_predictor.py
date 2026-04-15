@@ -1,9 +1,17 @@
-"""Agent 5: Risk Predictor — Climate risk forecasting, ESG rating prediction, scenario analysis."""
+"""Agent 5: Risk Predictor — Climate risk forecasting, ESG rating prediction,
+market regime detection, downside protection, and scenario analysis.
+
+Hypothesis mapping:
+  H3 — ESG outperformance is cyclical (market regime detection)
+  H4 — ESG reduces downside risk (downside protection score)
+"""
 import pandas as pd
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
 from core.company_config import company_cfg
-from utils.data_processing import load_esg_metrics, load_supply_chain, load_emissions
+from utils.data_processing import (
+    load_esg_metrics, load_supply_chain, load_emissions, load_financials,
+)
 
 
 class RiskPredictorAgent(BaseAgent):
@@ -18,11 +26,12 @@ class RiskPredictorAgent(BaseAgent):
         metrics_df = load_esg_metrics()
         supply_chain_df = load_supply_chain()
         emissions_df = load_emissions()
+        financials_df = load_financials()
 
         # Climate risk assessment
         climate_risks = self._assess_climate_risks(emissions_df, metrics_df)
 
-        # ESG rating prediction
+        # ESG rating prediction (multi-framework)
         rating_prediction = self._predict_esg_rating(metrics_df)
 
         # Supplier risk analysis
@@ -30,6 +39,14 @@ class RiskPredictorAgent(BaseAgent):
 
         # Scenario analysis
         scenarios = self._run_scenario_analysis(emissions_df, metrics_df)
+
+        # H3: Market regime detection
+        market_regime = self._detect_market_regime(financials_df)
+
+        # H4: Downside protection score
+        downside_protection = self._compute_downside_protection(
+            financials_df, metrics_df, climate_risks
+        )
 
         # AI-generated risk narrative
         narrative = self._generate_risk_narrative(
@@ -41,6 +58,8 @@ class RiskPredictorAgent(BaseAgent):
             "rating_prediction": rating_prediction,
             "supplier_risks": supplier_risks,
             "scenarios": scenarios,
+            "market_regime": market_regime,
+            "downside_protection": downside_protection,
             "narrative": narrative,
             "overall_risk_score": climate_risks["overall_score"],
         }
@@ -145,12 +164,16 @@ class RiskPredictorAgent(BaseAgent):
         else:
             predicted = "BB+"
 
+        # Multi-agency rating predictions (MSCI, Sustainalytics, CDP-style)
+        multi_ratings = self._multi_agency_ratings(met_pct, pillar_scores)
+
         return {
             "current": company_cfg.esg_rating_current,
             "predicted": predicted,
             "confidence": round(min(sr.confidence_cap, met_pct + sr.confidence_boost), 1),
             "pillar_scores": pillar_scores,
             "metrics_met_pct": round(met_pct, 1),
+            "multi_agency_ratings": multi_ratings,
             "improvement_areas": self._identify_improvement_areas(metrics_df),
         }
 
@@ -250,6 +273,179 @@ class RiskPredictorAgent(BaseAgent):
             f"Provide key insights and recommendations."
         )
         return self.hf.generate_text(prompt)
+
+    def _multi_agency_ratings(self, met_pct, pillar_scores):
+        """Predict ratings across MSCI, Sustainalytics, and CDP-style scales."""
+        env_score = pillar_scores.get("Environmental", 50)
+        soc_score = pillar_scores.get("Social", 50)
+        gov_score = pillar_scores.get("Governance", 50)
+
+        # MSCI-style (AAA to CCC)
+        if met_pct >= 90:
+            msci = "AA"
+        elif met_pct >= 80:
+            msci = "A"
+        elif met_pct >= 70:
+            msci = "BBB"
+        elif met_pct >= 60:
+            msci = "BB"
+        else:
+            msci = "B"
+
+        # Sustainalytics-style (lower = better, 0-40+ risk score)
+        sust_risk = round(max(5, 50 - met_pct * 0.45), 1)
+        if sust_risk < 10:
+            sust_category = "Negligible"
+        elif sust_risk < 20:
+            sust_category = "Low"
+        elif sust_risk < 30:
+            sust_category = "Medium"
+        elif sust_risk < 40:
+            sust_category = "High"
+        else:
+            sust_category = "Severe"
+
+        # CDP-style (A to D-, focused on environmental)
+        if env_score >= 85:
+            cdp = "A"
+        elif env_score >= 70:
+            cdp = "A-"
+        elif env_score >= 55:
+            cdp = "B"
+        elif env_score >= 40:
+            cdp = "B-"
+        else:
+            cdp = "C"
+
+        return {
+            "msci": {"rating": msci, "basis": "Overall ESG performance"},
+            "sustainalytics": {
+                "risk_score": sust_risk,
+                "category": sust_category,
+                "basis": "Unmanaged ESG risk exposure",
+            },
+            "cdp": {"score": cdp, "basis": "Environmental disclosure & action"},
+        }
+
+    def _detect_market_regime(self, fin_df):
+        """H3: Detect current market regime and ESG performance context.
+
+        Market regimes:
+          - Bull: rising revenue + expanding margins → ESG premium intact
+          - Bear/Stress: declining metrics → ESG as defensive shield
+          - Transition: mixed signals → ESG differentiation opportunity
+        """
+        if fin_df.empty or len(fin_df) < 4:
+            return {
+                "regime": "Unknown",
+                "confidence": 0,
+                "esg_context": "Insufficient data",
+            }
+
+        q = fin_df.sort_values(["year", "quarter"])
+        recent_4 = q.tail(4)
+
+        rev_trend = recent_4["revenue_inr_crores"].pct_change().mean()
+        margin_trend = recent_4["ebitda_margin_pct"].diff().mean()
+        pe_trend = recent_4["pe_ratio"].diff().mean()
+        volatility = recent_4["revenue_inr_crores"].pct_change().std()
+
+        # Classify regime
+        if rev_trend > 0.01 and margin_trend > 0:
+            regime = "Bull"
+            esg_context = (
+                "ESG premium is priced in — investors reward sustainability leaders. "
+                "Focus on growth channel and brand differentiation."
+            )
+            confidence = min(90, 60 + rev_trend * 1000)
+        elif rev_trend < -0.005 or margin_trend < -0.5:
+            regime = "Stress"
+            esg_context = (
+                "ESG acts as a defensive shield — companies with strong governance "
+                "and low carbon exposure show better downside protection."
+            )
+            confidence = min(85, 60 + abs(rev_trend) * 1000)
+        else:
+            regime = "Transition"
+            esg_context = (
+                "Mixed market signals — ESG differentiation is a competitive advantage. "
+                "Focus on risk reduction and cost efficiency channels."
+            )
+            confidence = 55
+
+        return {
+            "regime": regime,
+            "confidence": round(confidence, 1),
+            "esg_context": esg_context,
+            "indicators": {
+                "revenue_trend_pct": round(rev_trend * 100, 2),
+                "margin_trend_bps": round(margin_trend * 100, 1),
+                "pe_trend": round(pe_trend, 2),
+                "revenue_volatility": round(volatility * 100, 2),
+            },
+        }
+
+    def _compute_downside_protection(self, fin_df, metrics_df, climate_risks):
+        """H4: Compute downside protection score — how well ESG shields
+        against negative shocks.
+
+        Higher score = better protection.  Components:
+          - Governance strength (board oversight, compliance)
+          - Financial resilience (low leverage, stable margins)
+          - ESG momentum (improving trajectory reduces tail risk)
+          - Climate risk mitigation (lower exposure = better shield)
+        """
+        # Governance strength (0-100)
+        gov_score = 50.0
+        if not metrics_df.empty:
+            gov = metrics_df[metrics_df["pillar"] == "Governance"]
+            if not gov.empty:
+                gov_score = round((gov["status"] == "Met").sum() / len(gov) * 100, 1)
+
+        # Financial resilience
+        fin_resilience = 50.0
+        if not fin_df.empty:
+            latest = fin_df.sort_values(["year", "quarter"]).iloc[-1]
+            de = float(latest.get("debt_equity_ratio", 0.5))
+            margin = float(latest.get("ebitda_margin_pct", 20))
+            # Lower D/E and higher margin = more resilient
+            fin_resilience = min(100, max(0, (1 - de) * 50 + margin * 2))
+
+        # ESG momentum (are metrics improving?)
+        esg_momentum = 50.0
+        if not metrics_df.empty:
+            met_pct = (metrics_df["status"] == "Met").sum() / len(metrics_df) * 100
+            esg_momentum = min(100, met_pct * 1.2)
+
+        # Climate risk inverse (lower risk = better protection)
+        overall_risk = climate_risks.get("overall_score", 50)
+        climate_shield = max(0, 100 - overall_risk)
+
+        # Weighted composite
+        dps = round(
+            gov_score * 0.30 +
+            fin_resilience * 0.25 +
+            esg_momentum * 0.25 +
+            climate_shield * 0.20,
+            1,
+        )
+
+        level = "Strong" if dps >= 70 else ("Moderate" if dps >= 50 else "Weak")
+
+        return {
+            "score": dps,
+            "level": level,
+            "components": {
+                "governance_strength": round(gov_score, 1),
+                "financial_resilience": round(fin_resilience, 1),
+                "esg_momentum": round(esg_momentum, 1),
+                "climate_risk_shield": round(climate_shield, 1),
+            },
+            "interpretation": (
+                f"Downside protection is {level.lower()}. "
+                f"{'Governance and financial resilience provide a solid buffer.' if dps >= 70 else 'Consider strengthening governance and reducing leverage to improve downside protection.'}"
+            ),
+        }
 
     def _risk_level(self, score):
         t = company_cfg.thresholds
