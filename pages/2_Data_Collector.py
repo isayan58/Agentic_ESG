@@ -4,8 +4,9 @@ import pandas as pd
 import json
 import os
 from agents.data_collector import DataCollectorAgent
-from utils.charts import quality_bar, connector_status_chart
+from utils.charts import quality_bar, connector_status_chart, chart_unavailable_message
 from utils.real_connectors import get_connector, get_available_connectors
+from utils.streamlit_compat import safe_dataframe
 from utils.schema_mapper import (
     auto_detect_schema, suggest_column_mapping, apply_column_mapping,
     validate_mapped_data, get_schema_names, get_schema_columns, ESG_SCHEMAS,
@@ -29,6 +30,13 @@ if "preview_df" not in st.session_state:
 
 agent = st.session_state.data_collector
 conn_mgr = st.session_state.conn_manager
+
+
+def render_chart(fig):
+    if fig is None:
+        st.info(chart_unavailable_message())
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
 # ── Tabs: Connect Sources / Run Collection ──
 main_tab1, main_tab2, main_tab3 = st.tabs([
@@ -65,7 +73,7 @@ with main_tab1:
                     st.session_state.preview_source_type = "file_upload"
                     st.session_state.preview_config = {"file_bytes": file_bytes, "file_name": file_name}
                     st.success(result["message"])
-                    st.dataframe(df.head(10), use_container_width=True)
+                    safe_dataframe(df.head(10), use_container_width=True)
                     detected = auto_detect_schema(df)
                     if detected:
                         st.info(f"Auto-detected schema: **{detected}**")
@@ -88,7 +96,7 @@ with main_tab1:
                     st.session_state.preview_source_type = "google_sheets"
                     st.session_state.preview_config = {"url": gs_url, "sheet_id": gs_gid}
                     st.success(result["message"])
-                    st.dataframe(df.head(10), use_container_width=True)
+                    safe_dataframe(df.head(10), use_container_width=True)
                     detected = auto_detect_schema(df)
                     if detected:
                         st.info(f"Auto-detected schema: **{detected}**")
@@ -126,7 +134,7 @@ with main_tab1:
                                                        "headers": headers, "body": api_body,
                                                        "json_path": api_json_path}
                     st.success(result["message"])
-                    st.dataframe(df.head(10), use_container_width=True)
+                    safe_dataframe(df.head(10), use_container_width=True)
                     detected = auto_detect_schema(df)
                     if detected:
                         st.info(f"Auto-detected schema: **{detected}**")
@@ -158,7 +166,7 @@ with main_tab1:
                     st.session_state.preview_source_type = "aws_s3"
                     st.session_state.preview_config = config
                     st.success(result["message"])
-                    st.dataframe(df.head(10), use_container_width=True)
+                    safe_dataframe(df.head(10), use_container_width=True)
                     detected = auto_detect_schema(df)
                     if detected:
                         st.info(f"Auto-detected schema: **{detected}**")
@@ -186,7 +194,7 @@ with main_tab1:
                     st.session_state.preview_source_type = "gcp_bigquery"
                     st.session_state.preview_config = config
                     st.success(result["message"])
-                    st.dataframe(df.head(10), use_container_width=True)
+                    safe_dataframe(df.head(10), use_container_width=True)
                     detected = auto_detect_schema(df)
                     if detected:
                         st.info(f"Auto-detected schema: **{detected}**")
@@ -214,7 +222,7 @@ with main_tab1:
                     st.session_state.preview_source_type = "gcp_storage"
                     st.session_state.preview_config = config
                     st.success(result["message"])
-                    st.dataframe(df.head(10), use_container_width=True)
+                    safe_dataframe(df.head(10), use_container_width=True)
                     detected = auto_detect_schema(df)
                     if detected:
                         st.info(f"Auto-detected schema: **{detected}**")
@@ -243,7 +251,7 @@ with main_tab1:
                     st.session_state.preview_source_type = "azure_blob"
                     st.session_state.preview_config = config
                     st.success(result["message"])
-                    st.dataframe(df.head(10), use_container_width=True)
+                    safe_dataframe(df.head(10), use_container_width=True)
                     detected = auto_detect_schema(df)
                     if detected:
                         st.info(f"Auto-detected schema: **{detected}**")
@@ -283,7 +291,7 @@ with main_tab1:
                     st.session_state.preview_source_type = "delta_lake"
                     st.session_state.preview_config = config
                     st.success(result["message"])
-                    st.dataframe(df.head(10), use_container_width=True)
+                    safe_dataframe(df.head(10), use_container_width=True)
                     detected = auto_detect_schema(df)
                     if detected:
                         st.info(f"Auto-detected schema: **{detected}**")
@@ -390,7 +398,7 @@ with main_tab2:
             if quality:
                 scores = {name: q["completeness"] for name, q in quality.items()}
                 fig = quality_bar(scores)
-                st.plotly_chart(fig, use_container_width=True)
+                render_chart(fig)
                 rows = []
                 for name, q in quality.items():
                     rows.append({
@@ -400,7 +408,7 @@ with main_tab2:
                         "Null Values": q["null_count"],
                         "Confidence": f"{q['avg_confidence']}%" if q["avg_confidence"] > 0 else "N/A",
                     })
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                safe_dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
         with tab2:
             alerts = results.get("missing_data_alerts", [])
@@ -451,7 +459,7 @@ with main_tab3:
         conn_statuses = results.get("connector_statuses", {})
         if conn_statuses:
             fig = connector_status_chart(conn_statuses)
-            st.plotly_chart(fig, use_container_width=True)
+            render_chart(fig)
             for key, status in conn_statuses.items():
                 icon = {"synced": "✅", "streaming": "📡", "connected": "🔗",
                         "error": "❌", "disconnected": "⚪"}.get(status.get("status", ""), "⚪")

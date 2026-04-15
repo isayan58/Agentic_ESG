@@ -57,7 +57,7 @@ with st.sidebar:
     st.markdown("""
     Use the sidebar pages to access:
     - **Mission Control** — Overview dashboard
-    - **8 Specialized Agents** — Each with full functionality
+    - **9 Specialized Agents** — Each with full functionality
     """)
     st.markdown("---")
     st.markdown("### HuggingFace API")
@@ -81,7 +81,7 @@ st.markdown("---")
 
 st.markdown("### Welcome to the ESG CoPilot Platform")
 st.markdown("""
-This platform orchestrates **8 specialized AI agents** that work together to autonomously collect,
+This platform orchestrates **9 specialized AI agents** that work together to autonomously collect,
 analyze, report, and predict ESG performance. Each agent uses HuggingFace AI models for
 intelligent analysis.
 """)
@@ -89,11 +89,11 @@ intelligent analysis.
 # Quick overview cards
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric("AI Agents", "8", help="Specialized ESG agents")
+    st.metric("AI Agents", "9", help="Specialized ESG agents")
 with col2:
     st.metric("Frameworks", "4", help="BRSR, CSRD, GRI, SASB")
 with col3:
-    st.metric("Data Sources", "6", help="Sample datasets loaded")
+    st.metric("Data Sources", "7", help="Sample datasets loaded")
 with col4:
     st.metric("AI Models", "4", help="HuggingFace models")
 
@@ -108,6 +108,7 @@ agents_info = [
     ("📄", "Report Generator", "Creates multi-framework audit-ready reports"),
     ("⚠️", "Risk Predictor", "Forecasts climate risks and predicts ESG ratings"),
     ("🔍", "Audit Agent", "Verifies compliance and manages audit trails"),
+    ("⭐", "ESG ROI Agent", "Quantifies ESG-linked financial and strategic return"),
     ("🎯", "Action Agent", "Generates prioritized recommendations"),
     ("👥", "Stakeholder Agent", "Tailors communications for each audience"),
 ]
@@ -126,7 +127,7 @@ st.markdown("---")
 st.markdown("### Getting Started")
 st.markdown("""
 1. Navigate to **Mission Control** to run the full agent pipeline
-2. Or visit individual agent pages for focused analysis
+2. Or visit individual agent pages for focused analysis, including ESG ROI
 3. Optionally set your HuggingFace API token in the sidebar for AI-powered analysis
 """)
 st.caption("Navigate using the sidebar pages →")

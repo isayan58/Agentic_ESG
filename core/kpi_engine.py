@@ -255,9 +255,16 @@ class KPIEngine:
         retention = fin.get("talent_retention_score", 70)
 
         diversity_score = 50.0
-        if not div_df.empty and "percentage" in div_df.columns:
-            # Use gender balance as proxy
-            if "gender" in div_df.columns:
+        if not div_df.empty:
+            if {"category", "metric", "value"}.issubset(div_df.columns):
+                gender_df = div_df[div_df["category"].astype(str).str.lower() == "gender"]
+                if not gender_df.empty:
+                    women = gender_df[
+                        gender_df["metric"].astype(str).str.contains("women", case=False, na=False)
+                    ]
+                    female_pct = pd.to_numeric(women["value"], errors="coerce").mean()
+                    diversity_score = min(100, female_pct * 2) if pd.notna(female_pct) else 50
+            elif {"gender", "percentage"}.issubset(div_df.columns):
                 female_pct = div_df[div_df["gender"] == "Female"]["percentage"].mean()
                 diversity_score = min(100, female_pct * 2) if female_pct else 50
 

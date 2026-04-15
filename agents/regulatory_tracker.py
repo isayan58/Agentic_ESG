@@ -1,6 +1,8 @@
 """Agent 2: Regulatory Tracker — Monitors ESG frameworks and performs gap analysis."""
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.data_access import get_dataset
+from core.company_config import company_cfg
 from utils.data_processing import load_regulatory_frameworks, load_esg_metrics
 
 
@@ -62,7 +64,7 @@ class RegulatoryTrackerAgent(BaseAgent):
     def execute(self, **kwargs):
         self.log("Loading regulatory frameworks")
         frameworks_data = load_regulatory_frameworks()
-        metrics_df = load_esg_metrics()
+        metrics_df = get_dataset("esg_metrics", load_esg_metrics)
 
         if not frameworks_data or "frameworks" not in frameworks_data:
             return {"error": "No regulatory framework data available"}
@@ -78,6 +80,7 @@ class RegulatoryTrackerAgent(BaseAgent):
 
         # Generate AI-powered gap analysis narrative
         gap_narrative = self._generate_gap_narrative(framework_results)
+        reporter_profile = self._classify_reporter_profile(framework_results)
 
         # Compute overall compliance
         all_pcts = [r["compliance_pct"] for r in framework_results.values()]
@@ -87,6 +90,7 @@ class RegulatoryTrackerAgent(BaseAgent):
             "framework_results": framework_results,
             "overall_compliance": overall_compliance,
             "gap_narrative": gap_narrative,
+            "reporter_profile": reporter_profile,
             "frameworks_analyzed": len(framework_results),
         }
 
@@ -163,3 +167,37 @@ class RegulatoryTrackerAgent(BaseAgent):
             f"Provide 2-3 key recommendations for improving compliance."
         )
         return self.hf.generate_text(prompt)
+
+    def _classify_reporter_profile(self, framework_results):
+        """Classify the company's reporting posture for regulatory context."""
+        mandatory_frameworks = [
+            name for name, result in framework_results.items()
+            if result.get("mandatory")
+        ]
+        adopted = set(company_cfg.frameworks_adopted)
+
+        is_listed_india = any(ex in {"BSE", "NSE"} for ex in company_cfg.listed_exchanges)
+        mandatory_due_to_listing = is_listed_india and "BRSR" in adopted
+
+        if mandatory_due_to_listing or mandatory_frameworks:
+            reporter_type = "Mandatory Reporter"
+            rationale = (
+                "Listed-entity posture and adopted mandatory frameworks indicate "
+                "a mandatory ESG reporting baseline."
+            )
+        else:
+            reporter_type = "Voluntary Reporter"
+            rationale = (
+                "Current framework posture looks primarily voluntary, with optional "
+                "alignment used for market positioning and readiness."
+            )
+
+        return {
+            "classification": reporter_type,
+            "mandatory_frameworks": mandatory_frameworks,
+            "voluntary_frameworks": [
+                name for name in framework_results if name not in mandatory_frameworks
+            ],
+            "listed_entity": is_listed_india,
+            "rationale": rationale,
+        }

@@ -44,6 +44,7 @@ AGENT_CONFIG = {
     "report_generator": {"name": "Report Generator", "icon": "📄", "color": "#9C27B0"},
     "risk_predictor": {"name": "Risk Predictor", "icon": "⚠️", "color": "#F44336"},
     "audit_agent": {"name": "Audit Agent", "icon": "🔍", "color": "#607D8B"},
+    "roi_agent": {"name": "ESG ROI Agent", "icon": "⭐", "color": "#795548"},
     "action_agent": {"name": "Action Agent", "icon": "🎯", "color": "#E91E63"},
     "stakeholder_agent": {"name": "Stakeholder Agent", "icon": "👥", "color": "#00BCD4"},
 }
