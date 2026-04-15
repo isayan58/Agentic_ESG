@@ -20,6 +20,7 @@ class ActionAgent(BaseAgent):
         audit_results = state_manager.subscribe("audit_results") or {}
         carbon_results = state_manager.subscribe("carbon_results") or {}
         regulatory_results = state_manager.subscribe("regulatory_results") or {}
+        roi_results = state_manager.subscribe("roi_results") or {}
 
         # Generate recommendations from each source
         actions = []
@@ -30,10 +31,17 @@ class ActionAgent(BaseAgent):
 
         # Remove duplicates and sort by priority
         actions = self._deduplicate_and_rank(actions)
+        actions = self._apply_implementation_friction(
+            actions, risk_results, carbon_results, regulatory_results, roi_results
+        )
 
         # Generate AI-enhanced descriptions
         for action in actions:
             action["detailed_description"] = self._enhance_description(action)
+
+        targets = self._generate_targets(
+            actions, risk_results, audit_results, carbon_results, regulatory_results, roi_results
+        )
 
         # Compute summary statistics
         cost_unit = company_cfg.currency_unit
@@ -44,11 +52,17 @@ class ActionAgent(BaseAgent):
             "medium": sum(1 for a in actions if a["priority"] == "Medium"),
             "low": sum(1 for a in actions if a["priority"] == "Low"),
             "total_investment": sum(a.get("estimated_cost", 0) for a in actions),
+            "adjusted_investment": round(sum(a.get("adjusted_cost", a.get("estimated_cost", 0)) for a in actions), 2),
+            "net_value": round(sum(a.get("net_value", 0) for a in actions), 2),
+            "avg_friction_score": round(
+                sum(a.get("implementation_friction_score", 0) for a in actions) / len(actions), 1
+            ) if actions else 0,
             "cost_unit": cost_unit,
         }
 
         results = {
             "actions": actions,
+            "targets": targets,
             "summary": summary,
             "roadmap_narrative": self._generate_roadmap_narrative(actions, summary),
         }
@@ -227,12 +241,160 @@ class ActionAgent(BaseAgent):
 
         return unique
 
+    def _apply_implementation_friction(self, actions, risk_results, carbon_results,
+                                       regulatory_results, roi_results):
+        """Add realistic execution friction, transaction cost, and net ROI."""
+        regime = risk_results.get("market_regime", {}).get("regime", "Transition")
+        current_revenue = company_cfg.revenue_local("current") or 1
+        roi_anchor = roi_results.get("financial_roi", {}).get("net_financial_benefit", 0)
+        risk_anchor = risk_results.get("downside_protection", {}).get("score", 50)
+
+        regime_adj = {"Bull": 0, "Transition": 2, "Stress": 5}.get(regime, 2)
+        category_adj = {
+            "Compliance": 4,
+            "Regulatory": 5,
+            "Supply Chain": 6,
+            "Climate": 4,
+            "Emissions": 4,
+            "Scope 3": 6,
+            "Energy": 5,
+            "Audit Readiness": 2,
+        }
+
+        for action in actions:
+            base_cost = float(action.get("estimated_cost", 0))
+            duration = float(action.get("duration_weeks", 4))
+            friction_pct = (
+                6
+                + duration * 0.35
+                + category_adj.get(action.get("category", ""), 3)
+                + regime_adj
+            )
+            transaction_cost = round(base_cost * friction_pct / 100, 2)
+            adjusted_cost = round(base_cost + transaction_cost, 2)
+
+            benefit_multiplier = {
+                "Compliance": 1.15,
+                "Regulatory": 1.20,
+                "Supply Chain": 1.35,
+                "Climate": 1.30,
+                "Emissions": 1.25,
+                "Scope 3": 1.30,
+                "Energy": 1.28,
+                "Audit Readiness": 1.10,
+            }.get(action.get("category", ""), 1.15)
+            anchor_share = max(0, roi_anchor * 0.08)
+            gross_benefit = round(max(base_cost * benefit_multiplier, base_cost + anchor_share), 2)
+            net_value = round(gross_benefit - adjusted_cost, 2)
+            net_roi_pct = round((net_value / adjusted_cost) * 100, 1) if adjusted_cost else 0
+
+            spend_ratio_pct = adjusted_cost / current_revenue * 100
+            liquidity_risk = (
+                "High" if spend_ratio_pct > 4 else
+                "Medium" if spend_ratio_pct > 2 else
+                "Low"
+            )
+            friction_score = min(
+                100,
+                round(
+                    friction_pct * 2
+                    + (10 if liquidity_risk == "High" else 5 if liquidity_risk == "Medium" else 0)
+                    + max(0, 60 - risk_anchor) * 0.2,
+                    1,
+                ),
+            )
+
+            action["transaction_cost"] = transaction_cost
+            action["adjusted_cost"] = adjusted_cost
+            action["estimated_benefit"] = gross_benefit
+            action["net_value"] = net_value
+            action["net_roi_pct"] = net_roi_pct
+            action["liquidity_risk"] = liquidity_risk
+            action["implementation_friction_score"] = friction_score
+            action["recommended_execution_mode"] = (
+                "Phased rollout" if friction_score >= 60 or liquidity_risk != "Low"
+                else "Accelerated rollout"
+            )
+
+        return actions
+
+    def _generate_targets(self, actions, risk_results, audit_results, carbon_results,
+                          regulatory_results, roi_results):
+        """Convert analysis outputs into explicit target recommendations."""
+        targets = []
+        current_year = company_cfg.current_fy or datetime.now().year
+
+        renewable_pct = carbon_results.get("energy_analysis", {}).get("renewable_pct")
+        if renewable_pct is not None:
+            targets.append({
+                "metric": "Renewable Energy Share",
+                "current": renewable_pct,
+                "target": round(max(renewable_pct + 10, 60), 1),
+                "unit": "%",
+                "deadline": f"{current_year + 1}-12-31",
+                "owner": "Facilities & Sustainability",
+                "linked_actions": [a["id"] for a in actions if a.get("category") in {"Energy", "Emissions"}][:2],
+            })
+
+        compliance = regulatory_results.get("overall_compliance")
+        if compliance is not None:
+            targets.append({
+                "metric": "Overall Regulatory Compliance",
+                "current": compliance,
+                "target": round(min(100, max(compliance + 8, 90)), 1),
+                "unit": "%",
+                "deadline": f"{current_year + 1}-09-30",
+                "owner": "Compliance Office",
+                "linked_actions": [a["id"] for a in actions if a.get("category") in {"Compliance", "Regulatory"}][:3],
+            })
+
+        evidence = audit_results.get("readiness_score", {}).get("evidence")
+        if evidence is not None:
+            targets.append({
+                "metric": "Evidence Verifiability",
+                "current": evidence,
+                "target": round(min(100, max(evidence + 10, 90)), 1),
+                "unit": "%",
+                "deadline": f"{current_year + 1}-06-30",
+                "owner": "Internal Audit",
+                "linked_actions": [a["id"] for a in actions if a.get("category") == "Audit Readiness"][:2],
+            })
+
+        supplier_risks = risk_results.get("supplier_risks", {})
+        if supplier_risks:
+            high_risk = supplier_risks.get("high_risk_count", 0)
+            targets.append({
+                "metric": "High-Risk Suppliers",
+                "current": high_risk,
+                "target": max(0, high_risk - 2),
+                "unit": "count",
+                "deadline": f"{current_year + 1}-12-31",
+                "owner": "Procurement",
+                "linked_actions": [a["id"] for a in actions if a.get("category") in {"Supply Chain", "Scope 3"}][:2],
+            })
+
+        iqs = roi_results.get("investment_quality_score", {})
+        if iqs:
+            current_score = iqs.get("score", 0)
+            targets.append({
+                "metric": "ESG Investment Quality Score",
+                "current": current_score,
+                "target": round(min(100, max(current_score + 8, 75)), 1),
+                "unit": "score",
+                "deadline": f"{current_year + 1}-12-31",
+                "owner": "CFO & Sustainability Office",
+                "linked_actions": [a["id"] for a in actions[:3]],
+            })
+
+        return targets
+
     def _enhance_description(self, action):
         prompt = (
             f"Write a 2-sentence implementation description for this ESG action item: "
             f"'{action['action']}'. Category: {action['category']}. "
             f"Expected impact: {action.get('impact', 'N/A')}. "
-            f"Duration: {action.get('duration_weeks', 4)} weeks."
+            f"Duration: {action.get('duration_weeks', 4)} weeks. "
+            f"Net ROI after friction: {action.get('net_roi_pct', 'N/A')}%."
         )
         return self.hf.generate_text(prompt, max_tokens=100)
 

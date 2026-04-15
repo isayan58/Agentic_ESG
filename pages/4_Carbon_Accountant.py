@@ -2,8 +2,15 @@
 import streamlit as st
 import pandas as pd
 from agents.carbon_accountant import CarbonAccountantAgent
-from utils.charts import emissions_donut, emissions_trend, scope3_xray_map
+from utils.charts import (
+    emissions_donut,
+    emissions_trend,
+    scope3_xray_map,
+    charts_available,
+    chart_unavailable_message,
+)
 from utils.data_processing import load_supply_chain
+from utils.streamlit_compat import safe_dataframe
 
 st.set_page_config(page_title="Carbon Accountant | ESG CoPilot", page_icon="🌱", layout="wide")
 st.title("🌱 Carbon Accountant Agent")
@@ -15,6 +22,13 @@ if "carbon_agent" not in st.session_state:
     st.session_state.carbon_results = None
 
 agent = st.session_state.carbon_agent
+
+
+def render_chart(fig):
+    if fig is None:
+        st.info(chart_unavailable_message())
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
 if st.button("🔄 Run Carbon Analysis", type="primary"):
     with st.spinner("Analyzing carbon emissions..."):
@@ -52,7 +66,7 @@ if results and "error" not in results:
         col1, col2 = st.columns([1, 1])
         with col1:
             fig = emissions_donut(results["scope_totals_current"])
-            st.plotly_chart(fig, use_container_width=True)
+            render_chart(fig)
         with col2:
             st.markdown("#### Scope Comparison (YoY)")
             for scope in ["Scope 1", "Scope 2", "Scope 3"]:
@@ -66,7 +80,7 @@ if results and "error" not in results:
         if trends_data:
             trends_df = pd.DataFrame(trends_data)
             fig = emissions_trend(trends_df)
-            st.plotly_chart(fig, use_container_width=True)
+            render_chart(fig)
 
     with tab3:
         st.markdown("#### Scope 3 X-Ray — Global Supply Chain Emission Hotspots")
@@ -74,7 +88,7 @@ if results and "error" not in results:
         supply_chain_df = load_supply_chain()
         if not supply_chain_df.empty:
             fig = scope3_xray_map(supply_chain_df)
-            st.plotly_chart(fig, use_container_width=True)
+            render_chart(fig)
 
         # Hotspot details
         hotspots = results.get("hotspots", [])
@@ -93,21 +107,24 @@ if results and "error" not in results:
             st.metric("Total Energy", f"{energy_data.get('total_mwh', 0):,.0f} MWh")
             by_source = energy_data.get("by_source", {})
             if by_source:
-                import plotly.graph_objects as go
-                fig = go.Figure(go.Pie(
-                    labels=list(by_source.keys()),
-                    values=list(by_source.values()),
-                    hole=0.4,
-                    marker=dict(colors=["#F44336", "#4CAF50", "#FF9800", "#2196F3"]),
-                ))
-                fig.update_layout(title="Energy Mix by Source", height=350)
-                st.plotly_chart(fig, use_container_width=True)
+                if charts_available():
+                    import plotly.graph_objects as go
+                    fig = go.Figure(go.Pie(
+                        labels=list(by_source.keys()),
+                        values=list(by_source.values()),
+                        hole=0.4,
+                        marker=dict(colors=["#F44336", "#4CAF50", "#FF9800", "#2196F3"]),
+                    ))
+                    fig.update_layout(title="Energy Mix by Source", height=350)
+                    render_chart(fig)
+                else:
+                    st.info(chart_unavailable_message())
 
         # Category breakdown table
         cat_data = results.get("category_breakdown", [])
         if cat_data:
             st.markdown("#### Emissions by Category (2024)")
-            st.dataframe(pd.DataFrame(cat_data), use_container_width=True, hide_index=True)
+            safe_dataframe(pd.DataFrame(cat_data), use_container_width=True, hide_index=True)
 
     with tab5:
         narrative = results.get("narrative", "")

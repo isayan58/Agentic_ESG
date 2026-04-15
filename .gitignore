@@ -11,3 +11,15 @@ __pycache__
 *.key
 credentials.json
 service-account*.json
+.venv
+/tmp
+*.log
+logs/
+*.bak
+*.backup
+*.swp
+*.swo
+.idea/
+.vscode/
+node_modules/
+dist/

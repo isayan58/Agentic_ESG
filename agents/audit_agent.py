@@ -7,6 +7,7 @@ data-derived actuals to flag inconsistencies (the "73% mismatch" pattern).
 from datetime import datetime
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.data_access import get_dataset
 from core.company_config import company_cfg
 from utils.data_processing import (
     load_esg_metrics, load_regulatory_frameworks, load_emissions, load_energy,
@@ -22,13 +23,11 @@ class AuditAgent(BaseAgent):
 
     def execute(self, **kwargs):
         self.log("Starting audit verification")
-        metrics_df = load_esg_metrics()
-        frameworks = load_regulatory_frameworks()
+        metrics_df = get_dataset("esg_metrics", load_esg_metrics)
 
         # Data from other agents
         data_results = state_manager.subscribe("data_collection_results") or {}
         regulatory_results = state_manager.subscribe("regulatory_results") or {}
-        carbon_results = state_manager.subscribe("carbon_results") or {}
 
         # Data completeness audit
         completeness_audit = self._audit_data_completeness(data_results)
@@ -218,8 +217,8 @@ class AuditAgent(BaseAgent):
         if metrics_df.empty:
             return {"mismatch_pct": 0, "gaps": [], "risk_level": "N/A"}
 
-        emissions_df = load_emissions()
-        energy_df = load_energy()
+        emissions_df = get_dataset("emissions", load_emissions)
+        energy_df = get_dataset("energy", load_energy)
 
         current_col = f"value_{company_cfg.current_fy}" if company_cfg.current_fy else "value_2024"
         target_col = f"target_{company_cfg.current_fy}" if company_cfg.current_fy else "target_2024"

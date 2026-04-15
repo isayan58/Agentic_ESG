@@ -2,8 +2,9 @@
 import streamlit as st
 import pandas as pd
 from agents.regulatory_tracker import RegulatoryTrackerAgent
-from utils.charts import compliance_radar
+from utils.charts import compliance_radar, chart_unavailable_message
 from utils.monitoring import regulatory_updater
+from utils.streamlit_compat import safe_dataframe
 
 st.set_page_config(page_title="Regulatory Tracker | ESG CoPilot", page_icon="📋", layout="wide")
 st.title("📋 Regulatory Tracker Agent")
@@ -15,6 +16,13 @@ if "reg_tracker" not in st.session_state:
     st.session_state.reg_tracker_results = None
 
 agent = st.session_state.reg_tracker
+
+
+def render_chart(fig):
+    if fig is None:
+        st.info(chart_unavailable_message())
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
 # Framework selection
 frameworks_display = st.multiselect(
@@ -57,7 +65,7 @@ if results and "error" not in results:
         scores = {fw: data["compliance_pct"] for fw, data in fw_results.items() if fw in frameworks_display}
         if scores:
             fig = compliance_radar(scores)
-            st.plotly_chart(fig, use_container_width=True)
+            render_chart(fig)
 
         # Framework details table
         rows = []
@@ -74,7 +82,7 @@ if results and "error" not in results:
                     "Total": data["total"],
                 })
         if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            safe_dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tab2:
         for fw, data in fw_results.items():
@@ -93,7 +101,7 @@ if results and "error" not in results:
                         "Priority": f"{priority_icon} {gap['priority'].capitalize()}",
                         "Reason": gap["reason"],
                     })
-                st.dataframe(pd.DataFrame(gap_rows), use_container_width=True, hide_index=True)
+                safe_dataframe(pd.DataFrame(gap_rows), use_container_width=True, hide_index=True)
 
     with tab3:
         update_data = regulatory_updater.check_for_updates()

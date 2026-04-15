@@ -8,6 +8,7 @@ Hypothesis mapping:
 from datetime import datetime
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.data_access import get_dataset
 from core.company_config import company_cfg
 from utils.data_processing import load_company_profile, load_esg_metrics
 
@@ -22,7 +23,12 @@ class ReportGeneratorAgent(BaseAgent):
     def execute(self, **kwargs):
         self.log("Compiling report data from all agents")
         company = load_company_profile()
-        metrics_df = load_esg_metrics()
+        company.setdefault("company_name", company_cfg.company_name)
+        company.setdefault("sector", company_cfg.sector)
+        company.setdefault("employees", company_cfg.employees)
+        company.setdefault("revenue_inr_crores", company_cfg.revenue_local("current"))
+        company.setdefault("market_cap_inr_crores", company_cfg.market_cap_local)
+        metrics_df = get_dataset("esg_metrics", load_esg_metrics)
 
         # Gather data from other agents via state manager
         carbon_results = state_manager.subscribe("carbon_results") or {}
@@ -30,12 +36,13 @@ class ReportGeneratorAgent(BaseAgent):
         audit_results = state_manager.subscribe("audit_results") or {}
         data_results = state_manager.subscribe("data_collection_results") or {}
         roi_results = state_manager.subscribe("roi_results") or {}
+        reporter_profile = regulatory_results.get("reporter_profile", {})
 
         fy_label = f"FY{company_cfg.current_fy}" if company_cfg.current_fy else "Current FY"
 
         # Generate executive summary
         exec_summary = self._generate_executive_summary(
-            company, carbon_results, regulatory_results
+            company, carbon_results, regulatory_results, roi_results
         )
 
         # Generate section narratives
@@ -90,26 +97,35 @@ class ReportGeneratorAgent(BaseAgent):
                     for k, v in regulatory_results.get("framework_results", {}).items()
                 },
             },
+            "reporter_profile": reporter_profile,
             "value_channels": value_channels,
             "investment_quality": roi_results.get("investment_quality_score", {}),
+            "roi_summary": roi_results.get("financial_roi", {}),
             "audit_trail": audit_trail,
         }
 
         state_manager.publish("report_results", results, self.name)
         return results
 
-    def _generate_executive_summary(self, company, carbon_results, regulatory_results):
+    def _generate_executive_summary(self, company, carbon_results, regulatory_results, roi_results):
         company_name = company_cfg.company_name
         total_emissions = carbon_results.get("total_emissions_current", "N/A")
         yoy = carbon_results.get("yoy_change_pct", "N/A")
         compliance = regulatory_results.get("overall_compliance", "N/A")
         commitments = company_cfg.commitments_text()
+        roi_pct = roi_results.get("financial_roi", {}).get("roi_pct", "N/A")
+        iqs = roi_results.get("investment_quality_score", {}).get("grade", "N/A")
+        reporter_type = regulatory_results.get("reporter_profile", {}).get(
+            "classification", "Reporter"
+        )
 
         prompt = (
             f"Write a 3-4 sentence executive summary for an ESG annual report. "
             f"Company: {company_name}, sector: {company_cfg.sector}. "
             f"Total emissions: {total_emissions} tCO2e (YoY change: {yoy}%). "
             f"Overall regulatory compliance: {compliance}%. "
+            f"Reporter profile: {reporter_type}. "
+            f"Financial ESG ROI: {roi_pct}% and investment quality grade: {iqs}. "
             f"Key commitments: {commitments}. "
             f"Tone: professional, forward-looking."
         )
