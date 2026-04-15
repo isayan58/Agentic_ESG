@@ -162,7 +162,7 @@ All external imports are optional. Missing packages show install hints instead o
 | **AI** | HuggingFace Inference API — Mistral-7B, BART-large-CNN, BART-large-MNLI, DistilBERT-SST-2 |
 | **Dashboard** | Streamlit (multi-page app, 9 pages) |
 | **Interactive UI** | Gradio (tabbed interface, all agents) |
-| **Data** | Pandas, NumPy, Plotly |
+| **Data** | Pandas, NumPy, Plotly, PyArrow |
 | **Cloud (optional)** | boto3 (AWS), google-cloud-bigquery, google-cloud-storage (GCP), azure-storage-blob (Azure), deltalake (Delta Lake) |
 | **Deployment** | Docker on HuggingFace Spaces |
 
@@ -193,6 +193,8 @@ streamlit run app.py
 # OR run Gradio interface (port 7860)
 python gradio_app.py
 ```
+
+`pyarrow` is required for Streamlit's native `st.dataframe` rendering. If it is missing, the app falls back to static HTML tables for local constrained environments, but a full install should include `pyarrow`.
 
 ### Optional: Enable AI Narratives
 

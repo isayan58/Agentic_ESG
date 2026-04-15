@@ -5,7 +5,8 @@ from core.state_manager import state_manager
 from core.company_config import company_cfg
 from utils.data_processing import (
     load_emissions, load_esg_metrics, load_supply_chain,
-    load_energy, load_waste, load_diversity, compute_data_quality,
+    load_energy, load_waste, load_diversity, load_financials,
+    compute_data_quality,
 )
 from utils.connectors import get_all_connectors
 
@@ -50,6 +51,7 @@ class DataCollectorAgent(BaseAgent):
             "energy": load_energy,
             "waste": load_waste,
             "diversity": load_diversity,
+            "financials": load_financials,
         }
 
         for name, loader in sources.items():
@@ -99,6 +101,9 @@ class DataCollectorAgent(BaseAgent):
         for alert in self.missing_data_alerts:
             self.log(f"ALERT: {alert['message']}")
 
+        # Canonical datasets are what downstream analytics should consume.
+        canonical_datasets = self._resolve_canonical_datasets(datasets)
+
         # ── Phase 5: Compute overall quality ──
         overall_completeness = 0
         overall_confidence = 0
@@ -118,6 +123,8 @@ class DataCollectorAgent(BaseAgent):
         # Publish validated data to shared state
         for name, df in datasets.items():
             state_manager.publish(f"validated_{name}", df.to_dict(), self.name)
+        for schema_name, payload in canonical_datasets.items():
+            state_manager.publish(f"dataset_{schema_name}", payload["data"], self.name)
 
         results = {
             "datasets_loaded": len(datasets),
@@ -127,6 +134,13 @@ class DataCollectorAgent(BaseAgent):
             "overall_confidence": round(overall_confidence, 1),
             "quality_issues": quality_issues,
             "dataset_names": list(datasets.keys()),
+            "canonical_datasets": {
+                name: {
+                    "source": payload["source"],
+                    "records": len(payload["data"]),
+                }
+                for name, payload in canonical_datasets.items()
+            },
             "connector_statuses": self.connector_statuses,
             "missing_data_alerts": self.missing_data_alerts,
             "confidence_scores": confidence_scores,
@@ -146,6 +160,7 @@ class DataCollectorAgent(BaseAgent):
             "energy": "Energy consumption data — required for BRSR, GRI 302, SASB",
             "waste": "Waste management data — required for BRSR, GRI 306",
             "diversity": "Workforce diversity data — required for BRSR, CSRD S1, GRI 405",
+            "financials": "Financial data — required for ESG ROI, J-Curve, and KPI correlations",
         }
         for key, desc in expected.items():
             if key not in datasets:
@@ -164,6 +179,28 @@ class DataCollectorAgent(BaseAgent):
                     "action": f"Review and fill missing fields in {key}",
                 })
         return alerts
+
+    def _resolve_canonical_datasets(self, datasets):
+        """Choose one canonical dataset per schema for downstream analytics."""
+        canonical = {}
+        schema_names = [
+            "emissions", "esg_metrics", "supply_chain",
+            "energy", "waste", "diversity", "financials",
+        ]
+
+        for schema_name in schema_names:
+            if f"real_{schema_name}" in datasets and not datasets[f"real_{schema_name}"].empty:
+                canonical[schema_name] = {
+                    "source": "real_source",
+                    "data": datasets[f"real_{schema_name}"].copy(),
+                }
+            elif schema_name in datasets and not datasets[schema_name].empty:
+                canonical[schema_name] = {
+                    "source": "sample_dataset",
+                    "data": datasets[schema_name].copy(),
+                }
+
+        return canonical
 
     def _compute_confidence_scores(self, datasets, quality_scores):
         """Assign verifiable trust scores per dataset for audit readiness."""

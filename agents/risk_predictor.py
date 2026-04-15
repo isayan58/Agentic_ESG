@@ -8,6 +8,7 @@ Hypothesis mapping:
 import pandas as pd
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.data_access import get_dataset
 from core.company_config import company_cfg
 from utils.data_processing import (
     load_esg_metrics, load_supply_chain, load_emissions, load_financials,
@@ -23,10 +24,10 @@ class RiskPredictorAgent(BaseAgent):
 
     def execute(self, **kwargs):
         self.log("Running risk analysis")
-        metrics_df = load_esg_metrics()
-        supply_chain_df = load_supply_chain()
-        emissions_df = load_emissions()
-        financials_df = load_financials()
+        metrics_df = get_dataset("esg_metrics", load_esg_metrics)
+        supply_chain_df = get_dataset("supply_chain", load_supply_chain)
+        emissions_df = get_dataset("emissions", load_emissions)
+        financials_df = get_dataset("financials", load_financials)
 
         # Climate risk assessment
         climate_risks = self._assess_climate_risks(emissions_df, metrics_df)

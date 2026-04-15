@@ -74,6 +74,25 @@ ESG_SCHEMAS = {
         "value":        {"type": "float", "required": True,  "description": "Metric value"},
         "unit":         {"type": "str",   "required": False, "description": "Unit (percentage, count, ratio)"},
     },
+    "financials": {
+        "year":                          {"type": "int",   "required": True,  "description": "Reporting year"},
+        "quarter":                       {"type": "str",   "required": True,  "description": "Quarter (Q1-Q4)"},
+        "revenue_inr_crores":            {"type": "float", "required": True,  "description": "Revenue in INR crores"},
+        "ebitda_inr_crores":             {"type": "float", "required": False, "description": "EBITDA in INR crores"},
+        "ebitda_margin_pct":             {"type": "float", "required": False, "description": "EBITDA margin percentage"},
+        "pat_inr_crores":                {"type": "float", "required": False, "description": "Profit after tax in INR crores"},
+        "roa_pct":                       {"type": "float", "required": False, "description": "Return on assets percentage"},
+        "roe_pct":                       {"type": "float", "required": False, "description": "Return on equity percentage"},
+        "debt_equity_ratio":             {"type": "float", "required": False, "description": "Debt to equity ratio"},
+        "cost_of_capital_pct":           {"type": "float", "required": False, "description": "Cost of capital percentage"},
+        "pe_ratio":                      {"type": "float", "required": False, "description": "Price to earnings ratio"},
+        "carbon_tax_exposure_lakhs":     {"type": "float", "required": False, "description": "Carbon tax exposure in INR lakhs"},
+        "energy_cost_inr_crores":        {"type": "float", "required": False, "description": "Energy cost in INR crores"},
+        "employee_turnover_pct":         {"type": "float", "required": False, "description": "Employee turnover percentage"},
+        "brand_value_index":             {"type": "float", "required": False, "description": "Brand value index"},
+        "talent_retention_score":        {"type": "float", "required": False, "description": "Talent retention score"},
+        "esg_linked_capex_inr_crores":   {"type": "float", "required": False, "description": "ESG-linked CapEx in INR crores"},
+    },
 }
 
 # Indicator columns used for auto-detection — columns strongly associated
@@ -85,6 +104,7 @@ _SCHEMA_INDICATORS = {
     "energy":       ["energy_source", "consumption_mwh", "renewable", "mwh"],
     "waste":        ["waste_type", "disposal_method", "recycled_pct", "quantity_mt"],
     "diversity":    ["subcategory", "diversity", "gender", "workforce"],
+    "financials":   ["revenue_inr_crores", "ebitda_margin_pct", "roa_pct", "roe_pct", "esglinkedcapex", "costofcapital"],
 }
 
 
@@ -183,6 +203,21 @@ _SYNONYMS = {
     "value": ["amount", "result", "measurement"],
     "confidence": ["confidence_score", "reliability", "quality_score"],
     "emission_contribution_tco2e": ["supplier_emissions", "scope3_contribution"],
+    "revenue_inr_crores": ["revenue", "sales", "turnover_inr_crores"],
+    "ebitda_inr_crores": ["ebitda", "operating_profit"],
+    "ebitda_margin_pct": ["ebitda_margin", "operating_margin"],
+    "pat_inr_crores": ["pat", "profit_after_tax", "net_profit"],
+    "roa_pct": ["roa", "return_on_assets"],
+    "roe_pct": ["roe", "return_on_equity"],
+    "debt_equity_ratio": ["de_ratio", "debt_to_equity"],
+    "cost_of_capital_pct": ["wacc", "cost_of_capital"],
+    "pe_ratio": ["p_e", "price_earnings"],
+    "carbon_tax_exposure_lakhs": ["carbon_tax", "carbon_cost"],
+    "energy_cost_inr_crores": ["energy_cost", "power_cost"],
+    "employee_turnover_pct": ["attrition", "employee_turnover"],
+    "brand_value_index": ["brand_index", "brand_value"],
+    "talent_retention_score": ["retention_score", "talent_score"],
+    "esg_linked_capex_inr_crores": ["esg_capex", "sustainability_capex"],
 }
 
 

@@ -98,6 +98,9 @@ class StakeholderAgent(BaseAgent):
             "company_name": report_results.get("company", {}).get(
                 "company_name", company_cfg.company_name
             ),
+            "reporter_type": report_results.get("reporter_profile", {}).get(
+                "classification", "ESG reporter"
+            ),
             "total_emissions": carbon_results.get("total_emissions_current", "N/A"),
             "yoy_change": carbon_results.get("yoy_change_pct", "N/A"),
             "carbon_intensity": carbon_results.get("carbon_intensity", "N/A"),
@@ -127,9 +130,11 @@ class StakeholderAgent(BaseAgent):
             f"Tone: {profile['tone']}. Focus: {profile['focus']}. "
             f"Format: {profile['format']}. "
             f"Company: {context['company_name']}. "
+            f"Reporter type: {context['reporter_type']}. "
             f"Key data — Emissions: {context['total_emissions']} tCO2e "
             f"({context['yoy_change']}% YoY), Renewable energy: {context['renewable_pct']}%, "
             f"Compliance: {context['compliance_overall']}%, "
+            f"Financial ESG ROI: {context['financial_roi_pct']}%, "
             f"ESG rating trajectory: {context['esg_rating']}. "
             f"Write 4-5 sentences."
         )
@@ -263,9 +268,11 @@ class StakeholderAgent(BaseAgent):
     def _generate_performance_summary(self, context):
         prompt = (
             f"Write a 3-sentence ESG performance summary for {context['company_name']}. "
+            f"Reporting posture: {context['reporter_type']}. "
             f"Emissions: {context['total_emissions']} tCO2e ({context['yoy_change']}% YoY). "
             f"Renewable energy: {context['renewable_pct']}%. "
             f"Overall compliance: {context['compliance_overall']}%. "
+            f"Financial ESG ROI: {context['financial_roi_pct']}%. "
             f"ESG rating: {context['esg_rating']}."
         )
         return self.hf.generate_text(prompt, max_tokens=150)
