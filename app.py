@@ -86,6 +86,39 @@ analyze, report, and predict ESG performance. Each agent uses HuggingFace AI mod
 intelligent analysis.
 """)
 
+st.markdown("### Plain-English Guide")
+plain_col1, plain_col2, plain_col3 = st.columns(3)
+with plain_col1:
+    st.markdown("""
+    <div class="agent-card">
+        <h4>Top Line</h4>
+        <p style="font-size:0.9rem;color:#444;">
+        This means <strong>money coming in</strong> like revenue growth, brand lift, and customer momentum.
+        ESG CoPilot shows whether sustainability is helping the company grow faster.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+with plain_col2:
+    st.markdown("""
+    <div class="agent-card">
+        <h4>Bottom Line</h4>
+        <p style="font-size:0.9rem;color:#444;">
+        This means <strong>money left after costs</strong> like margins, savings, and avoided carbon costs.
+        ESG CoPilot shows whether ESG is improving profitability, not just reporting.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+with plain_col3:
+    st.markdown("""
+    <div class="agent-card">
+        <h4>Hypotheses</h4>
+        <p style="font-size:0.9rem;color:#444;">
+        These are the <strong>business ideas being tested</strong>, such as whether ESG improves growth,
+        lowers risk, or creates a short-term cost but long-term payoff.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
 # Quick overview cards
 col1, col2, col3, col4 = st.columns(4)
 with col1:
@@ -98,6 +131,31 @@ with col4:
     st.metric("AI Models", "4", help="HuggingFace models")
 
 st.markdown("---")
+
+st.markdown("### Architecture at a Glance")
+st.markdown("""
+This is the simplest way to read the platform:
+
+1. **Collect the data**: bring in ESG, carbon, supplier, workforce, and financial data.
+2. **Convert it into business meaning**: show what changes revenue, profit, risk, and capital efficiency.
+3. **Test the hypotheses**: check whether ESG is actually helping growth, resilience, and ROI.
+4. **Turn it into decisions**: produce actions, targets, reports, and stakeholder messaging.
+""")
+
+arch1, arch2, arch3, arch4 = st.columns(4)
+for col, title, body in [
+    (arch1, "1. Data Foundation", "Data Collector standardizes ESG plus financial data so the rest of the system works from one trusted base."),
+    (arch2, "2. Business Engine", "Carbon, Risk, Audit, and ROI agents convert raw ESG information into top-line, bottom-line, and risk signals."),
+    (arch3, "3. Hypothesis Layer", "The platform tests whether ESG is improving growth, profitability, downside protection, capex quality, and long-term payback."),
+    (arch4, "4. Decision Layer", "Report, Action, and Stakeholder agents turn analysis into board-ready outputs and clear next steps."),
+]:
+    with col:
+        st.markdown(f"""
+        <div class="agent-card">
+            <h4>{title}</h4>
+            <p style="font-size:0.9rem;color:#444;">{body}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 # Agent fleet overview
 st.markdown("### Agent Fleet")
@@ -127,7 +185,8 @@ st.markdown("---")
 st.markdown("### Getting Started")
 st.markdown("""
 1. Navigate to **Mission Control** to run the full agent pipeline
-2. Or visit individual agent pages for focused analysis, including ESG ROI
-3. Optionally set your HuggingFace API token in the sidebar for AI-powered analysis
+2. Use **Mission Control** to understand the business architecture, top line, bottom line, and hypothesis tracker
+3. Visit **ESG ROI Agent** for the clearest finance view in plain English
+4. Optionally set your HuggingFace API token in the sidebar for AI-powered analysis
 """)
 st.caption("Navigate using the sidebar pages →")
