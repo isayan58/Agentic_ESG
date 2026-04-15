@@ -51,7 +51,7 @@ Core outcomes:
 
 ## Autonomous Agent Network
 
-At the center of the platform is the CoPilot Engine (orchestrator), managing eight specialized agents in a dependency graph:
+At the center of the platform is the CoPilot Engine (orchestrator), managing nine specialized agents in a dependency graph:
 
 ```
 Pipeline Execution Order:
@@ -61,9 +61,10 @@ Pipeline Execution Order:
        ├──→ 3. Carbon Accountant
        └──→ 4. Risk Predictor ←── Regulatory Tracker
                   ├──→ 5. Audit Agent ←── Regulatory + Carbon
-                  │         ├──→ 6. Report Generator ←── Carbon + Risk
-                  │         └──→ 7. Action Agent ←── Risk + Report
-                  └──→ 8. Stakeholder Agent ←── Action + Report
+                  ├──→ 6. ESG ROI Agent ←── Carbon + Risk
+                  │         ├──→ 7. Report Generator ←── Audit + Carbon + Risk + ROI
+                  │         └──→ 8. Action Agent ←── Risk + Audit + Report + ROI
+                  └──→ 9. Stakeholder Agent ←── Action + Report
 ```
 
 | Agent | Role | Key Outputs |
@@ -71,11 +72,19 @@ Pipeline Execution Order:
 | **Data Collector** | Pulls and structures ESG data from 9 connector types | Quality scores, confidence levels, gap alerts |
 | **Regulatory Tracker** | Maps data against BRSR, CSRD, GRI, SASB requirements | Compliance %, gap analysis, remediation guidance |
 | **Carbon Accountant** | Tracks Scope 1/2/3 emissions, energy, supply chain | Emissions breakdown, YoY trends, hotspot detection |
-| **Report Generator** | Produces multi-framework, audit-ready ESG reports | 5 report types with AI-generated narratives |
 | **Risk Predictor** | Forecasts climate, supplier, and ESG rating risks | Risk scores, scenario analysis, rating predictions |
 | **Audit Agent** | Validates traceability, confidence, and evidence | Readiness score (A-D grade), compliance checklist |
+| **ESG ROI Agent** | Converts ESG performance into financial and strategic return signals | Dual ROI, J-curve, Investment Quality Score |
+| **Report Generator** | Produces board-ready, multi-framework ESG reports | 5 report types with AI-generated narratives |
 | **Action Agent** | Recommends follow-up actions with cost-benefit analysis | Prioritized action items, implementation roadmap |
 | **Stakeholder Agent** | Shapes outputs for investors, regulators, employees, public | Audience-tailored messages with tone analysis |
+
+Recent platform enhancements:
+
+- Canonical dataset flow via `core/data_access.py`, so downstream agents prefer collected and validated state over bundled sample reloads.
+- KPI Engine and ESG ROI Agent are now part of the live orchestrated pipeline instead of being standalone-only logic.
+- Action planning now includes implementation friction, transaction-cost adjustments, liquidity risk, net ROI, and suggested targets.
+- Local Streamlit fallback support now avoids hard failures when `pyarrow` or `plotly` are missing in constrained environments.
 
 ---
 
@@ -112,18 +121,21 @@ All external imports are optional. Missing packages show install hints instead o
 ├── RUNBOOK.md                          # Full technical runbook (850+ lines)
 ├── core/
 │   ├── base_agent.py                   # Abstract base agent class
+│   ├── data_access.py                  # Canonical dataset retrieval from shared state
 │   ├── hf_client.py                    # HuggingFace Inference API wrapper + fallbacks
+│   ├── kpi_engine.py                   # ESG-to-financial KPI and value-channel engine
 │   ├── state_manager.py               # Pub/sub state bus for inter-agent data sharing
 │   └── orchestrator.py                # Dependency graph pipeline runner
 ├── agents/
 │   ├── data_collector.py              # Agent 1: Data ingestion + quality scoring
 │   ├── regulatory_tracker.py          # Agent 2: Framework compliance gap analysis
 │   ├── carbon_accountant.py           # Agent 3: Scope 1/2/3 emissions accounting
-│   ├── report_generator.py            # Agent 4: Multi-framework ESG reports
-│   ├── risk_predictor.py              # Agent 5: Climate & ESG risk forecasting
-│   ├── audit_agent.py                 # Agent 6: Compliance verification & audit readiness
-│   ├── action_agent.py               # Agent 7: Prioritized recommendations
-│   └── stakeholder_agent.py          # Agent 8: Audience-tailored communications
+│   ├── report_generator.py            # Agent 7: Multi-framework ESG reports
+│   ├── risk_predictor.py              # Agent 4: Climate & ESG risk forecasting
+│   ├── audit_agent.py                 # Agent 5: Compliance verification & audit readiness
+│   ├── roi_agent.py                   # Agent 6: Dual ROI, J-curve, investment quality
+│   ├── action_agent.py               # Agent 8: Prioritized recommendations
+│   └── stakeholder_agent.py          # Agent 9: Audience-tailored communications
 ├── pages/
 │   ├── 1_Mission_Control.py           # Overview dashboard — KPIs, pipeline runner
 │   ├── 2_Data_Collector.py            # Data sources, connectors, schema mapping
@@ -133,10 +145,12 @@ All external imports are optional. Missing packages show install hints instead o
 │   ├── 6_Risk_Predictor.py            # Risk gauges, scenario analysis
 │   ├── 7_Audit_Agent.py              # Audit readiness, compliance checklist
 │   ├── 8_Action_Agent.py             # Action items table, roadmap
-│   └── 9_Stakeholder_Agent.py        # Communication templates, tone analysis
+│   ├── 9_Stakeholder_Agent.py        # Communication templates, tone analysis
+│   └── 11_ESG_ROI_Agent.py           # ROI dashboard — dual ROI, J-curve, IQS
 ├── data/
 │   ├── company_profile.json           # Fictional company: GreenTech Solutions Pvt. Ltd.
 │   ├── regulatory_frameworks.json     # BRSR, CSRD, GRI, SASB requirements
+│   ├── sample_financials.csv          # Quarterly finance, ESG capex, cost-of-capital data
 │   ├── sample_emissions.csv           # Scope 1/2/3 quarterly emissions (2023-2024)
 │   ├── sample_esg_metrics.csv         # 30 KPIs across E/S/G pillars
 │   ├── sample_supply_chain.csv        # 20 suppliers with ESG scores + risk ratings
@@ -150,6 +164,7 @@ All external imports are optional. Missing packages show install hints instead o
     ├── connectors.py                  # Simulated enterprise connectors (SAP, Workday, etc.)
     ├── connection_manager.py          # Session-scoped source registry
     ├── schema_mapper.py               # ESG schema definitions + auto-mapping
+    ├── streamlit_compat.py            # Fallback renderers for constrained local installs
     └── monitoring.py                  # Operational monitoring utilities
 ```
 
@@ -160,9 +175,9 @@ All external imports are optional. Missing packages show install hints instead o
 | Layer | Technologies |
 | --- | --- |
 | **AI** | HuggingFace Inference API — Mistral-7B, BART-large-CNN, BART-large-MNLI, DistilBERT-SST-2 |
-| **Dashboard** | Streamlit (multi-page app, 9 pages) |
+| **Dashboard** | Streamlit (multi-page app, 10 pages including Mission Control + ROI page) |
 | **Interactive UI** | Gradio (tabbed interface, all agents) |
-| **Data** | Pandas, NumPy, Plotly |
+| **Data** | Pandas, NumPy, Plotly, PyArrow |
 | **Cloud (optional)** | boto3 (AWS), google-cloud-bigquery, google-cloud-storage (GCP), azure-storage-blob (Azure), deltalake (Delta Lake) |
 | **Deployment** | Docker on HuggingFace Spaces |
 
@@ -194,6 +209,10 @@ streamlit run app.py
 python gradio_app.py
 ```
 
+`pyarrow` is required for Streamlit's native `st.dataframe` rendering. If it is missing, the app falls back to static HTML tables for local constrained environments, but a full install should include `pyarrow`.
+
+`plotly` powers the dashboard charts. In constrained local environments, the app now degrades gracefully and shows informational placeholders instead of crashing if chart dependencies are unavailable.
+
 ### Optional: Enable AI Narratives
 
 Set your HuggingFace API token as an environment variable or enter it in the app sidebar:
@@ -222,13 +241,13 @@ pip install deltalake                # Delta Lake tables
 
 1. **Connect your data** — Upload files, connect to cloud storage (S3, GCS, Azure, Delta Lake), or use APIs. The Data Collector validates quality, detects schemas, and maps columns to ESG standards.
 
-2. **Run the pipeline** — The orchestrator executes all 8 agents in dependency order. Each agent publishes results via a shared state bus for downstream agents to consume.
+2. **Run the pipeline** — The orchestrator executes all 9 agents in dependency order. The Data Collector publishes canonical datasets into shared state, and downstream agents consume those validated datasets before falling back to bundled samples.
 
-3. **Explore results** — Navigate through 9 dashboard pages: compliance radar charts, emissions breakdowns, risk gauges, audit checklists, and more.
+3. **Explore results** — Navigate through 10 dashboard pages: compliance radar charts, emissions breakdowns, risk gauges, audit checklists, ROI views, and more.
 
-4. **Generate reports** — Choose from 5 report types (Full ESG, Carbon & Environment, Framework Compliance, Social & Governance, Executive Summary). Reports include AI narratives, metrics tables, and audit trails.
+4. **Generate reports** — Choose from 5 report types (Full ESG, Carbon & Environment, Framework Compliance, Social & Governance, Executive Summary). Reports now also incorporate ROI context and value-creation channel summaries when ROI results are available.
 
-5. **Act on insights** — Review prioritized action items with timelines and cost estimates. Share tailored communications with investors, regulators, employees, or the public.
+5. **Act on insights** — Review prioritized action items with timelines, cost estimates, friction adjustments, net ROI, and proposed targets. Share tailored communications with investors, regulators, employees, or the public.
 
 ---
 
@@ -248,6 +267,7 @@ pip install deltalake                # Delta Lake tables
 The platform ships with demo-ready sample data for **GreenTech Solutions Pvt. Ltd.**, a fictional Indian IT company:
 
 - 8 quarters of Scope 1/2/3 emissions data (2023-2024)
+- Quarterly financial and ESG-linked capex data for ROI and KPI analysis
 - 30 ESG KPIs across Environmental, Social, and Governance pillars
 - 20 suppliers with ESG scores, risk ratings, and emission contributions
 - Energy consumption data by facility and source

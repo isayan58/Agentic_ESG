@@ -2,6 +2,7 @@
 import pandas as pd
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.data_access import get_dataset
 from core.company_config import company_cfg
 from utils.data_processing import (
     load_emissions, load_supply_chain, load_energy,
@@ -18,9 +19,9 @@ class CarbonAccountantAgent(BaseAgent):
 
     def execute(self, **kwargs):
         self.log("Loading emissions data")
-        emissions_df = load_emissions()
-        supply_chain_df = load_supply_chain()
-        energy_df = load_energy()
+        emissions_df = get_dataset("emissions", load_emissions)
+        supply_chain_df = get_dataset("supply_chain", load_supply_chain)
+        energy_df = get_dataset("energy", load_energy)
 
         if emissions_df.empty:
             return {"error": "No emissions data available"}

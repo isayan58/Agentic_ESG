@@ -7,6 +7,7 @@ from agents.risk_predictor import RiskPredictorAgent
 from agents.audit_agent import AuditAgent
 from agents.action_agent import ActionAgent
 from agents.stakeholder_agent import StakeholderAgent
+from agents.roi_agent import ROIAgent
 
 
 # Execution order based on dependency graph
@@ -16,14 +17,15 @@ PIPELINE_ORDER = [
     ("carbon_accountant", CarbonAccountantAgent, ["data_collector"]),
     ("risk_predictor", RiskPredictorAgent, ["data_collector", "regulatory_tracker"]),
     ("audit_agent", AuditAgent, ["data_collector", "regulatory_tracker", "carbon_accountant"]),
-    ("report_generator", ReportGeneratorAgent, ["audit_agent", "carbon_accountant", "risk_predictor"]),
-    ("action_agent", ActionAgent, ["risk_predictor", "audit_agent", "report_generator"]),
+    ("roi_agent", ROIAgent, ["data_collector", "carbon_accountant", "risk_predictor"]),
+    ("report_generator", ReportGeneratorAgent, ["audit_agent", "carbon_accountant", "risk_predictor", "roi_agent"]),
+    ("action_agent", ActionAgent, ["risk_predictor", "audit_agent", "report_generator", "roi_agent"]),
     ("stakeholder_agent", StakeholderAgent, ["action_agent", "report_generator"]),
 ]
 
 
 class Orchestrator:
-    """Manages the execution of all 8 ESG CoPilot agents."""
+    """Manages the execution of ESG CoPilot agents."""
 
     def __init__(self):
         self.agents = {}
@@ -38,6 +40,25 @@ class Orchestrator:
 
         for i, (key, _, deps) in enumerate(PIPELINE_ORDER):
             agent = self.agents[key]
+
+            failed_deps = [
+                dep for dep in deps
+                if dep not in results or ("error" in results.get(dep, {}))
+            ]
+            if failed_deps:
+                agent_results = {
+                    "error": f"Skipped because dependencies failed: {', '.join(failed_deps)}",
+                    "skipped": True,
+                }
+                results[key] = agent_results
+                self.execution_log.append({
+                    "agent": key,
+                    "status": "skipped",
+                    "step": i + 1,
+                })
+                if progress_callback:
+                    progress_callback(key, "error", i + 1, len(PIPELINE_ORDER))
+                continue
 
             if progress_callback:
                 progress_callback(key, "running", i + 1, len(PIPELINE_ORDER))

@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.data_access import get_dataset
 from core.company_config import company_cfg
 from core.kpi_engine import kpi_engine
 from utils.data_processing import (
@@ -32,12 +33,12 @@ class ROIAgent(BaseAgent):
 
     def execute(self, **kwargs):
         self.log("Loading financial and ESG datasets")
-        fin_df = load_financials()
-        esg_df = load_esg_metrics()
-        emissions_df = load_emissions()
-        energy_df = load_energy()
-        sc_df = load_supply_chain()
-        div_df = load_diversity()
+        fin_df = get_dataset("financials", load_financials)
+        esg_df = get_dataset("esg_metrics", load_esg_metrics)
+        emissions_df = get_dataset("emissions", load_emissions)
+        energy_df = get_dataset("energy", load_energy)
+        sc_df = get_dataset("supply_chain", load_supply_chain)
+        div_df = get_dataset("diversity", load_diversity)
 
         if fin_df.empty:
             return {"error": "No financial data available — upload sample_financials.csv"}

@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 from agents.audit_agent import AuditAgent
+from utils.streamlit_compat import safe_dataframe
 
 st.set_page_config(page_title="Audit Agent | ESG CoPilot", page_icon="🔍", layout="wide")
 st.title("🔍 Audit Agent")
@@ -72,7 +73,7 @@ if results and "error" not in results:
                     "Result": item["status"],
                 })
             df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            safe_dataframe(df, use_container_width=True, hide_index=True)
 
     with tab3:
         completeness = results.get("completeness_audit", [])

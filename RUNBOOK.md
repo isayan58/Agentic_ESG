@@ -1,6 +1,6 @@
 # ESG CoPilot — Agent Runbook
 
-Complete technical reference for all 8 AI agents: architecture, calculations, scoring logic, data flows, and operational procedures.
+Complete technical reference for all 9 AI agents: architecture, calculations, scoring logic, data flows, and operational procedures.
 
 ---
 
@@ -14,14 +14,15 @@ Complete technical reference for all 8 AI agents: architecture, calculations, sc
 6. [Agent 3: Carbon Accountant](#agent-3-carbon-accountant)
 7. [Agent 4: Report Generator](#agent-4-report-generator)
 8. [Agent 5: Risk Predictor](#agent-5-risk-predictor)
-9. [Agent 6: Audit Agent](#agent-6-audit-agent)
-10. [Agent 7: Action Agent](#agent-7-action-agent)
-11. [Agent 8: Stakeholder Agent](#agent-8-stakeholder-agent)
-12. [Data Connectors](#data-connectors) (incl. Delta Lake, folder/prefix mode)
-13. [Schema Mapping & Validation](#schema-mapping--validation)
-14. [AI Models & Fallbacks](#ai-models--fallbacks)
-15. [Deployment](#deployment)
-16. [Troubleshooting](#troubleshooting)
+9. [Agent 6: ESG ROI Agent](#agent-6-esg-roi-agent)
+10. [Agent 7: Audit Agent](#agent-7-audit-agent)
+11. [Agent 8: Action Agent](#agent-8-action-agent)
+12. [Agent 9: Stakeholder Agent](#agent-9-stakeholder-agent)
+13. [Data Connectors](#data-connectors) (incl. Delta Lake, folder/prefix mode)
+14. [Schema Mapping & Validation](#schema-mapping--validation)
+15. [AI Models & Fallbacks](#ai-models--fallbacks)
+16. [Deployment](#deployment)
+17. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -31,23 +32,27 @@ Complete technical reference for all 8 AI agents: architecture, calculations, sc
 ┌─────────────────────────────────────────────────────────────┐
 │                    ESG CoPilot Platform                      │
 ├─────────────────────────────────────────────────────────────┤
-│  UI Layer:  Streamlit (9 pages)   |  Gradio (tabbed)        │
+│  UI Layer:  Streamlit (10 pages)  |  Gradio (tabbed)        │
 ├─────────────────────────────────────────────────────────────┤
 │  Orchestrator: Manages dependency graph & pipeline execution │
 ├─────────────────────────────────────────────────────────────┤
-│  8 Agents: Each inherits BaseAgent, uses HFClient           │
+│  9 Agents: Each inherits BaseAgent, uses HFClient           │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
 │  │ Data     │→│ Regulatory│→│ Carbon   │→│ Risk     │       │
 │  │ Collector│ │ Tracker   │ │ Accountant│ │ Predictor│       │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│  │ Report   │→│ Audit    │→│ Action   │→│Stakeholder│      │
-│  │ Generator│ │ Agent    │ │ Agent    │ │ Agent     │      │
+│  │ Audit    │→│ ROI      │→│ Report   │→│ Action   │       │
+│  │ Agent    │ │ Agent    │ │ Generator│ │ Agent    │       │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
+│                           ┌──────────┐                     │
+│                           │Stakeholder│                    │
+│                           │ Agent     │                    │
+│                           └──────────┘                     │
 ├─────────────────────────────────────────────────────────────┤
-│  State Manager (pub/sub)  |  HF Inference API  |  Connectors│
+│  State Manager (pub/sub)  | KPI Engine | HF API | Connectors│
 ├─────────────────────────────────────────────────────────────┤
-│  Data: CSV/JSON samples  |  Real Sources  |  Cloud Storage   │
+│  Data: CSV/JSON samples + financials | Real Sources | Cloud  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -55,7 +60,7 @@ Complete technical reference for all 8 AI agents: architecture, calculations, sc
 - Python 3.11+
 - Streamlit (dashboard) / Gradio (single-page app)
 - HuggingFace Inference API (Mistral-7B, BART, DistilBERT)
-- Pandas, Plotly, NumPy
+- Pandas, Plotly, NumPy, PyArrow
 - Optional: boto3 (AWS), google-cloud-bigquery (GCP), azure-storage-blob (Azure), deltalake (Delta Lake)
 
 ---
@@ -71,20 +76,23 @@ Pipeline Order:
   3. carbon_accountant    → depends on: data_collector
   4. risk_predictor       → depends on: data_collector, regulatory_tracker
   5. audit_agent          → depends on: data_collector, regulatory_tracker, carbon_accountant
-  6. report_generator     → depends on: audit_agent, carbon_accountant, risk_predictor
-  7. action_agent         → depends on: risk_predictor, audit_agent, report_generator
-  8. stakeholder_agent    → depends on: action_agent, report_generator
+  6. roi_agent            → depends on: data_collector, carbon_accountant, risk_predictor
+  7. report_generator     → depends on: audit_agent, carbon_accountant, risk_predictor, roi_agent
+  8. action_agent         → depends on: risk_predictor, audit_agent, report_generator, roi_agent
+  9. stakeholder_agent    → depends on: action_agent, report_generator
 ```
 
 **State Manager Channels** (pub/sub keys):
 
 | Channel | Published By | Subscribed By |
 |---------|-------------|---------------|
-| `validated_{dataset}` | Data Collector | — |
+| `dataset_{schema}` | Data Collector | All downstream analytical agents |
+| `validated_{dataset}` | Data Collector | Backward-compatible consumers |
 | `data_collection_results` | Data Collector | Audit Agent, Report Generator |
 | `regulatory_results` | Regulatory Tracker | Risk Predictor, Audit Agent, Report Generator, Action Agent |
 | `carbon_results` | Carbon Accountant | Audit Agent, Report Generator, Stakeholder Agent, Action Agent |
 | `risk_results` | Risk Predictor | Action Agent, Stakeholder Agent |
+| `roi_results` | ESG ROI Agent | Report Generator, Action Agent, Stakeholder Agent |
 | `audit_results` | Audit Agent | Report Generator, Action Agent |
 | `report_results` | Report Generator | Stakeholder Agent |
 | `action_results` | Action Agent | Stakeholder Agent |
@@ -121,14 +129,50 @@ state_manager.subscribe(channel)                    # Retrieve data (returns Non
 state_manager.get_all_channels()                    # List all published channels
 ```
 
+### Canonical Data Access (`core/data_access.py`)
+
+Downstream agents now read canonical datasets from shared state first:
+
+```python
+from core.data_access import get_dataset
+
+emissions_df = get_dataset("emissions", fallback_loader=load_emissions)
+financials_df = get_dataset("financials", fallback_loader=load_financials)
+```
+
+This keeps the full pipeline aligned to user-collected data while still allowing single-agent execution with sample fallbacks.
+
+### KPI Engine (`core/kpi_engine.py`)
+
+The KPI Engine is the ESG-to-financial backbone used by the ROI layer:
+
+```python
+kpi_results = kpi_engine.compute_all(
+    financials_df,
+    esg_metrics_df,
+    emissions_df,
+    energy_df,
+    supply_chain_df,
+    diversity_df,
+)
+```
+
+Outputs:
+- ESG-financial correlations
+- Five value-creation channel scores
+- CAGR and volatility
+- Composite ESG-financial score
+
 ### Orchestrator (`core/orchestrator.py`)
 
 ```python
 orchestrator = Orchestrator()
-orchestrator.run_full_pipeline(progress_callback=None)  # All 8 agents in dependency order
+orchestrator.run_full_pipeline(progress_callback=None)  # All 9 agents in dependency order
 orchestrator.run_single_agent("carbon_accountant")      # Single agent
 orchestrator.get_agent("data_collector")                # Access agent instance
 ```
+
+If a dependency fails, the orchestrator marks the downstream agent as skipped instead of continuing with inconsistent inputs.
 
 ### HFClient (`core/hf_client.py`)
 
@@ -153,7 +197,7 @@ Wraps HuggingFace Inference API with automatic fallback:
 | Phase | Description |
 |-------|-------------|
 | 0 | Fetch from real data sources via ConnectionManager (if configured) |
-| 1 | Load 6 local sample datasets (emissions, esg_metrics, supply_chain, energy, waste, diversity) |
+| 1 | Load 7 local sample datasets (emissions, esg_metrics, supply_chain, energy, waste, diversity, financials) |
 | 2 | Auto-discover from enterprise connectors (SAP ERP, Workday HR, IoT, EcoVadis, PostgreSQL, CDP/MSCI) |
 | 3 | Process user-uploaded files (CSV/JSON) |
 | 4 | Detect missing data — proactive gap alerts |
@@ -216,6 +260,7 @@ Expected datasets and their regulatory mappings:
 | energy | BRSR, GRI 302, SASB |
 | waste | BRSR, GRI 306 |
 | diversity | BRSR, CSRD S1, GRI 405 |
+| financials | ROI, KPI Engine, cost-of-capital and ESG capex analysis |
 
 Alerts generated:
 - **Critical:** Dataset completely missing
@@ -236,6 +281,9 @@ state_manager.publish("data_collection_results", {
     "missing_data_alerts": [{severity, dataset, message, action}],
     "confidence_scores": {dataset: {score, level, audit_ready}},
 })
+
+state_manager.publish("dataset_financials", financials_df, "Data Collector")
+state_manager.publish("dataset_emissions", emissions_df, "Data Collector")
 ```
 
 ---
@@ -288,6 +336,16 @@ Maps raw data field names to ESG metric IDs. Examples:
 ### Gap Narrative Generation
 
 Uses HuggingFace text generation with critical gaps as context. Generates 2-3 recommendations.
+
+### Reporter Classification
+
+The regulatory layer also derives a reporter profile from framework mix and compliance posture:
+
+- Mandatory-led
+- Voluntary-maturing
+- Mixed / transitional
+
+This profile is reused downstream in reporting and stakeholder messaging.
 
 ### Published State
 
@@ -377,18 +435,20 @@ Subscribes to:
 - `carbon_results` → emissions highlights
 - `regulatory_results` → framework compliance
 - `audit_results` → audit trail data
+- `roi_results` → value-creation channels and ROI summary
 - `data_collection_results` → data quality info
 
 ### Report Sections Generated
 
-1. **Executive Summary** — AI-generated 3-4 sentences using company profile + carbon + compliance data
+1. **Executive Summary** — AI-generated 3-4 sentences using company profile + carbon + compliance + ROI data
 2. **Environmental Performance** — narrative + metrics table (pillar == "Environmental")
 3. **Social Performance** — narrative + metrics table (pillar == "Social")
 4. **Governance Performance** — narrative + metrics table (pillar == "Governance")
 5. **Framework Sections** — per-framework compliance percentages and gap counts
 6. **Carbon Highlights** — total emissions, YoY change, carbon intensity
 7. **Compliance Summary** — overall + per-framework percentages
-8. **Audit Trail** — timestamped steps (data collection, validation, report generation)
+8. **ROI Snapshot** — financial ROI, net benefit, and investment quality summary
+9. **Audit Trail** — timestamped steps (data collection, validation, report generation)
 
 ### Metrics Tables Compilation
 
@@ -480,7 +540,92 @@ avg_esg_score   = mean(supply_chain_df.esg_score)
 
 ---
 
-## Agent 6: Audit Agent
+## Agent 6: ESG ROI Agent
+
+**Class:** `ROIAgent` (`agents/roi_agent.py`)
+**Purpose:** Quantifies ESG-linked financial return, strategic value, J-curve payoff, and investment quality.
+
+### Data Dependencies
+
+Reads canonical datasets and analytical outputs from:
+- `dataset_financials`
+- `dataset_emissions`
+- `dataset_esg_metrics`
+- `dataset_energy`
+- `dataset_supply_chain`
+- `dataset_diversity`
+- `risk_results`
+- `carbon_results`
+
+### KPI Backbone
+
+The ROI agent runs the KPI Engine across five value-creation channels:
+
+1. Growth
+2. Cost
+3. Risk
+4. Human Capital
+5. Capital Efficiency
+
+### Financial ROI
+
+```
+Financial ROI = (total_savings / total_esg_capex) × 100
+
+where:
+  total_savings = emission_reduction_savings
+                + energy_efficiency_savings
+                + carbon_tax_avoided
+```
+
+Additional uplift is estimated through ESG-linked revenue contribution.
+
+### Strategic ROI
+
+Strategic ROI estimates:
+- Cost-of-capital reduction in basis points
+- Risk reduction value
+- Talent retention savings
+- Brand premium score
+- ESG rating trajectory
+
+### J-Curve
+
+The J-curve models cumulative ESG cost vs cumulative benefit by quarter:
+
+```
+net_position = cumulative_benefit - cumulative_cost
+breakeven_quarter = first quarter where net_position >= 0
+```
+
+### Investment Quality Score (IQS)
+
+Weighted composite:
+
+```
+IQS = financial_roi_score × 0.25
+    + value_channel_average × 0.25
+    + strategic_value_score × 0.20
+    + momentum_score × 0.15
+    + risk_reduction_score × 0.15
+```
+
+Published state:
+
+```python
+state_manager.publish("roi_results", {
+    "kpi_engine": {...},
+    "financial_roi": {...},
+    "strategic_roi": {...},
+    "j_curve": {...},
+    "investment_quality_score": {...},
+    "narrative": str,
+})
+```
+
+---
+
+## Agent 7: Audit Agent
 
 **Class:** `AuditAgent` (`agents/audit_agent.py`)
 **Purpose:** Compliance verification, audit readiness scoring, evidence mapping.
@@ -507,7 +652,7 @@ Grade:
 
 ### Data Completeness Audit
 
-For each of 6 expected datasets:
+For each of 7 expected datasets:
 
 | Dataset | Label | Priority |
 |---------|-------|----------|
@@ -517,6 +662,7 @@ For each of 6 expected datasets:
 | energy | Energy Consumption Data | high |
 | waste | Waste Management Data | medium |
 | diversity | Workforce Diversity Data | medium |
+| financials | Financial KPI & ESG CapEx Data | high |
 
 Status thresholds:
 ```
@@ -552,7 +698,7 @@ For each ESG metric: checks if `confidence >= 0.8` → marks as `verifiable: tru
 
 ---
 
-## Agent 7: Action Agent
+## Agent 8: Action Agent
 
 **Class:** `ActionAgent` (`agents/action_agent.py`)
 **Purpose:** Generates prioritized, actionable ESG recommendations with timelines and costs.
@@ -593,9 +739,19 @@ summary = {
 }
 ```
 
+### Investment Friction & Target Setting Enhancements
+
+The action layer now adjusts recommendations with execution realism:
+
+- Implementation friction scoring
+- Transaction-cost adjustments
+- Liquidity-risk penalties
+- Net value and net ROI calculation
+- Suggested targets derived from ROI and risk context
+
 ---
 
-## Agent 8: Stakeholder Agent
+## Agent 9: Stakeholder Agent
 
 **Class:** `StakeholderAgent` (`agents/stakeholder_agent.py`)
 **Purpose:** Generates audience-tailored ESG communications.
@@ -616,6 +772,11 @@ For each audience:
 2. Run sentiment analysis on generated message → `tone_analysis`
 3. Generate audience-specific subject line
 4. Select relevant metrics subset
+
+Stakeholder context now also includes:
+- Reporter profile from the regulatory layer
+- Financial ROI and investment quality summaries
+- J-curve framing for expectation-setting
 
 ### Metrics Selection by Audience
 
@@ -785,7 +946,7 @@ by_schema = mgr.fetch_all_by_schema()
 
 ### ESG Schemas
 
-6 target schemas defined in `utils/schema_mapper.py`:
+7 target schemas defined in `utils/schema_mapper.py`:
 
 | Schema | Key Columns | Use Case |
 |--------|------------|----------|
@@ -795,6 +956,7 @@ by_schema = mgr.fetch_all_by_schema()
 | `energy` | facility, energy_source, consumption_mwh, renewable, year | Energy mix |
 | `waste` | waste_type, quantity_tonnes, disposal_method, year | Waste management |
 | `diversity` | department, gender, count, percentage, year | Workforce diversity |
+| `financials` | year, quarter, revenue_inr_crores, ebitda_margin_pct, esg_linked_capex_inr_crores | ROI and KPI analysis |
 
 ### Auto-Detection
 
@@ -866,6 +1028,11 @@ streamlit run app.py --server.port 8501
 python gradio_app.py
 ```
 
+Local runtime notes:
+- `pyarrow` is required for Streamlit's native dataframe component.
+- If `pyarrow` is unavailable, the app falls back to HTML tables via `utils/streamlit_compat.py`.
+- If `plotly` is unavailable, chart components render informational placeholders instead of crashing.
+
 ### Optional: AI Narratives
 
 Set a HuggingFace API token for AI-generated narratives (agents work without it via rule-based fallbacks):
@@ -929,6 +1096,8 @@ The deployed HuggingFace Spaces already include all cloud dependencies in their 
 | `ValueError: Could not find a server` | Gradio localhost health check fails in Docker | Patch `gradio.networking.url_ok = lambda url: True` (already applied) |
 | `TypeError: text_area() got an unexpected keyword argument 'type'` | Streamlit `st.text_area()` doesn't support `type="password"` | Use `st.text_input(type="password")` for credential fields |
 | Agents return empty/N/A data | Dependencies not run first | Run full pipeline or run prerequisite agents first |
+| `ModuleNotFoundError: No module named 'pyarrow'` | Streamlit dataframe dependency missing | Install `pyarrow` or rely on the built-in HTML table fallback |
+| Chart areas show placeholder messages | `plotly` missing in local env | Install `plotly` for full charts, or continue with fallback mode |
 | No AI narratives generated | HF_API_TOKEN not set | Set token in sidebar or env var (fallback mode still works) |
 | Cloud connector "not installed" | Optional dependency missing | Install with pip (see Connectors section) |
 | Delta Lake "deltalake not installed" | `deltalake` package not installed | `pip install deltalake` |

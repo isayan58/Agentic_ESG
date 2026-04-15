@@ -1,4 +1,4 @@
-"""ESG CoPilot — Gradio Interface with tabs for all 8 agents."""
+"""ESG CoPilot — Gradio Interface with tabs for all core agents."""
 import os
 
 # ── Fix jinja2 + starlette incompatibility ──────────────────────────────────
@@ -407,7 +407,13 @@ def run_regulatory_tracker():
     if "error" in results:
         return f"Error: {results['error']}", "", ""
 
+    reporter = results.get("reporter_profile", {})
     summary = f"## Regulatory Compliance: {results.get('overall_compliance', 0)}%\n\n"
+    if reporter:
+        summary += (
+            f"- **Reporter Classification:** {reporter.get('classification', 'N/A')}\n"
+            f"- **Listed Entity:** {'Yes' if reporter.get('listed_entity') else 'No'}\n\n"
+        )
     gaps_text = "## Gap Analysis\n\n"
 
     for fw, data in results.get("framework_results", {}).items():
@@ -512,11 +518,26 @@ def run_action_agent():
         f"- **Critical:** {summary_data.get('critical', 0)} | "
         f"**High:** {summary_data.get('high', 0)} | "
         f"**Medium:** {summary_data.get('medium', 0)}\n"
-        f"- **Est. Investment:** INR {summary_data.get('total_investment', 0)} lakhs\n\n"
+        f"- **Est. Investment:** INR {summary_data.get('total_investment', 0)} lakhs\n"
+        f"- **Adjusted Investment:** INR {summary_data.get('adjusted_investment', 0)} lakhs\n"
+        f"- **Portfolio Net Value:** INR {summary_data.get('net_value', 0)} lakhs\n\n"
         f"### Top Actions\n\n"
     )
     for action in results.get("actions", [])[:5]:
-        summary += f"- **[{action['id']}]** {action['action']} ({action['priority']})\n"
+        summary += (
+            f"- **[{action['id']}]** {action['action']} ({action['priority']}) "
+            f"| Net ROI: {action.get('net_roi_pct', 'N/A')}% "
+            f"| Friction: {action.get('implementation_friction_score', 'N/A')}\n"
+        )
+
+    targets = results.get("targets", [])
+    if targets:
+        summary += "\n### Suggested Targets\n\n"
+        for target in targets[:4]:
+            summary += (
+                f"- **{target['metric']}:** {target['current']} -> {target['target']} "
+                f"{target['unit']} by {target['deadline']}\n"
+            )
 
     narrative = results.get("roadmap_narrative", "")
     return summary, narrative
@@ -537,6 +558,34 @@ def run_stakeholder_agent():
     return investor_msg, regulator_msg, employee_msg, public_msg
 
 
+def run_roi_agent():
+    agent = orchestrator.get_agent("roi_agent")
+    results = agent.run()
+    if "error" in results:
+        return f"Error: {results['error']}", "", ""
+
+    iqs = results.get("investment_quality_score", {})
+    fin_roi = results.get("financial_roi", {})
+    summary = (
+        f"## ESG ROI Summary\n\n"
+        f"- **Investment Quality Score:** {iqs.get('score', 0)}/100 ({iqs.get('grade', 'N/A')})\n"
+        f"- **Financial ROI:** {fin_roi.get('roi_pct', 0)}%\n"
+        f"- **Net Financial Benefit:** INR {fin_roi.get('net_financial_benefit', 0)} Cr\n"
+        f"- **Payback:** {fin_roi.get('payback_years', 'N/A')} years\n"
+    )
+
+    channels = results.get("kpi_engine", {}).get("value_channels", [])
+    channels_text = "## Value Creation Channels\n\n"
+    for ch in channels:
+        channels_text += (
+            f"- **{ch.get('channel', 'N/A')}:** {ch.get('score', 0)}/100 "
+            f"({ch.get('financial_impact', 'N/A')})\n"
+        )
+
+    narrative = results.get("narrative", "")
+    return summary, channels_text, narrative
+
+
 def run_full_pipeline():
     results = orchestrator.run_full_pipeline()
 
@@ -548,12 +597,14 @@ def run_full_pipeline():
     carbon = results.get("carbon_accountant", {})
     risk = results.get("risk_predictor", {})
     audit = results.get("audit_agent", {})
+    roi = results.get("roi_agent", {})
 
     summary += (
         f"\n### Key Metrics\n"
         f"- Total Emissions: {carbon.get('total_emissions_current', 'N/A')} tCO2e\n"
         f"- Risk Score: {risk.get('overall_risk_score', 'N/A')}/100\n"
         f"- Audit Readiness: {audit.get('readiness_score', {}).get('overall', 'N/A')}%\n"
+        f"- Investment Quality Score: {roi.get('investment_quality_score', {}).get('score', 'N/A')}/100\n"
     )
     return summary
 
@@ -562,10 +613,10 @@ def run_full_pipeline():
 
 with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🌍 ESG CoPilot — Autonomous ESG Intelligence")
-    gr.Markdown("*8 specialized AI agents powered by HuggingFace*")
+    gr.Markdown("*9 specialized AI agents powered by HuggingFace*")
 
     with gr.Tab("🎛️ Mission Control"):
-        gr.Markdown("Run the full 8-agent pipeline in dependency order.")
+        gr.Markdown("Run the full 9-agent pipeline in dependency order.")
         run_btn = gr.Button("🚀 Run Full Pipeline", variant="primary")
         output = gr.Markdown()
         run_btn.click(run_full_pipeline, outputs=output)
@@ -780,6 +831,14 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
         out2 = gr.Markdown(label="Findings")
         btn.click(run_audit_agent, outputs=[out1, out2])
 
+    with gr.Tab("⭐ ESG ROI Agent"):
+        gr.Markdown("Dual ROI, value creation channels, and J-Curve analysis.")
+        btn = gr.Button("Run ESG ROI Analysis", variant="primary")
+        out1 = gr.Markdown(label="ROI Summary")
+        out2 = gr.Markdown(label="Value Channels")
+        out3 = gr.Markdown(label="Narrative")
+        btn.click(run_roi_agent, outputs=[out1, out2, out3])
+
     with gr.Tab("🎯 Action Agent"):
         gr.Markdown("Prioritized ESG recommendations.")
         btn = gr.Button("Generate Recommendations", variant="primary")
@@ -837,6 +896,10 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
             framework_sections = results.get("framework_sections", {})
             carbon = results.get("carbon_highlights", {})
             compliance = results.get("compliance_summary", {})
+            reporter_profile = results.get("reporter_profile", {})
+            roi_summary = results.get("roi_summary", {})
+            investment_quality = results.get("investment_quality", {})
+            value_channels = results.get("value_channels", {})
             audit_trail = results.get("audit_trail", [])
 
             # ── Company header ──
@@ -859,6 +922,28 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
             exec_summary = results.get("executive_summary", "")
             if exec_summary and rtype != "Framework Compliance":
                 report += f"## Executive Summary\n\n{exec_summary}\n\n"
+
+            if rtype in ("Full ESG Report", "Executive Summary Only") and reporter_profile:
+                report += "## Reporting Profile\n\n"
+                report += f"**Classification:** {reporter_profile.get('classification', 'N/A')}  \n"
+                report += f"**Listed Entity:** {'Yes' if reporter_profile.get('listed_entity') else 'No'}  \n"
+                report += f"**Rationale:** {reporter_profile.get('rationale', 'N/A')}\n\n"
+
+            if rtype in ("Full ESG Report", "Executive Summary Only") and roi_summary:
+                report += "## ESG ROI Snapshot\n\n"
+                report += f"- **Financial ROI:** {roi_summary.get('roi_pct', 'N/A')}%  \n"
+                report += f"- **Net Financial Benefit:** INR {roi_summary.get('net_financial_benefit', 'N/A')} Cr  \n"
+                report += f"- **Payback:** {roi_summary.get('payback_years', 'N/A')} years  \n"
+                report += f"- **Investment Quality:** {investment_quality.get('score', 'N/A')}/100 ({investment_quality.get('grade', 'N/A')})\n\n"
+
+                if value_channels.get("available"):
+                    report += "**Value Creation Channels:**\n\n"
+                    for channel in value_channels.get("channels", []):
+                        report += (
+                            f"- **{channel.get('name', 'N/A')}:** {channel.get('score', 0)}/100 "
+                            f"({channel.get('financial_impact', 'N/A')})\n"
+                        )
+                    report += "\n"
 
             # ── Carbon Highlights ──
             if rtype in ("Full ESG Report", "Carbon & Environment"):
