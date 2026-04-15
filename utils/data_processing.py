@@ -50,6 +50,10 @@ def load_regulatory_frameworks():
     return load_json("regulatory_frameworks.json")
 
 
+def load_financials():
+    return load_csv("sample_financials.csv")
+
+
 def load_company_profile():
     return load_json("company_profile.json")
 

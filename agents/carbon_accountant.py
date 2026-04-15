@@ -71,6 +71,16 @@ class CarbonAccountantAgent(BaseAgent):
             scope_totals_current, yoy_change, hotspots, carbon_intensity
         )
 
+        # --- Emissions→Cost linkage (H2: Profitability) ---
+        cost_linkage = self._compute_cost_linkage(
+            total_current, total_previous, energy_df, current_fy
+        )
+
+        # --- Carbon tax risk channel ---
+        carbon_tax_risk = self._assess_carbon_tax_risk(
+            total_current, yoy_change, scope_totals_current
+        )
+
         results = {
             "scope_totals_current": scope_totals_current,
             "scope_totals_previous": scope_totals_previous,
@@ -83,6 +93,8 @@ class CarbonAccountantAgent(BaseAgent):
             "carbon_intensity": carbon_intensity,
             "carbon_intensity_prev": carbon_intensity_prev,
             "energy_analysis": energy_analysis,
+            "cost_linkage": cost_linkage,
+            "carbon_tax_risk": carbon_tax_risk,
             "narrative": narrative,
             "reporting_year": current_fy,
         }
@@ -127,6 +139,77 @@ class CarbonAccountantAgent(BaseAgent):
             "total_mwh": round(total_mwh, 1),
             "renewable_pct": renewable_pct,
             "by_source": by_source,
+        }
+
+    def _compute_cost_linkage(self, total_curr, total_prev, energy_df, current_fy):
+        """Map emissions reduction directly to financial cost savings (H2)."""
+        reduction_tco2e = max(0, total_prev - total_curr)
+        # Average cost per tCO2e avoided (carbon credit proxy ~INR 1500/tCO2e)
+        cost_per_tco2e = 0.0015  # INR crores per tCO2e
+        emission_cost_saving = round(reduction_tco2e * cost_per_tco2e, 2)
+
+        # Energy cost trend
+        energy_saving = 0.0
+        if not energy_df.empty and "year" in energy_df.columns and current_fy:
+            years = sorted(energy_df["year"].unique())
+            if len(years) >= 2:
+                curr_cost = energy_df[energy_df["year"] == years[-1]]["cost_inr_lakhs"].sum() \
+                    if "cost_inr_lakhs" in energy_df.columns else 0
+                prev_cost = energy_df[energy_df["year"] == years[-2]]["cost_inr_lakhs"].sum() \
+                    if "cost_inr_lakhs" in energy_df.columns else 0
+                energy_saving = round(max(0, prev_cost - curr_cost) / 100, 2)  # lakhs→crores
+
+        # Scope 2 reduction opportunity
+        scope2_curr = 0
+        if not energy_df.empty:
+            renewable_pct = 0
+            fy_df = energy_df[energy_df["year"] == current_fy] if current_fy else energy_df
+            if not fy_df.empty:
+                total_mwh = fy_df["consumption_mwh"].sum()
+                ren_mwh = fy_df[fy_df["renewable"] == "Yes"]["consumption_mwh"].sum()
+                renewable_pct = round(ren_mwh / total_mwh * 100, 1) if total_mwh else 0
+            scope2_opportunity = round((100 - renewable_pct) * 0.3, 1)  # % achievable
+        else:
+            scope2_opportunity = 0
+            renewable_pct = 0
+
+        return {
+            "emission_reduction_tco2e": round(reduction_tco2e, 1),
+            "cost_saving_from_reduction_cr": emission_cost_saving,
+            "energy_cost_saving_cr": energy_saving,
+            "total_cost_saving_cr": round(emission_cost_saving + energy_saving, 2),
+            "scope2_renewable_pct": renewable_pct,
+            "scope2_additional_opportunity_pct": scope2_opportunity,
+            "cost_per_tco2e_avoided": f"INR {cost_per_tco2e * 10000:.0f}/tCO2e",
+        }
+
+    def _assess_carbon_tax_risk(self, total_emissions, yoy_change, scope_totals):
+        """Estimate carbon tax exposure under current and proposed regimes."""
+        # Current Indian carbon tax equivalent (~INR 400/tCO2e)
+        current_rate = 400  # INR per tCO2e
+        # EU CBAM rate (~EUR 80 = ~INR 7200/tCO2e) for export exposure
+        cbam_rate = 7200
+
+        scope1 = scope_totals.get("Scope 1", 0)
+        scope2 = scope_totals.get("Scope 2", 0)
+        taxable_emissions = scope1 + scope2  # typically Scope 1+2
+
+        current_exposure = round(taxable_emissions * current_rate / 100000, 2)  # INR crores
+        cbam_exposure = round(taxable_emissions * cbam_rate / 100000, 2)
+
+        # Future exposure (assume 10% annual rate increase)
+        future_exposure_3yr = round(current_exposure * (1.10 ** 3), 2)
+
+        risk_level = "High" if current_exposure > 5 else ("Medium" if current_exposure > 2 else "Low")
+
+        return {
+            "taxable_emissions_tco2e": round(taxable_emissions, 1),
+            "current_domestic_exposure_cr": current_exposure,
+            "cbam_equivalent_exposure_cr": cbam_exposure,
+            "projected_3yr_exposure_cr": future_exposure_3yr,
+            "risk_level": risk_level,
+            "yoy_emission_trend_pct": yoy_change,
+            "mitigation_potential_pct": round(min(35, abs(yoy_change) * 2), 1),
         }
 
     def _generate_narrative(self, scope_totals, yoy_change, hotspots, carbon_intensity):
