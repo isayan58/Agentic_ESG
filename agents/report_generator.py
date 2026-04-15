@@ -1,4 +1,10 @@
-"""Agent 4: Report Generator — Multi-framework audit-ready report generation."""
+"""Agent 4: Report Generator — Multi-framework audit-ready report generation
+with Value Creation Channels framework.
+
+Hypothesis mapping:
+  H1 — ESG → Revenue growth (Growth channel)
+  H7 — India-specific regulatory context
+"""
 from datetime import datetime
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
@@ -23,6 +29,7 @@ class ReportGeneratorAgent(BaseAgent):
         regulatory_results = state_manager.subscribe("regulatory_results") or {}
         audit_results = state_manager.subscribe("audit_results") or {}
         data_results = state_manager.subscribe("data_collection_results") or {}
+        roi_results = state_manager.subscribe("roi_results") or {}
 
         fy_label = f"FY{company_cfg.current_fy}" if company_cfg.current_fy else "Current FY"
 
@@ -35,6 +42,9 @@ class ReportGeneratorAgent(BaseAgent):
         env_narrative = self._generate_section_narrative("environmental", carbon_results, metrics_df)
         social_narrative = self._generate_section_narrative("social", {}, metrics_df)
         gov_narrative = self._generate_section_narrative("governance", {}, metrics_df)
+
+        # Value Creation Channels section (replaces traditional ESG-only view)
+        value_channels = self._compile_value_channels(roi_results)
 
         # Compile metrics tables
         metrics_tables = self._compile_metrics_tables(metrics_df)
@@ -80,6 +90,8 @@ class ReportGeneratorAgent(BaseAgent):
                     for k, v in regulatory_results.get("framework_results", {}).items()
                 },
             },
+            "value_channels": value_channels,
+            "investment_quality": roi_results.get("investment_quality_score", {}),
             "audit_trail": audit_trail,
         }
 
@@ -147,6 +159,40 @@ class ReportGeneratorAgent(BaseAgent):
             pdf = metrics_df[metrics_df["pillar"] == pillar]
             tables[pillar] = pdf[available_cols].to_dict("records")
         return tables
+
+    def _compile_value_channels(self, roi_results):
+        """Build Value Creation Channels section from ROI Agent output.
+
+        Presents ESG performance through 5 business-value lenses:
+        Growth, Cost, Risk, Human Capital, Capital Efficiency.
+        """
+        kpi_data = roi_results.get("kpi_engine", {})
+        channels = kpi_data.get("value_channels", [])
+        fin_roi = roi_results.get("financial_roi", {})
+        strat_roi = roi_results.get("strategic_roi", {})
+
+        if not channels:
+            return {"available": False, "channels": []}
+
+        channel_sections = []
+        for ch in channels:
+            channel_sections.append({
+                "name": ch.get("channel", ""),
+                "score": ch.get("score", 0),
+                "trend": ch.get("trend", "stable"),
+                "financial_impact": ch.get("financial_impact", ""),
+                "metrics": ch.get("metrics", []),
+            })
+
+        return {
+            "available": True,
+            "channels": channel_sections,
+            "composite_score": kpi_data.get("composite_esg_financial_score", 0),
+            "financial_roi_pct": fin_roi.get("roi_pct", 0),
+            "total_esg_capex": fin_roi.get("total_esg_capex", 0),
+            "net_benefit": fin_roi.get("net_financial_benefit", 0),
+            "channel_scores": strat_roi.get("channel_scores", {}),
+        }
 
     def _compile_framework_sections(self, regulatory_results):
         sections = {}

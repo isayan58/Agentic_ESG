@@ -1,9 +1,16 @@
-"""Agent 6: Audit Agent — Compliance verification, audit readiness, and trail management."""
+"""Agent 6: Audit Agent — Compliance verification, audit readiness, trail
+management, and ESG Integrity Gap detection.
+
+The Integrity Gap Detector compares self-reported ESG metrics against
+data-derived actuals to flag inconsistencies (the "73% mismatch" pattern).
+"""
 from datetime import datetime
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
 from core.company_config import company_cfg
-from utils.data_processing import load_esg_metrics, load_regulatory_frameworks
+from utils.data_processing import (
+    load_esg_metrics, load_regulatory_frameworks, load_emissions, load_energy,
+)
 
 
 class AuditAgent(BaseAgent):
@@ -39,6 +46,9 @@ class AuditAgent(BaseAgent):
             completeness_audit, compliance_checklist, evidence_map
         )
 
+        # ESG Integrity Gap Detector
+        integrity_gaps = self._detect_integrity_gaps(metrics_df)
+
         # Audit trail compilation
         audit_trail = self._compile_full_audit_trail()
 
@@ -52,6 +62,7 @@ class AuditAgent(BaseAgent):
             "completeness_audit": completeness_audit,
             "compliance_checklist": compliance_checklist,
             "evidence_map": evidence_map,
+            "integrity_gaps": integrity_gaps,
             "audit_trail": audit_trail,
             "findings_summary": findings_summary,
             "issues_count": sum(
@@ -195,6 +206,119 @@ class AuditAgent(BaseAgent):
                 "A" if total >= t.audit_grade_a else
                 "B" if total >= t.audit_grade_b else
                 "C" if total >= t.audit_grade_c else "D"
+            ),
+        }
+
+    def _detect_integrity_gaps(self, metrics_df):
+        """ESG Integrity Gap Detector — compare self-reported vs data-derived.
+
+        Flags metrics where the reported value diverges significantly from
+        what operational data suggests, producing a mismatch score.
+        """
+        if metrics_df.empty:
+            return {"mismatch_pct": 0, "gaps": [], "risk_level": "N/A"}
+
+        emissions_df = load_emissions()
+        energy_df = load_energy()
+
+        current_col = f"value_{company_cfg.current_fy}" if company_cfg.current_fy else "value_2024"
+        target_col = f"target_{company_cfg.current_fy}" if company_cfg.current_fy else "target_2024"
+
+        gaps = []
+        total_checked = 0
+        mismatches = 0
+
+        # Cross-reference environmental metrics against operational data
+        for _, row in metrics_df.iterrows():
+            reported = row.get(current_col, row.get("value_2024"))
+            target = row.get(target_col, row.get("target_2024"))
+            metric_name = row.get("metric_name", "")
+            pillar = row.get("pillar", "")
+            status = row.get("status", "")
+
+            if reported is None or target is None:
+                continue
+            total_checked += 1
+
+            # Try to derive actual from operational data
+            derived_value = None
+            gap_detail = None
+
+            if "carbon_intensity" in str(row.get("metric_id", "")).lower():
+                # Cross-check carbon intensity with emissions data
+                if not emissions_df.empty and company_cfg.revenue("current"):
+                    fy = company_cfg.current_fy
+                    fy_emissions = emissions_df[emissions_df["year"] == fy]["emissions_tco2e"].sum() \
+                        if fy else emissions_df["emissions_tco2e"].sum()
+                    derived_value = round(fy_emissions / company_cfg.revenue("current"), 1) \
+                        if company_cfg.revenue("current") else None
+                    if derived_value is not None:
+                        try:
+                            reported_num = float(reported)
+                            if abs(reported_num - derived_value) / max(reported_num, 0.01) > 0.15:
+                                gap_detail = f"Reported {reported_num}, derived from data: {derived_value}"
+                        except (ValueError, TypeError):
+                            pass
+
+            elif "renewable" in str(row.get("metric_id", "")).lower():
+                # Cross-check renewable % with energy data
+                if not energy_df.empty:
+                    fy = company_cfg.current_fy
+                    fy_en = energy_df[energy_df["year"] == fy] if fy else energy_df
+                    if not fy_en.empty:
+                        total_mwh = fy_en["consumption_mwh"].sum()
+                        ren_mwh = fy_en[fy_en["renewable"] == "Yes"]["consumption_mwh"].sum()
+                        derived_value = round(ren_mwh / total_mwh * 100, 1) if total_mwh else None
+                        if derived_value is not None:
+                            try:
+                                reported_num = float(reported)
+                                if abs(reported_num - derived_value) > 5:
+                                    gap_detail = f"Reported {reported_num}%, energy data shows {derived_value}%"
+                            except (ValueError, TypeError):
+                                pass
+
+            # Generic target vs actual gap (self-reported as "Met" but far from target)
+            if gap_detail is None and status == "Met":
+                try:
+                    r_num = float(reported)
+                    t_num = float(target)
+                    # If "Met" but actual < 90% of target → suspicious
+                    if t_num > 0 and r_num / t_num < 0.90:
+                        gap_detail = f"Marked 'Met' but value {r_num} is <90% of target {t_num}"
+                except (ValueError, TypeError):
+                    pass
+
+            if gap_detail:
+                mismatches += 1
+                gaps.append({
+                    "metric_id": row.get("metric_id", ""),
+                    "metric_name": metric_name,
+                    "pillar": pillar,
+                    "reported_value": str(reported),
+                    "derived_value": str(derived_value) if derived_value else "N/A",
+                    "reported_status": status,
+                    "gap_detail": gap_detail,
+                    "severity": "High" if derived_value else "Medium",
+                })
+
+        mismatch_pct = round(mismatches / total_checked * 100, 1) if total_checked else 0
+        risk_level = (
+            "Critical" if mismatch_pct > 30 else
+            "High" if mismatch_pct > 15 else
+            "Medium" if mismatch_pct > 5 else "Low"
+        )
+
+        return {
+            "total_checked": total_checked,
+            "mismatches_found": mismatches,
+            "mismatch_pct": mismatch_pct,
+            "risk_level": risk_level,
+            "gaps": gaps,
+            "recommendation": (
+                "Significant integrity gaps detected — initiate data reconciliation "
+                "and third-party verification before reporting."
+                if mismatch_pct > 15
+                else "Integrity checks passed with minor discrepancies."
             ),
         }
 

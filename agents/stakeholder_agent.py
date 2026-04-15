@@ -1,4 +1,9 @@
-"""Agent 8: Stakeholder Agent — Audience-tailored ESG communications."""
+"""Agent 8: Stakeholder Agent — Audience-tailored ESG communications,
+ESG Business Case Generator, and J-Curve expectation setting.
+
+Hypothesis mapping:
+  H6 — J-Curve: short-term costs → long-term payback (communication framing)
+"""
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
 from core.company_config import company_cfg
@@ -47,10 +52,11 @@ class StakeholderAgent(BaseAgent):
         action_results = state_manager.subscribe("action_results") or {}
         carbon_results = state_manager.subscribe("carbon_results") or {}
         risk_results = state_manager.subscribe("risk_results") or {}
+        roi_results = state_manager.subscribe("roi_results") or {}
 
         # Build data context for message generation
         context = self._build_context(
-            report_results, action_results, carbon_results, risk_results
+            report_results, action_results, carbon_results, risk_results, roi_results
         )
 
         # Generate communications for each audience
@@ -64,9 +70,17 @@ class StakeholderAgent(BaseAgent):
         # Performance summary
         perf_summary = self._generate_performance_summary(context)
 
+        # ESG Business Case (board-ready)
+        business_case = self._generate_business_case(context, roi_results)
+
+        # J-Curve expectation framing (H6)
+        j_curve_framing = self._frame_j_curve(roi_results)
+
         results = {
             "communications": communications,
             "performance_summary": perf_summary,
+            "business_case": business_case,
+            "j_curve_framing": j_curve_framing,
             "audiences": list(AUDIENCE_PROFILES.keys()),
             "context_data": context,
         }
@@ -74,7 +88,12 @@ class StakeholderAgent(BaseAgent):
         state_manager.publish("stakeholder_results", results, self.name)
         return results
 
-    def _build_context(self, report_results, action_results, carbon_results, risk_results):
+    def _build_context(self, report_results, action_results, carbon_results,
+                       risk_results, roi_results=None):
+        roi_results = roi_results or {}
+        fin_roi = roi_results.get("financial_roi", {})
+        iqs = roi_results.get("investment_quality_score", {})
+
         return {
             "company_name": report_results.get("company", {}).get(
                 "company_name", company_cfg.company_name
@@ -94,6 +113,12 @@ class StakeholderAgent(BaseAgent):
             ),
             "total_actions": action_results.get("summary", {}).get("total_actions", "N/A"),
             "critical_actions": action_results.get("summary", {}).get("critical", "N/A"),
+            # ROI context
+            "financial_roi_pct": fin_roi.get("roi_pct", "N/A"),
+            "cost_savings": fin_roi.get("cost_savings", {}).get("total", "N/A"),
+            "esg_capex": fin_roi.get("total_esg_capex", "N/A"),
+            "iqs_score": iqs.get("score", "N/A"),
+            "iqs_grade": iqs.get("grade", "N/A"),
         }
 
     def _generate_communication(self, audience_key, profile, context):
@@ -158,6 +183,82 @@ class StakeholderAgent(BaseAgent):
             ])
 
         return base
+
+    def _generate_business_case(self, context, roi_results):
+        """Generate a board-ready ESG business case with financial justification."""
+        fin_roi = roi_results.get("financial_roi", {})
+        strat_roi = roi_results.get("strategic_roi", {})
+        iqs = roi_results.get("investment_quality_score", {})
+
+        cost_savings = fin_roi.get("cost_savings", {})
+        prompt = (
+            f"Write a concise ESG business case for {context['company_name']}'s board. "
+            f"ESG Investment Quality Score: {iqs.get('score', 'N/A')}/100 (Grade: {iqs.get('grade', 'N/A')}). "
+            f"Financial ROI: {fin_roi.get('roi_pct', 'N/A')}%. "
+            f"Total cost savings: INR {cost_savings.get('total', 'N/A')} Cr. "
+            f"Revenue uplift: INR {fin_roi.get('esg_revenue_uplift', 'N/A')} Cr. "
+            f"Cost of capital reduction: {strat_roi.get('cost_of_capital_reduction_bps', 'N/A')} bps. "
+            f"Include: (1) Investment summary, (2) Financial returns, (3) Strategic value, (4) Recommendation. "
+            f"Tone: executive, data-driven."
+        )
+        narrative = self.hf.generate_text(prompt, max_tokens=300)
+
+        return {
+            "narrative": narrative,
+            "headline": f"ESG Investment Quality: {iqs.get('grade', 'N/A')} — {fin_roi.get('roi_pct', 0)}% Financial ROI",
+            "key_financials": {
+                "total_invested": f"INR {fin_roi.get('total_esg_capex', 0)} Cr",
+                "total_savings": f"INR {cost_savings.get('total', 0)} Cr",
+                "revenue_uplift": f"INR {fin_roi.get('esg_revenue_uplift', 0)} Cr",
+                "payback_years": fin_roi.get("payback_years"),
+                "coc_reduction_bps": strat_roi.get("cost_of_capital_reduction_bps", 0),
+            },
+            "recommendation": "Increase ESG CapEx allocation" if iqs.get("score", 0) >= 60 else "Maintain current ESG spend, focus on high-ROI initiatives",
+        }
+
+    def _frame_j_curve(self, roi_results):
+        """H6: Frame the J-Curve for stakeholder expectation setting.
+
+        Explains why ESG investments may show short-term costs before
+        long-term payback, and communicates the breakeven timeline.
+        """
+        j_data = roi_results.get("j_curve", {})
+        quarters = j_data.get("quarters", [])
+        breakeven = j_data.get("breakeven_quarter")
+        total_invested = j_data.get("total_invested", 0)
+        total_benefit = j_data.get("total_benefit", 0)
+        net = j_data.get("net_position", 0)
+
+        if not quarters:
+            return {
+                "available": False,
+                "message": "Insufficient data for J-Curve analysis.",
+            }
+
+        # Identify the trough (maximum negative position)
+        trough = min(quarters, key=lambda q: q.get("net_position", 0))
+
+        prompt = (
+            f"Explain the ESG J-Curve for {company_cfg.company_name} in 3 sentences. "
+            f"Total invested: INR {total_invested} Cr over {len(quarters)} quarters. "
+            f"Deepest cost trough: INR {abs(trough['net_position'])} Cr in {trough['period']}. "
+            f"{'Breakeven reached in ' + breakeven if breakeven else 'Breakeven not yet reached'}. "
+            f"Current net position: INR {net} Cr. "
+            f"Frame this positively for investors."
+        )
+        narrative = self.hf.generate_text(prompt, max_tokens=150)
+
+        return {
+            "available": True,
+            "narrative": narrative,
+            "breakeven_quarter": breakeven,
+            "trough_period": trough["period"],
+            "trough_amount": trough["net_position"],
+            "current_net": net,
+            "total_invested": total_invested,
+            "total_benefit": total_benefit,
+            "status": "Payback achieved" if net >= 0 else "In investment phase",
+        }
 
     def _generate_performance_summary(self, context):
         prompt = (
