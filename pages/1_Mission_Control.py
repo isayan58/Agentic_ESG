@@ -1,4 +1,5 @@
 """Mission Control — Full pipeline overview with business impact, pipeline visualization, and transformation view."""
+import pandas as pd
 import streamlit as st
 from core.orchestrator import Orchestrator
 from config import AGENT_CONFIG
@@ -29,6 +30,29 @@ def render_chart(fig):
         st.info(chart_unavailable_message())
     else:
         st.plotly_chart(fig, use_container_width=True)
+
+
+def signal_label(value, good_threshold, watch_threshold=None):
+    """Return a simple status label for layman-friendly hypothesis tables."""
+    if value is None:
+        return "Not available"
+    if watch_threshold is None:
+        watch_threshold = good_threshold * 0.7
+    if value >= good_threshold:
+        return "Positive signal"
+    if value >= watch_threshold:
+        return "Mixed signal"
+    return "Needs attention"
+
+
+st.markdown("### How to Read This Page")
+intro1, intro2, intro3 = st.columns(3)
+with intro1:
+    st.info("**Top line** means growth: revenue, brand strength, and market momentum.")
+with intro2:
+    st.info("**Bottom line** means profit impact: margins, savings, payback, and ROI.")
+with intro3:
+    st.info("**Hypotheses** mean business ideas being tested, like whether ESG reduces risk or improves returns.")
 
 # ── Business Impact KPIs (Slide 12) ──
 st.markdown("### Proven Business Impact")
@@ -96,18 +120,26 @@ if st.session_state.pipeline_results:
     results = st.session_state.pipeline_results
     st.markdown("---")
 
-    tab_results, tab_pipeline, tab_transform, tab_stack, tab_tiers, tab_monitor = st.tabs([
-        "Results Summary", "Pipeline Flow", "Transformation",
-        "Enterprise Stack", "Tier Config", "24/7 Monitoring",
+    tab_results, tab_business, tab_hypotheses, tab_pipeline, tab_transform, tab_stack, tab_tiers, tab_monitor = st.tabs([
+        "Results Summary", "Business Lens", "Hypothesis Tracker", "Pipeline Flow",
+        "Transformation", "Enterprise Stack", "Tier Config", "24/7 Monitoring",
     ])
+
+    data_res = results.get("data_collector", {})
+    carbon_res = results.get("carbon_accountant", {})
+    risk_res = results.get("risk_predictor", {})
+    audit_res = results.get("audit_agent", {})
+    roi_res = results.get("roi_agent", {})
+    reg_res = results.get("regulatory_tracker", {})
+    action_res = results.get("action_agent", {})
+    report_res = results.get("report_generator", {})
+    kpi_res = roi_res.get("kpi_engine", {})
+    fin_summary = kpi_res.get("financial_summary", {})
+    cagr = kpi_res.get("cagr", {})
+    volatility = kpi_res.get("volatility", {})
 
     with tab_results:
         st.markdown("### Pipeline Results")
-        data_res = results.get("data_collector", {})
-        carbon_res = results.get("carbon_accountant", {})
-        risk_res = results.get("risk_predictor", {})
-        audit_res = results.get("audit_agent", {})
-        roi_res = results.get("roi_agent", {})
 
         k1, k2, k3, k4, k5 = st.columns(5)
         with k1:
@@ -134,7 +166,6 @@ if st.session_state.pipeline_results:
                 fig = emissions_donut(carbon_res["scope_totals_current"])
                 render_chart(fig)
         with col2:
-            reg_res = results.get("regulatory_tracker", {})
             if reg_res and "framework_results" in reg_res:
                 from utils.charts import compliance_radar
                 scores = {fw: d["compliance_pct"] for fw, d in reg_res["framework_results"].items()}
@@ -142,10 +173,8 @@ if st.session_state.pipeline_results:
                 render_chart(fig)
 
         # Actions summary
-        action_res = results.get("action_agent", {})
         if action_res and "actions" in action_res:
             st.markdown("### Top Action Items")
-            import pandas as pd
             actions_df = pd.DataFrame(action_res["actions"])
             cols = ["id", "action", "category", "priority", "duration_weeks", "impact"]
             available = [c for c in cols if c in actions_df.columns]
@@ -164,11 +193,151 @@ if st.session_state.pipeline_results:
             with col3:
                 st.metric("IQS Grade", iqs.get("grade", "N/A"))
 
+    with tab_business:
+        st.markdown("### Top Line vs Bottom Line")
+        st.caption("This tab translates ESG into plain business language for revenue, profit, capital efficiency, and risk.")
+
+        top1, top2, top3, top4 = st.columns(4)
+        with top1:
+            st.metric("Revenue (Top Line)", f"INR {fin_summary.get('revenue_current_fy', 0)} Cr",
+                      f"{fin_summary.get('revenue_growth_pct', 0)}% growth")
+            st.caption("Money coming in from the business.")
+        with top2:
+            st.metric("EBITDA Margin", f"{fin_summary.get('ebitda_margin_latest', 0)}%")
+            st.caption("How much operating profit is left after running costs.")
+        with top3:
+            st.metric("Net ESG Benefit", f"INR {roi_res.get('financial_roi', {}).get('net_financial_benefit', 0)} Cr")
+            st.caption("Estimated financial upside linked to ESG action.")
+        with top4:
+            st.metric("Cost of Capital", f"{fin_summary.get('cost_of_capital_latest', 0)}%")
+            st.caption("How expensive it is for the company to raise money.")
+
+        st.markdown("### In Plain English")
+        st.markdown("""
+        - If the **top line** improves, ESG may be helping the company win customers, pricing power, or brand trust.
+        - If the **bottom line** improves, ESG may be reducing waste, energy spend, tax exposure, or operating friction.
+        - If **cost of capital** falls and downside protection rises, ESG may be making the business safer and more investable.
+        """)
+
+        finance_rows = pd.DataFrame([
+            {
+                "Business lens": "Top line",
+                "What it means": "Growth and demand",
+                "Metric": "Revenue growth",
+                "Current signal": f"{fin_summary.get('revenue_growth_pct', 0)}%",
+            },
+            {
+                "Business lens": "Bottom line",
+                "What it means": "Profit after costs",
+                "Metric": "EBITDA margin",
+                "Current signal": f"{fin_summary.get('ebitda_margin_latest', 0)}%",
+            },
+            {
+                "Business lens": "Capital efficiency",
+                "What it means": "Return on invested money",
+                "Metric": "ROA / ROE",
+                "Current signal": f"{fin_summary.get('roa_latest', 0)}% / {fin_summary.get('roe_latest', 0)}%",
+            },
+            {
+                "Business lens": "Funding & risk",
+                "What it means": "How safe and attractive the business looks",
+                "Metric": "Cost of capital / downside protection",
+                "Current signal": (
+                    f"{fin_summary.get('cost_of_capital_latest', 0)}% / "
+                    f"{risk_res.get('downside_protection', {}).get('score', 0)}/100"
+                ),
+            },
+        ])
+        safe_dataframe(finance_rows, use_container_width=True, hide_index=True)
+
+        st.markdown("### Finance Detail")
+        finance_detail = pd.DataFrame([
+            {"Metric": "Revenue CAGR", "Value": f"{cagr.get('revenue_cagr', 0)}%"},
+            {"Metric": "EBITDA CAGR", "Value": f"{cagr.get('ebitda_cagr', 0)}%"},
+            {"Metric": "ESG Capex CAGR", "Value": f"{cagr.get('esg_capex_cagr', 0)}%"},
+            {"Metric": "Revenue Volatility", "Value": f"{volatility.get('revenue_volatility', 0)}%"},
+            {"Metric": "Margin Volatility", "Value": f"{volatility.get('margin_volatility', 0)}"},
+            {"Metric": "Earnings Volatility", "Value": f"{volatility.get('earnings_volatility', 0)}%"},
+            {"Metric": "Carbon Tax Exposure", "Value": f"INR {fin_summary.get('carbon_tax_exposure_latest', 0)} L"},
+            {"Metric": "Energy Cost", "Value": f"INR {fin_summary.get('energy_cost_latest', 0)} Cr"},
+        ])
+        safe_dataframe(finance_detail, use_container_width=True, hide_index=True)
+
+    with tab_hypotheses:
+        st.markdown("### Hypothesis Tracker")
+        st.caption("This shows the business ideas the platform is testing, translated into simple language.")
+
+        market_regime = risk_res.get("market_regime", {})
+        downside = risk_res.get("downside_protection", {})
+        j_curve = roi_res.get("j_curve", {})
+        reporter_profile = reg_res.get("reporter_profile", {})
+        iqs = roi_res.get("investment_quality_score", {})
+        cost_savings = roi_res.get("financial_roi", {}).get("cost_savings", {}).get("total", 0)
+
+        hypothesis_rows = pd.DataFrame([
+            {
+                "Hypothesis": "H1 Growth",
+                "Plain English": "Better ESG can help the company grow sales and brand strength.",
+                "Where to see it": "ROI Agent + Report Generator",
+                "Current signal": signal_label(kpi_res.get("composite_esg_financial_score"), 65),
+                "Evidence now": f"Revenue growth {fin_summary.get('revenue_growth_pct', 0)}%, growth channel {next((c.get('score', 0) for c in kpi_res.get('value_channels', []) if c.get('channel') == 'Growth'), 0)}/100",
+            },
+            {
+                "Hypothesis": "H2 Profitability",
+                "Plain English": "Cutting emissions and energy waste can improve profit.",
+                "Where to see it": "Carbon Accountant + ROI Agent",
+                "Current signal": signal_label(cost_savings, 1),
+                "Evidence now": f"ESG-linked cost savings INR {cost_savings} Cr",
+            },
+            {
+                "Hypothesis": "H3 Cyclical",
+                "Plain English": "ESG may perform differently in stable, transition, or stress markets.",
+                "Where to see it": "Risk Predictor",
+                "Current signal": "Observed" if market_regime else "Not available",
+                "Evidence now": f"Market regime: {market_regime.get('regime', 'N/A')}",
+            },
+            {
+                "Hypothesis": "H4 Downside",
+                "Plain English": "Stronger ESG can protect the business during shocks or downturns.",
+                "Where to see it": "Risk Predictor",
+                "Current signal": signal_label(downside.get('score'), 70, 55),
+                "Evidence now": f"Downside protection score: {downside.get('score', 0)}/100",
+            },
+            {
+                "Hypothesis": "H5 CapEx Quality",
+                "Plain English": "ESG spending should create returns, not just cost.",
+                "Where to see it": "ROI Agent + Action Agent",
+                "Current signal": signal_label(iqs.get('score'), 70, 55),
+                "Evidence now": f"Investment quality: {iqs.get('score', 0)}/100 ({iqs.get('grade', 'N/A')})",
+            },
+            {
+                "Hypothesis": "H6 J-Curve",
+                "Plain English": "ESG can hurt in the short term but pay back over time.",
+                "Where to see it": "ROI Agent + Stakeholder Agent",
+                "Current signal": "Breakeven reached" if j_curve.get("breakeven_quarter") else "Still in payback phase",
+                "Evidence now": f"Breakeven: {j_curve.get('breakeven_quarter', 'Not yet reached')}",
+            },
+            {
+                "Hypothesis": "H7 India Nuance",
+                "Plain English": "Indian reporting context changes what matters, especially BRSR readiness.",
+                "Where to see it": "Regulatory Tracker + Report Generator",
+                "Current signal": "Context active" if reporter_profile else "Not available",
+                "Evidence now": f"Reporter profile: {reporter_profile.get('classification', 'N/A')}",
+            },
+        ])
+        safe_dataframe(hypothesis_rows, use_container_width=True, hide_index=True)
+
     with tab_pipeline:
         st.markdown("### Agent Pipeline — Data Flow Visualization")
         st.caption("Sankey diagram showing how data flows between all orchestrated agents")
         fig = pipeline_flow_diagram()
         render_chart(fig)
+        st.markdown("""
+        **Architecture in plain English**
+        - The first layer collects and cleans data.
+        - The middle layer turns that data into business signals like growth, profit, and risk.
+        - The final layer turns those signals into reports, decisions, and stakeholder communication.
+        """)
 
     with tab_transform:
         st.markdown("### Real-World Transformation — From Months to Weeks")
