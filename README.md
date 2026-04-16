@@ -86,6 +86,21 @@ Recent platform enhancements:
 - Action planning now includes implementation friction, transaction-cost adjustments, liquidity risk, net ROI, and suggested targets.
 - Local Streamlit fallback support now avoids hard failures when `pyarrow` or `plotly` are missing in constrained environments.
 
+### What sets this platform apart
+
+| Capability | What it answers |
+| --- | --- |
+| **5 Value Creation Channels** (Growth, Cost, Risk, Human Capital, Capital Efficiency) | How is ESG performance actually moving the P&L? |
+| **Dual ROI Framework** (Financial + Strategic) | What is the tangible return on our ESG spend, and what is the soft value (brand, cost-of-capital, talent)? |
+| **ESG Investment Quality Score (IQS)** | Is our ESG CapEx generating real business value? Letter grade A+ to D. |
+| **J-Curve Payback Modeller** | When will our ESG investments break even, and how deep is the trough? |
+| **ESG Integrity Gap Detector** | Where do self-reported metrics diverge from operational data? (73%+ greenwashing-style mismatches surface here) |
+| **Market Regime Detection** (Bull / Transition / Stress) | Should we lead with growth framing or defensive framing given today's cycle? |
+| **Downside Protection Score** | How well does our ESG posture shield us from negative shocks? |
+| **Multi-Agency Rating Translations** (MSCI / Sustainalytics / CDP) | How does our ESG performance read on each major external scale? |
+| **Emissions → Cost Linkage & Carbon Tax Risk** | What are our current and projected (3-yr, CBAM) carbon tax exposures? |
+| **Implementation Friction & Net ROI per Action** | Which actions actually survive execution realism — accounting for regime, category, liquidity, and transaction cost? |
+
 ---
 
 ## Data Connectors
