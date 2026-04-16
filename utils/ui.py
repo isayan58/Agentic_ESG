@@ -80,24 +80,48 @@ _GRADE_COLORS = {
 # ---------------------------------------------------------------------------
 _GLOBAL_CSS = f"""
 <style>
-    /* Typography tightening */
-    html, body, [class*="st-"] {{
-        font-family: 'Inter', 'SF Pro Display', -apple-system, 'Segoe UI',
+    /* ---- Product typography system ---------------------------------- */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
+
+    :root {{
+        --font-body: 'Inter', -apple-system, 'SF Pro Text', 'Segoe UI',
                      Roboto, 'Helvetica Neue', Arial, sans-serif;
+        --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system,
+                        'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+        --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
     }}
-    h1, h2, h3, h4 {{
-        letter-spacing: -0.01em;
+
+    html, body, [class*="st-"], .stApp, .stMarkdown, .stText,
+    .stCaption, .stButton > button {{
+        font-family: var(--font-body);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv03';
+    }}
+    h1, h2, h3, h4, h5 {{
+        font-family: var(--font-display);
+        letter-spacing: -0.018em;
         color: {TOKENS['text']};
     }}
-    h1 {{ font-weight: 700; }}
-    h2 {{ font-weight: 650; }}
-    h3 {{ font-weight: 600; }}
+    h1 {{ font-weight: 800; line-height: 1.05; }}
+    h2 {{ font-weight: 700; line-height: 1.15; }}
+    h3 {{ font-weight: 700; line-height: 1.2; }}
+    h4 {{ font-weight: 600; line-height: 1.25; }}
+    code, pre, kbd {{ font-family: var(--font-mono); }}
 
-    /* Tone down Streamlit default block containers */
+    p, li, .stMarkdown p {{
+        color: #374151;
+        line-height: 1.62;
+    }}
+
+    /* ---- Layout container ------------------------------------------- */
     section.main > div.block-container {{
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-        max-width: 1400px;
+        padding-top: 1.75rem;
+        padding-bottom: 4rem;
+        max-width: 1380px;
+    }}
+    @media (min-width: 1500px) {{
+        section.main > div.block-container {{ max-width: 1440px; }}
     }}
 
     /* Native st.metric refinement */
@@ -166,28 +190,63 @@ _GLOBAL_CSS = f"""
 
     /* Custom component classes used by helpers below */
     .esg-hero {{
-        background: linear-gradient(135deg,
-                    rgba(15, 157, 88, 0.08) 0%,
-                    rgba(31, 111, 235, 0.08) 100%);
+        position: relative;
+        background:
+            radial-gradient(1200px 400px at 0% 0%, rgba(15, 157, 88, 0.10), transparent 60%),
+            radial-gradient(1000px 380px at 100% 0%, rgba(31, 111, 235, 0.10), transparent 60%),
+            linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
         border: 1px solid {TOKENS['border']};
-        border-radius: 16px;
-        padding: 2rem 2.25rem;
-        margin-bottom: 1.5rem;
+        border-radius: 20px;
+        padding: 2.4rem 2.5rem 2.2rem 2.5rem;
+        margin-bottom: 1.75rem;
+        overflow: hidden;
+        box-shadow:
+            0 1px 2px rgba(15, 23, 42, 0.04),
+            0 12px 32px rgba(15, 23, 42, 0.05);
+    }}
+    .esg-hero::before {{
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+            linear-gradient(to right, rgba(15, 157, 88, 0.0) 92%, rgba(15, 157, 88, 0.06) 100%),
+            linear-gradient(to left,  rgba(31, 111, 235, 0.0) 92%, rgba(31, 111, 235, 0.06) 100%);
     }}
     .esg-hero h1 {{
-        margin: 0 0 0.4rem 0;
-        font-size: 2rem;
-        background: linear-gradient(135deg, {TOKENS['brand_primary']}, {TOKENS['brand_accent']});
+        margin: 0 0 0.5rem 0;
+        font-size: 2.35rem;
+        background: linear-gradient(135deg, {TOKENS['brand_primary']} 0%, #0b7a43 35%, {TOKENS['brand_accent']} 100%);
         -webkit-background-clip: text;
         background-clip: text;
         -webkit-text-fill-color: transparent;
     }}
     .esg-hero p.esg-subtitle {{
-        margin: 0;
-        font-size: 1.05rem;
-        color: {TOKENS['text_muted']};
-        line-height: 1.55;
-        max-width: 900px;
+        margin: 0.1rem 0 0 0;
+        font-size: 1.08rem;
+        color: #475569;
+        line-height: 1.6;
+        max-width: 920px;
+    }}
+    .esg-hero .esg-eyebrow {{
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.28rem 0.75rem;
+        border-radius: 999px;
+        background: rgba(15, 157, 88, 0.08);
+        border: 1px solid rgba(15, 157, 88, 0.22);
+        color: #0b7a43;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        margin-bottom: 0.9rem;
+    }}
+    .esg-hero .esg-eyebrow .esg-eyebrow-dot {{
+        width: 6px; height: 6px; border-radius: 50%;
+        background: {TOKENS['brand_primary']};
+        box-shadow: 0 0 0 3px rgba(15, 157, 88, 0.18);
     }}
     .esg-chip-row {{
         display: flex;
@@ -293,8 +352,9 @@ def hero(
     chips: Optional[Sequence[str]] = None,
     *,
     emoji: str = "",
+    eyebrow: Optional[str] = None,
 ) -> None:
-    """Render a polished hero block with optional status chips."""
+    """Render a polished hero block with optional eyebrow + status chips."""
     inject_global_css()
     safe_title = html.escape(title)
     prefix = f"{emoji} " if emoji else ""
@@ -308,10 +368,18 @@ def hero(
             f'<span class="esg-chip">{html.escape(c)}</span>' for c in chips
         )
         chip_html = f'<div class="esg-chip-row">{chip_items}</div>'
+    eyebrow_html = ""
+    if eyebrow:
+        eyebrow_html = (
+            f'<span class="esg-eyebrow">'
+            f'<span class="esg-eyebrow-dot"></span>{html.escape(eyebrow)}'
+            f'</span>'
+        )
 
     st.markdown(
         f"""
         <div class="esg-hero">
+            {eyebrow_html}
             <h1>{prefix}{safe_title}</h1>
             {subtitle_html}
             {chip_html}
