@@ -1148,10 +1148,45 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
 
         btn.click(run_spark, outputs=out_spark)
 
+def _esg_auth(username: str, password: str) -> bool:
+    """Gradio auth callable — validates against the shared ESG CoPilot user store.
+
+    Accepts either a registered username or the user's email (plus their password).
+    Returns True on match; False otherwise. Any backend hiccup fails closed.
+    """
+    try:
+        from utils.auth import verify_password
+        from utils.user_store import get_user_store
+    except Exception:
+        # If auth deps aren't importable in the Gradio env, fail closed.
+        return False
+
+    identifier = (username or "").strip()
+    if not identifier or not password:
+        return False
+    store = get_user_store()
+    user = store.find_by_username(identifier)
+    if user is None and "@" in identifier:
+        user = store.find_by_email(identifier)
+    if user is None:
+        return False
+    try:
+        return verify_password(password, user.password_hash)
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
-    # HuggingFace Spaces (Docker SDK) or local
+    # HuggingFace Spaces (Docker SDK) or local.
+    # Set ESG_DISABLE_AUTH=1 to bypass auth during local dev/testing.
+    _auth = None if os.getenv("ESG_DISABLE_AUTH") == "1" else _esg_auth
     demo.queue().launch(
         server_name="0.0.0.0",
         server_port=7860,
         share=False,
+        auth=_auth,
+        auth_message=(
+            "Sign in with your ESG CoPilot credentials. "
+            "Don't have an account? Create one at the Streamlit dashboard first."
+        ),
     )

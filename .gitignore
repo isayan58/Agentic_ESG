@@ -11,6 +11,8 @@ __pycache__
 *.key
 credentials.json
 service-account*.json
+.streamlit/.session_secret
+data/auth_users.json
 .venv
 /tmp
 *.log
