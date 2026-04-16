@@ -78,11 +78,15 @@ _GRADE_COLORS = {
 # ---------------------------------------------------------------------------
 # Global CSS injection (the design-system layer)
 # ---------------------------------------------------------------------------
+_FONT_LINK = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+"""
+
 _GLOBAL_CSS = f"""
 <style>
     /* ---- Product typography system ---------------------------------- */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
-
     :root {{
         --font-body: 'Inter', -apple-system, 'SF Pro Text', 'Segoe UI',
                      Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -326,21 +330,34 @@ _GLOBAL_CSS = f"""
 
 
 def inject_global_css() -> None:
-    """Inject the design-system CSS exactly once per session."""
-    if st.session_state.get("_esg_css_injected"):
-        return
+    """Inject the design-system CSS.
+
+    Note: this re-runs on every Streamlit rerun. We intentionally do *not*
+    short-circuit via ``st.session_state`` — Streamlit rebuilds the whole
+    DOM on each rerun, so a one-shot guard would only inject the styles
+    on the first render and leave subsequent reruns un-styled. The CSS
+    payload is small (~6 KB) so re-injecting is cheap.
+
+    The first render also wires up ``style_metric_cards`` (which mutates
+    Streamlit-generated DOM) — that side-effect is one-shot per session.
+    """
+    # Font loader (uses <link> tags; Streamlit's HTML sanitiser tolerates
+    # these, but rejects @import directives inside <style> blocks).
+    st.markdown(_FONT_LINK, unsafe_allow_html=True)
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
-    if _HAS_EXTRAS and style_metric_cards is not None:
-        try:
-            style_metric_cards(
-                background_color=TOKENS["surface_raised"],
-                border_left_color=TOKENS["brand_primary"],
-                border_color=TOKENS["border"],
-                box_shadow=True,
-            )
-        except Exception:
-            pass
-    st.session_state["_esg_css_injected"] = True
+
+    if not st.session_state.get("_esg_metric_cards_styled"):
+        if _HAS_EXTRAS and style_metric_cards is not None:
+            try:
+                style_metric_cards(
+                    background_color=TOKENS["surface_raised"],
+                    border_left_color=TOKENS["brand_primary"],
+                    border_color=TOKENS["border"],
+                    box_shadow=True,
+                )
+            except Exception:
+                pass
+        st.session_state["_esg_metric_cards_styled"] = True
 
 
 # ---------------------------------------------------------------------------
