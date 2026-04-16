@@ -1,5 +1,20 @@
-"""ESG CoPilot — Main Streamlit Dashboard."""
+"""ESG CoPilot — public landing page.
+
+This page is visible to *all* visitors (signed-in or not). It showcases the
+platform's value proposition, the 9-agent fleet and the architectural layers,
+and routes users to the Sign In page for gated functionality (Mission Control,
+agents, ROI dashboards).
+"""
 import streamlit as st
+
+from utils.auth import current_user, sidebar_auth_widget
+from utils.ui import (
+    badge,
+    hero,
+    inject_global_css,
+    kpi_card,
+    section_header,
+)
 
 st.set_page_config(
     page_title="ESG CoPilot",
@@ -7,158 +22,222 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+inject_global_css()
 
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #1E2761;
-        margin-bottom: 0.2rem;
-    }
-    .sub-header {
-        font-size: 1.1rem;
-        color: #666;
-        margin-bottom: 1.5rem;
-    }
-    .stMetric > div {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 4px solid #1E2761;
-    }
-    .agent-card {
-        background: #fff;
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    div[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1E2761 0%, #2a3a7a 100%);
-    }
-    div[data-testid="stSidebar"] .stMarkdown p,
-    div[data-testid="stSidebar"] .stMarkdown h1,
-    div[data-testid="stSidebar"] .stMarkdown h2,
-    div[data-testid="stSidebar"] .stMarkdown h3 {
-        color: white;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Sidebar
+# ---------------------------------------------------------------------------
+# Sidebar — minimal, brand-forward, auth-aware
+# ---------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("# 🌍 ESG CoPilot")
     st.markdown("*Autonomous ESG Intelligence*")
     st.markdown("---")
-    st.markdown("### Navigation")
-    st.markdown("""
-    Use the sidebar pages to access:
-    - **Mission Control** — Overview dashboard
-    - **9 Specialized Agents** — Each with full functionality
-    """)
-    st.markdown("---")
-    st.markdown("### HuggingFace API")
-    hf_token = st.text_input("HF API Token (optional)", type="password", key="hf_token_input")
+    st.markdown("### Optional AI acceleration")
+    hf_token = st.text_input(
+        "HuggingFace API token",
+        type="password",
+        key="hf_token_input",
+        help="Not required. Enables AI-augmented analysis inside the agents.",
+    )
     if hf_token:
         import os
         os.environ["HF_API_TOKEN"] = hf_token
-        st.success("Token set!")
+        st.success("Token set for this session.")
     else:
-        st.info("Running in fallback mode (no API token)")
+        st.caption("Running in fallback mode — no AI token needed.")
 
     st.markdown("---")
     st.markdown("**GreenTech Solutions Pvt. Ltd.**")
     st.caption("Sample company for demonstration")
 
-# Main content
-st.markdown('<p class="main-header">ESG CoPilot</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-header">Autonomous ESG Intelligence — From Manual Compliance to Continuous Excellence</p>', unsafe_allow_html=True)
+# Render the auth widget (sign-in / out) below the sidebar content
+sidebar_auth_widget()
 
-st.markdown("---")
+# ---------------------------------------------------------------------------
+# Hero
+# ---------------------------------------------------------------------------
+user = current_user()
+if user:
+    welcome_subtitle = (
+        f"Welcome back, {user.get('full_name') or user.get('username')}. "
+        "Jump into Mission Control to orchestrate the 9-agent pipeline — "
+        "or explore the overview below."
+    )
+else:
+    welcome_subtitle = (
+        "9 autonomous agents convert raw ESG data into board-ready business intelligence. "
+        "From BRSR, CSRD, GRI and SASB compliance to carbon, risk and ROI — one orchestrated pipeline."
+    )
 
-st.markdown("### Welcome to the ESG CoPilot Platform")
-st.markdown("""
-This platform orchestrates **9 specialized AI agents** that work together to autonomously collect,
-analyze, report, and predict ESG performance. Each agent uses HuggingFace AI models for
-intelligent analysis.
-""")
+hero(
+    title="ESG CoPilot",
+    emoji="🌍",
+    subtitle=welcome_subtitle,
+    chips=[
+        "9 Orchestrated Agents",
+        "BRSR · CSRD · GRI · SASB",
+        "Top-line · Bottom-line · Risk",
+        "HuggingFace-native",
+    ],
+)
 
-st.markdown("### Plain-English Guide")
+# Primary call-to-action row
+cta_cols = st.columns([1, 1, 1, 1])
+with cta_cols[0]:
+    if user:
+        if st.button("🎛️ Open Mission Control", type="primary", use_container_width=True):
+            try:
+                st.switch_page("pages/1_Mission_Control.py")
+            except Exception:
+                st.info("Open Mission Control from the sidebar.")
+    else:
+        if st.button("🔐 Sign in to run pipeline", type="primary", use_container_width=True):
+            try:
+                st.switch_page("pages/0_Sign_In.py")
+            except Exception:
+                st.info("Open Sign In from the sidebar.")
+with cta_cols[1]:
+    if st.button("⭐ ESG ROI Agent", use_container_width=True):
+        try:
+            target = "pages/11_ESG_ROI_Agent.py" if user else "pages/0_Sign_In.py"
+            st.switch_page(target)
+        except Exception:
+            pass
+with cta_cols[2]:
+    if st.button("📋 Regulatory Tracker", use_container_width=True):
+        try:
+            target = "pages/3_Regulatory_Tracker.py" if user else "pages/0_Sign_In.py"
+            st.switch_page(target)
+        except Exception:
+            pass
+with cta_cols[3]:
+    if user is None:
+        if st.button("Create free account", use_container_width=True):
+            try:
+                st.switch_page("pages/0_Sign_In.py")
+            except Exception:
+                pass
+    else:
+        badge("You’re signed in", variant="success")
+
+# ---------------------------------------------------------------------------
+# Platform stats
+# ---------------------------------------------------------------------------
+section_header(
+    "Platform at a glance",
+    "Agents, frameworks, data sources, and AI models powering the pipeline.",
+)
+
+stat_cols = st.columns(4)
+with stat_cols[0]:
+    kpi_card("AI Agents", "9", description="Specialized ESG agents", key="kpi-agents")
+with stat_cols[1]:
+    kpi_card("Frameworks", "4", description="BRSR · CSRD · GRI · SASB", key="kpi-frameworks")
+with stat_cols[2]:
+    kpi_card("Data Sources", "7", description="Sample connectors loaded", key="kpi-sources")
+with stat_cols[3]:
+    kpi_card("AI Models", "4", description="HuggingFace-powered", key="kpi-models")
+
+# ---------------------------------------------------------------------------
+# Plain-English guide
+# ---------------------------------------------------------------------------
+section_header(
+    "Read the business lens in plain English",
+    "Three simple framings used throughout every agent dashboard.",
+)
+
 plain_col1, plain_col2, plain_col3 = st.columns(3)
 with plain_col1:
-    st.markdown("""
-    <div class="agent-card">
-        <h4>Top Line</h4>
-        <p style="font-size:0.9rem;color:#444;">
-        This means <strong>money coming in</strong> like revenue growth, brand lift, and customer momentum.
-        ESG CoPilot shows whether sustainability is helping the company grow faster.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-with plain_col2:
-    st.markdown("""
-    <div class="agent-card">
-        <h4>Bottom Line</h4>
-        <p style="font-size:0.9rem;color:#444;">
-        This means <strong>money left after costs</strong> like margins, savings, and avoided carbon costs.
-        ESG CoPilot shows whether ESG is improving profitability, not just reporting.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-with plain_col3:
-    st.markdown("""
-    <div class="agent-card">
-        <h4>Hypotheses</h4>
-        <p style="font-size:0.9rem;color:#444;">
-        These are the <strong>business ideas being tested</strong>, such as whether ESG improves growth,
-        lowers risk, or creates a short-term cost but long-term payoff.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-# Quick overview cards
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("AI Agents", "9", help="Specialized ESG agents")
-with col2:
-    st.metric("Frameworks", "4", help="BRSR, CSRD, GRI, SASB")
-with col3:
-    st.metric("Data Sources", "7", help="Sample datasets loaded")
-with col4:
-    st.metric("AI Models", "4", help="HuggingFace models")
-
-st.markdown("---")
-
-st.markdown("### Architecture at a Glance")
-st.markdown("""
-This is the simplest way to read the platform:
-
-1. **Collect the data**: bring in ESG, carbon, supplier, workforce, and financial data.
-2. **Convert it into business meaning**: show what changes revenue, profit, risk, and capital efficiency.
-3. **Test the hypotheses**: check whether ESG is actually helping growth, resilience, and ROI.
-4. **Turn it into decisions**: produce actions, targets, reports, and stakeholder messaging.
-""")
-
-arch1, arch2, arch3, arch4 = st.columns(4)
-for col, title, body in [
-    (arch1, "1. Data Foundation", "Data Collector standardizes ESG plus financial data so the rest of the system works from one trusted base."),
-    (arch2, "2. Business Engine", "Carbon, Risk, Audit, and ROI agents convert raw ESG information into top-line, bottom-line, and risk signals."),
-    (arch3, "3. Hypothesis Layer", "The platform tests whether ESG is improving growth, profitability, downside protection, capex quality, and long-term payback."),
-    (arch4, "4. Decision Layer", "Report, Action, and Stakeholder agents turn analysis into board-ready outputs and clear next steps."),
-]:
-    with col:
-        st.markdown(f"""
-        <div class="agent-card">
-            <h4>{title}</h4>
-            <p style="font-size:0.9rem;color:#444;">{body}</p>
+    st.markdown(
+        """
+        <div style="
+            padding:1rem 1.1rem; border:1px solid #e2e8f0; border-radius:14px;
+            background:#f6f8fb; height:100%;">
+            <div style="font-size:1.5rem;">📈</div>
+            <h4 style="margin:0.25rem 0 0.4rem 0;">Top Line</h4>
+            <p style="font-size:0.9rem;color:#3f4a5e; margin:0;">
+                <strong>Money coming in</strong> — revenue growth, brand lift, customer momentum.
+                ESG CoPilot shows whether sustainability is helping the company grow faster.
+            </p>
         </div>
-        """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
+with plain_col2:
+    st.markdown(
+        """
+        <div style="
+            padding:1rem 1.1rem; border:1px solid #e2e8f0; border-radius:14px;
+            background:#f6f8fb; height:100%;">
+            <div style="font-size:1.5rem;">💰</div>
+            <h4 style="margin:0.25rem 0 0.4rem 0;">Bottom Line</h4>
+            <p style="font-size:0.9rem;color:#3f4a5e; margin:0;">
+                <strong>Money left after costs</strong> — margins, savings, avoided carbon costs.
+                ESG CoPilot shows whether ESG improves profitability, not just reporting.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+with plain_col3:
+    st.markdown(
+        """
+        <div style="
+            padding:1rem 1.1rem; border:1px solid #e2e8f0; border-radius:14px;
+            background:#f6f8fb; height:100%;">
+            <div style="font-size:1.5rem;">🧪</div>
+            <h4 style="margin:0.25rem 0 0.4rem 0;">Hypotheses</h4>
+            <p style="font-size:0.9rem;color:#3f4a5e; margin:0;">
+                <strong>Business ideas being tested</strong> — does ESG improve growth, lower risk,
+                or create short-term cost for long-term payoff?
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-# Agent fleet overview
-st.markdown("### Agent Fleet")
+# ---------------------------------------------------------------------------
+# Architecture
+# ---------------------------------------------------------------------------
+section_header(
+    "Architecture at a glance",
+    "From raw data to board-ready decisions in four orchestrated layers.",
+)
+
+arch_cols = st.columns(4)
+arch_items = [
+    ("🗄️", "1. Data Foundation",
+     "Data Collector standardizes ESG + financial data so the rest of the system works from one trusted base."),
+    ("⚙️", "2. Business Engine",
+     "Carbon, Risk, Audit, and ROI agents convert ESG information into top-line, bottom-line, and risk signals."),
+    ("🧪", "3. Hypothesis Layer",
+     "The platform tests whether ESG is actually improving growth, profitability, downside protection, and payback."),
+    ("🎯", "4. Decision Layer",
+     "Report, Action, and Stakeholder agents turn analysis into board-ready outputs and clear next steps."),
+]
+for col, (icon, title, body) in zip(arch_cols, arch_items):
+    with col:
+        st.markdown(
+            f"""
+            <div style="
+                padding:1rem 1.1rem; border:1px solid #e2e8f0; border-radius:14px;
+                background:#ffffff; height:100%;
+                box-shadow:0 2px 6px rgba(15,23,42,0.04);">
+                <div style="font-size:1.4rem;">{icon}</div>
+                <h4 style="margin:0.25rem 0 0.4rem 0;">{title}</h4>
+                <p style="font-size:0.88rem;color:#3f4a5e; margin:0;">{body}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+# ---------------------------------------------------------------------------
+# Agent fleet
+# ---------------------------------------------------------------------------
+section_header(
+    "The 9-agent fleet",
+    "Each agent ships with its own dashboard — sign in to explore them.",
+)
+
 agents_info = [
     ("📊", "Data Collector", "Auto-discovers and validates ESG data with quality scoring"),
     ("📋", "Regulatory Tracker", "Monitors BRSR, CSRD, GRI, SASB compliance"),
@@ -171,22 +250,52 @@ agents_info = [
     ("👥", "Stakeholder Agent", "Tailors communications for each audience"),
 ]
 
-cols = st.columns(4)
+cols = st.columns(3)
 for i, (icon, name, desc) in enumerate(agents_info):
-    with cols[i % 4]:
-        st.markdown(f"""
-        <div class="agent-card">
-            <h4>{icon} {name}</h4>
-            <p style="font-size:0.85rem;color:#666;">{desc}</p>
-        </div>
-        """, unsafe_allow_html=True)
+    with cols[i % 3]:
+        st.markdown(
+            f"""
+            <div style="
+                padding:0.9rem 1rem; border:1px solid #e2e8f0; border-radius:12px;
+                background:#ffffff; margin-bottom:0.75rem;">
+                <div style="font-weight:600; color:#1a202c;">
+                    <span style="font-size:1.15rem;">{icon}</span> {name}
+                </div>
+                <div style="color:#64748b; font-size:0.85rem; margin-top:0.25rem;">{desc}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-st.markdown("---")
-st.markdown("### Getting Started")
-st.markdown("""
-1. Navigate to **Mission Control** to run the full agent pipeline
-2. Use **Mission Control** to understand the business architecture, top line, bottom line, and hypothesis tracker
-3. Visit **ESG ROI Agent** for the clearest finance view in plain English
-4. Optionally set your HuggingFace API token in the sidebar for AI-powered analysis
-""")
-st.caption("Navigate using the sidebar pages →")
+# ---------------------------------------------------------------------------
+# Getting started
+# ---------------------------------------------------------------------------
+section_header("Getting started", "Three steps to run the full pipeline.")
+
+st.markdown(
+    """
+1. **Sign in or create a free account** — required for Mission Control and the agent dashboards.
+2. **Open Mission Control** to run the full 9-agent pipeline in one click.
+3. **Drill into the ESG ROI Agent** for the clearest finance view in plain English.
+
+> *Optional:* set a HuggingFace API token in the sidebar to unlock AI-augmented analysis inside each agent.
+    """
+)
+
+# Bottom CTA row (only shown to guests)
+if user is None:
+    st.markdown("---")
+    section_header("Ready to see it in action?", "Sign in or create a free account to unlock the dashboards.")
+    cta_a, cta_b, _ = st.columns([1, 1, 2])
+    with cta_a:
+        if st.button("Create free account", type="primary", use_container_width=True, key="bottom_cta_signup"):
+            try:
+                st.switch_page("pages/0_Sign_In.py")
+            except Exception:
+                st.info("Open Sign In from the sidebar.")
+    with cta_b:
+        if st.button("I already have an account", use_container_width=True, key="bottom_cta_signin"):
+            try:
+                st.switch_page("pages/0_Sign_In.py")
+            except Exception:
+                pass
