@@ -7,10 +7,13 @@ from utils.streamlit_compat import safe_dataframe
 from utils.ui import (
     hero, section_header, kpi_card, iqs_gauge, grade_pill, inject_global_css,
 )
+from utils.auth import require_login, sidebar_auth_widget
 
 
 st.set_page_config(page_title="ESG ROI Agent | ESG CoPilot", page_icon="⭐", layout="wide")
 inject_global_css()
+sidebar_auth_widget()
+require_login("Sign in to explore the ESG ROI dashboard.")
 
 hero(
     title="ESG ROI Agent",

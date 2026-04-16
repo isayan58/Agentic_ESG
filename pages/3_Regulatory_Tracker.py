@@ -5,8 +5,11 @@ from agents.regulatory_tracker import RegulatoryTrackerAgent
 from utils.charts import compliance_radar, chart_unavailable_message
 from utils.monitoring import regulatory_updater
 from utils.streamlit_compat import safe_dataframe
+from utils.auth import require_login, sidebar_auth_widget
 
 st.set_page_config(page_title="Regulatory Tracker | ESG CoPilot", page_icon="📋", layout="wide")
+sidebar_auth_widget()
+require_login("Sign in to access the Regulatory Tracker agent.")
 st.title("📋 Regulatory Tracker Agent")
 st.markdown("*Monitors global ESG frameworks — auto-updates within 24 hours of any mandate shift*")
 st.markdown("---")

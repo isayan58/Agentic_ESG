@@ -1,8 +1,11 @@
 """Streamlit page for the Stakeholder Agent."""
 import streamlit as st
 from agents.stakeholder_agent import StakeholderAgent
+from utils.auth import require_login, sidebar_auth_widget
 
 st.set_page_config(page_title="Stakeholder Agent | ESG CoPilot", page_icon="👥", layout="wide")
+sidebar_auth_widget()
+require_login("Sign in to access the Stakeholder Agent.")
 st.title("👥 Stakeholder Agent")
 st.markdown("*Generates audience-tailored ESG communications*")
 st.markdown("---")
