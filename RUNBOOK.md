@@ -403,6 +403,38 @@ Fields extracted per hotspot:
   supplier, country, sector, emissions, esg_score, risk_factors
 ```
 
+### Emissions → Cost Linkage (H2: Profitability)
+
+Directly maps emission changes to financial impact:
+
+```
+cost_saving_from_reduction = max(0, prev_emissions - curr_emissions) × 0.0015
+                              # INR crores; proxy INR 1,500/tCO2e avoided
+energy_cost_saving         = max(0, prev_energy_cost - curr_energy_cost) / 100
+                              # lakhs → crores
+scope2_additional_opportunity = (100 - renewable_pct) × 0.3
+```
+
+Published under `cost_linkage` for consumption by ROI / Action agents.
+
+### Carbon Tax Risk Assessment
+
+Estimates carbon tax exposure under current + future regimes:
+
+```
+taxable_emissions        = scope1 + scope2  (tCO2e)
+current_domestic_exposure = taxable × INR 400 / 100,000   (INR crores)
+cbam_equivalent_exposure  = taxable × INR 7,200 / 100,000 (EU CBAM proxy)
+projected_3yr_exposure    = current × (1.10 ^ 3)          (10% annual escalation)
+
+Risk level:
+  > INR 5 Cr  → "High"
+  > INR 2 Cr  → "Medium"
+  otherwise   → "Low"
+```
+
+Published under `carbon_tax_risk`.
+
 ### Published State
 
 ```python
@@ -418,6 +450,8 @@ state_manager.publish("carbon_results", {
     "carbon_intensity": float,
     "carbon_intensity_prev": float,
     "energy_analysis": {total_mwh, renewable_pct, by_source: {}},
+    "cost_linkage": {...},
+    "carbon_tax_risk": {...},
     "narrative": str,
 })
 ```
@@ -537,6 +571,56 @@ high_risk_count = count(supply_chain_df[risk_rating == "High"])
 overdue_audits  = count(supply_chain_df[audit_status == "Overdue"])
 avg_esg_score   = mean(supply_chain_df.esg_score)
 ```
+
+### Multi-Agency Rating Predictions (H3)
+
+In addition to the internal letter rating, the agent emits translations
+across three well-known scales:
+
+| Agency | Output | Basis |
+|--------|--------|-------|
+| MSCI-style | `AA` / `A` / `BBB` / `BB` / `B` | Overall met-target %  |
+| Sustainalytics | Risk score (lower = better) + Negligible/Low/Medium/High/Severe | Unmanaged ESG risk exposure |
+| CDP-style | `A` / `A-` / `B` / `B-` / `C` | Environmental pillar score |
+
+Published under `rating_prediction.multi_agency_ratings`.
+
+### Market Regime Detection (H3 — cyclical ESG outperformance)
+
+Uses the most recent 4 quarters of financial data to classify the current
+operating regime:
+
+```
+revenue_trend   = mean(quarterly pct change) last 4 q
+margin_trend    = mean(bps change) last 4 q
+
+Regime:
+  Bull      → revenue_trend > 0.01 AND margin_trend > 0
+  Stress    → revenue_trend < -0.005 OR margin_trend < -0.5
+  Transition → otherwise
+```
+
+Each regime carries an ESG context interpretation used by the ROI,
+Report, and Stakeholder agents to tune narrative emphasis.
+
+### Downside Protection Score (H4)
+
+Composite 0-100 measuring ESG-driven resilience to negative shocks:
+
+```
+DPS = governance_strength × 0.30
+    + financial_resilience × 0.25
+    + esg_momentum × 0.25
+    + climate_risk_shield × 0.20
+
+Levels:
+  >= 70 → "Strong"
+  >= 50 → "Moderate"
+  <  50 → "Weak"
+```
+
+Published under `downside_protection` for consumption by the ROI and
+Action agents.
 
 ---
 
@@ -696,6 +780,31 @@ General audit checks (hardcoded scores):
 
 For each ESG metric: checks if `confidence >= 0.8` → marks as `verifiable: true`.
 
+### ESG Integrity Gap Detector
+
+Cross-references self-reported ESG metrics against operational data to flag
+inconsistencies (the "greenwashing gap"):
+
+```
+For each metric:
+  - carbon_intensity → verify against emissions_df / revenue
+  - renewable_%      → verify against energy_df (renewable_mwh / total_mwh)
+  - target "Met"     → flag if reported < 90% of target
+
+Mismatch score = mismatches_found / total_checked × 100
+
+Risk levels:
+  > 30%  → "Critical"
+  > 15%  → "High"
+  >  5%  → "Medium"
+  <= 5%  → "Low"
+```
+
+Published under `integrity_gaps` with every flagged metric, the derived
+value, the reported value, and a severity classification. Used by the
+Action Agent to raise remediation tasks when the mismatch rate exceeds
+thresholds.
+
 ---
 
 ## Agent 8: Action Agent
@@ -741,13 +850,54 @@ summary = {
 
 ### Investment Friction & Target Setting Enhancements
 
-The action layer now adjusts recommendations with execution realism:
+The action layer adjusts recommendations for execution realism and computes
+Net ROI per action.
 
-- Implementation friction scoring
-- Transaction-cost adjustments
-- Liquidity-risk penalties
-- Net value and net ROI calculation
-- Suggested targets derived from ROI and risk context
+**Implementation Friction Score (0-100):**
+
+```
+friction_pct = 6
+             + duration_weeks × 0.35
+             + category_adj         # 2-6 points by category
+             + regime_adj           # 0 (Bull), 2 (Transition), 5 (Stress)
+
+transaction_cost = base_cost × friction_pct / 100
+adjusted_cost    = base_cost + transaction_cost
+```
+
+**Benefit & Net ROI:**
+
+```
+benefit_multiplier: 1.10 – 1.35 by category
+gross_benefit = max(base_cost × multiplier, base_cost + anchor_share)
+  where anchor_share = max(0, roi_anchor × 0.08)
+net_value   = gross_benefit - adjusted_cost
+net_roi_pct = net_value / adjusted_cost × 100
+```
+
+**Liquidity Risk:**
+
+```
+spend_ratio = adjusted_cost / current_revenue × 100
+
+liquidity_risk:
+  > 4% → "High"
+  > 2% → "Medium"
+  <= 2% → "Low"
+```
+
+**Execution mode:** `"Phased rollout"` when friction ≥ 60 or liquidity
+risk ≠ Low, otherwise `"Accelerated rollout"`.
+
+**Target Recommendations:** The agent also emits explicit targets derived
+from risk, audit, carbon, regulatory, and ROI outputs — each with metric,
+current value, target, unit, deadline, owner, and linked action IDs:
+
+- Renewable Energy Share
+- Overall Regulatory Compliance
+- Evidence Verifiability
+- High-Risk Suppliers
+- ESG Investment Quality Score
 
 ---
 

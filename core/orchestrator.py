@@ -20,7 +20,7 @@ PIPELINE_ORDER = [
     ("roi_agent", ROIAgent, ["data_collector", "carbon_accountant", "risk_predictor"]),
     ("report_generator", ReportGeneratorAgent, ["audit_agent", "carbon_accountant", "risk_predictor", "roi_agent"]),
     ("action_agent", ActionAgent, ["risk_predictor", "audit_agent", "report_generator", "roi_agent"]),
-    ("stakeholder_agent", StakeholderAgent, ["action_agent", "report_generator"]),
+    ("stakeholder_agent", StakeholderAgent, ["action_agent", "report_generator", "roi_agent"]),
 ]
 
 
