@@ -3,8 +3,11 @@ import streamlit as st
 import pandas as pd
 from agents.audit_agent import AuditAgent
 from utils.streamlit_compat import safe_dataframe
+from utils.auth import require_login, sidebar_auth_widget
 
 st.set_page_config(page_title="Audit Agent | ESG CoPilot", page_icon="🔍", layout="wide")
+sidebar_auth_widget()
+require_login("Sign in to access the Audit Agent.")
 st.title("🔍 Audit Agent")
 st.markdown("*Compliance verification, data auditing, and audit trail management*")
 st.markdown("---")

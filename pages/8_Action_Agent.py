@@ -4,8 +4,11 @@ import pandas as pd
 from agents.action_agent import ActionAgent
 from utils.charts import action_timeline, chart_unavailable_message
 from utils.streamlit_compat import safe_dataframe
+from utils.auth import require_login, sidebar_auth_widget
 
 st.set_page_config(page_title="Action Agent | ESG CoPilot", page_icon="🎯", layout="wide")
+sidebar_auth_widget()
+require_login("Sign in to access the Action Agent.")
 st.title("🎯 Action Agent")
 st.markdown("*Generates prioritized, actionable ESG recommendations with timelines*")
 st.markdown("---")

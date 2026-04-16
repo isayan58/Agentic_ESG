@@ -11,8 +11,11 @@ from utils.charts import (
 )
 from utils.data_processing import load_supply_chain
 from utils.streamlit_compat import safe_dataframe
+from utils.auth import require_login, sidebar_auth_widget
 
 st.set_page_config(page_title="Carbon Accountant | ESG CoPilot", page_icon="🌱", layout="wide")
+sidebar_auth_widget()
+require_login("Sign in to access the Carbon Accountant agent.")
 st.title("🌱 Carbon Accountant Agent")
 st.markdown("*Tracks Scope 1/2/3 emissions with AI-driven supply chain hotspot detection*")
 st.markdown("---")

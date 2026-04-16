@@ -5,8 +5,11 @@ from agents.report_generator import ReportGeneratorAgent
 from utils.charts import emissions_donut, compliance_radar, chart_unavailable_message
 from core.state_manager import state_manager
 from utils.streamlit_compat import safe_dataframe
+from utils.auth import require_login, sidebar_auth_widget
 
 st.set_page_config(page_title="Report Generator | ESG CoPilot", page_icon="📄", layout="wide")
+sidebar_auth_widget()
+require_login("Sign in to access the Report Generator agent.")
 st.title("📄 Report Generator Agent")
 st.markdown("*Multi-framework audit-ready reports with AI narratives and embedded visual charts*")
 st.markdown("---")

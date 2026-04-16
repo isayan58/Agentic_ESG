@@ -12,8 +12,11 @@ from utils.schema_mapper import (
     validate_mapped_data, get_schema_names, get_schema_columns, ESG_SCHEMAS,
 )
 from utils.connection_manager import ConnectionManager
+from utils.auth import require_login, sidebar_auth_widget
 
 st.set_page_config(page_title="Data Collector | ESG CoPilot", page_icon="📊", layout="wide")
+sidebar_auth_widget()
+require_login("Sign in to access the Data Collector agent.")
 st.title("📊 Data Collector Agent")
 st.markdown("*Connect real data sources, cloud storage, or run with sample data*")
 st.markdown("---")
