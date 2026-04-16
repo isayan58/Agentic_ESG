@@ -42,3 +42,4 @@ pnpm-debug.log*
 .yarn/
 .eslintcache
 coverage/
+secrets.txt
