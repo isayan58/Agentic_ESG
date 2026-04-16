@@ -363,16 +363,32 @@ def require_login(message: str = "Please sign in to access this page.") -> dict:
     with col_b:
         if st.button("Back to Home", use_container_width=True):
             try:
-                st.switch_page("app.py")
+                st.switch_page("Home.py")
             except Exception:
                 pass
 
     st.stop()
 
 
+# CSS that hides the "Sign In" sidebar nav entry when the user is logged in.
+# We inject this at the top of every page via sidebar_auth_widget() so it
+# runs before Streamlit's nav renders.
+_HIDE_SIGNIN_NAV_CSS = """
+<style>
+    [data-testid="stSidebarNav"] a[href$="/Sign_In"],
+    [data-testid="stSidebarNav"] li:has(a[href$="/Sign_In"]) {
+        display: none !important;
+    }
+</style>
+"""
+
+
 def sidebar_auth_widget() -> None:
     """Render a compact auth widget in the sidebar on every page."""
     user = current_user()
+    # When authenticated, hide the Sign In entry from the sidebar nav.
+    if user:
+        st.markdown(_HIDE_SIGNIN_NAV_CSS, unsafe_allow_html=True)
     with st.sidebar:
         st.markdown("---")
         if user:
