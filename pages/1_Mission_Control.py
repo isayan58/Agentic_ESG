@@ -10,11 +10,29 @@ from utils.charts import (
 )
 from utils.streamlit_compat import safe_dataframe
 from utils.monitoring import monitoring_engine
+from utils.ui import (
+    hero, section_header, kpi_card, agent_card, pipeline_chips,
+    badge, grade_pill, inject_global_css,
+)
 
 st.set_page_config(page_title="Mission Control | ESG CoPilot", page_icon="🎛️", layout="wide")
-st.title("🎛️ Mission Control")
-st.markdown("*Orchestrate all 9 agents — the command center for autonomous ESG intelligence*")
-st.markdown("---")
+inject_global_css()
+
+hero(
+    title="Mission Control",
+    emoji="🎛️",
+    subtitle=(
+        "Orchestrate all 9 agents — the command center for autonomous ESG intelligence. "
+        "Run the full pipeline, monitor agent health in real time, and drill into the "
+        "business lens behind every metric."
+    ),
+    chips=[
+        "9 Agents · Orchestrated",
+        "Shared-state pub/sub",
+        "BRSR · CSRD · GRI · SASB",
+        "Always-on monitoring",
+    ],
+)
 
 if "orchestrator" not in st.session_state:
     st.session_state.orchestrator = Orchestrator()
@@ -45,7 +63,8 @@ def signal_label(value, good_threshold, watch_threshold=None):
     return "Needs attention"
 
 
-st.markdown("### How to Read This Page")
+section_header("How to Read This Page",
+               "Plain-English guide to the business lens, ROI, and hypothesis tracking.")
 intro1, intro2, intro3 = st.columns(3)
 with intro1:
     st.info("**Top line** means growth: revenue, brand strength, and market momentum.")
@@ -55,31 +74,29 @@ with intro3:
     st.info("**Hypotheses** mean business ideas being tested, like whether ESG reduces risk or improves returns.")
 
 # ── Business Impact KPIs (Slide 12) ──
-st.markdown("### Proven Business Impact")
+section_header("Proven Business Impact",
+               "Slide-12 gauges rendered from live agent outputs.")
 fig = business_impact_gauges()
 render_chart(fig)
 
-st.markdown("---")
-
 # ── Agent Fleet Status ──
-st.markdown("### Agent Fleet Status")
+section_header("Agent Fleet Status",
+               "Every agent in the orchestrated pipeline with its most recent run.")
 statuses = orch.get_agent_statuses()
+pipeline_chips(statuses, AGENT_CONFIG)
+
 cols = st.columns(4)
 for i, (key, config) in enumerate(AGENT_CONFIG.items()):
     agent_status = statuses.get(key, {})
-    status = agent_status.get("status", "idle")
-    status_emoji = {"idle": "⚪", "running": "🔄", "completed": "✅", "error": "❌"}.get(status, "⚪")
+    last_run = agent_status.get("last_run") or "Never"
     with cols[i % 4]:
-        st.markdown(f"""
-        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;
-        padding:1rem;margin:0.5rem 0;border-left:4px solid {config['color']};">
-            <strong>{config['icon']} {config['name']}</strong><br>
-            <span>{status_emoji} {status.capitalize()}</span><br>
-            <small>Last run: {agent_status.get('last_run', 'Never')[:16] if agent_status.get('last_run') else 'Never'}</small>
-        </div>
-        """, unsafe_allow_html=True)
-
-st.markdown("---")
+        agent_card(
+            name=config["name"],
+            icon=config["icon"],
+            status=agent_status.get("status", "idle"),
+            last_run=last_run,
+            color=config["color"],
+        )
 
 # ── Run Pipeline ──
 col1, col2 = st.columns([1, 3])
@@ -139,24 +156,54 @@ if st.session_state.pipeline_results:
     volatility = kpi_res.get("volatility", {})
 
     with tab_results:
-        st.markdown("### Pipeline Results")
+        section_header("Pipeline Results",
+                       "Headline metrics from the latest full-pipeline run.")
+
+        readiness = audit_res.get("readiness_score", {})
+        iqs_card = roi_res.get("investment_quality_score", {})
 
         k1, k2, k3, k4, k5 = st.columns(5)
         with k1:
-            st.metric("Total Records", f"{data_res.get('total_records', 0):,}")
+            kpi_card(
+                "Total Records",
+                f"{data_res.get('total_records', 0):,}",
+                "Rows ingested and validated",
+                key="kpi_records",
+            )
         with k2:
-            st.metric("Total Emissions", f"{carbon_res.get('total_emissions_current', 0):,.0f} tCO2e",
-                       f"{carbon_res.get('yoy_change_pct', 0)}% YoY")
+            kpi_card(
+                "Total Emissions",
+                f"{carbon_res.get('total_emissions_current', 0):,.0f} tCO2e",
+                f"{carbon_res.get('yoy_change_pct', 0)}% YoY",
+                key="kpi_emissions",
+            )
         with k3:
-            st.metric("Risk Score", f"{risk_res.get('overall_risk_score', 0):.0f}/100")
+            kpi_card(
+                "Risk Score",
+                f"{risk_res.get('overall_risk_score', 0):.0f}/100",
+                "Composite ESG risk",
+                key="kpi_risk",
+            )
         with k4:
-            readiness = audit_res.get("readiness_score", {})
-            st.metric("Audit Readiness", f"{readiness.get('overall', 0):.0f}%",
-                       f"Grade: {readiness.get('grade', 'N/A')}")
+            kpi_card(
+                "Audit Readiness",
+                f"{readiness.get('overall', 0):.0f}%",
+                f"Grade: {readiness.get('grade', 'N/A')}",
+                key="kpi_audit",
+            )
         with k5:
-            iqs = roi_res.get("investment_quality_score", {})
-            st.metric("Investment Quality", f"{iqs.get('score', 0):.0f}/100",
-                      f"Grade: {iqs.get('grade', 'N/A')}")
+            kpi_card(
+                "Investment Quality",
+                f"{iqs_card.get('score', 0):.0f}/100",
+                f"Grade: {iqs_card.get('grade', 'N/A')}",
+                key="kpi_iqs",
+            )
+
+        if iqs_card.get("grade"):
+            st.markdown(
+                f"Headline investment signal: {grade_pill(iqs_card.get('grade', 'N/A'))}",
+                unsafe_allow_html=True,
+            )
 
         # Carbon + Compliance charts
         col1, col2 = st.columns(2)
@@ -182,16 +229,21 @@ if st.session_state.pipeline_results:
                 safe_dataframe(actions_df[available].head(5), use_container_width=True, hide_index=True)
 
         if roi_res and "financial_roi" in roi_res:
-            st.markdown("### ESG ROI Snapshot")
+            section_header("ESG ROI Snapshot",
+                           "Dual ROI and investment-quality signal from the ROI Agent.")
             fin_roi = roi_res.get("financial_roi", {})
             iqs = roi_res.get("investment_quality_score", {})
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Financial ROI", f"{fin_roi.get('roi_pct', 0)}%")
+                kpi_card("Financial ROI", f"{fin_roi.get('roi_pct', 0)}%",
+                         "Payback-weighted return", key="roi_fin")
             with col2:
-                st.metric("Net Financial Benefit", f"INR {fin_roi.get('net_financial_benefit', 0)} Cr")
+                kpi_card("Net Financial Benefit",
+                         f"INR {fin_roi.get('net_financial_benefit', 0)} Cr",
+                         "After ESG capex and friction", key="roi_net")
             with col3:
-                st.metric("IQS Grade", iqs.get("grade", "N/A"))
+                kpi_card("IQS Grade", iqs.get("grade", "N/A"),
+                         f"Score {iqs.get('score', 0)}/100", key="roi_grade")
 
     with tab_business:
         st.markdown("### Top Line vs Bottom Line")

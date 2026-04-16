@@ -1,0 +1,21 @@
+[theme]
+# ESG CoPilot design system — sustainability greens + trust blue,
+# tuned to harmonise with the shadcn React components in utils/ui.py.
+base = "light"
+primaryColor = "#0f9d58"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f6f8fb"
+textColor = "#1a202c"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
+
+[browser]
+gatherUsageStats = false
+
+[server]
+enableCORS = false
+enableXsrfProtection = false
+fileWatcherType = "none"
