@@ -21,5 +21,22 @@ logs/
 *.swo
 .idea/
 .vscode/
+
+# Node / React frontend
 node_modules/
 dist/
+build/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.yarn/
+.eslintcache
+coverage/
