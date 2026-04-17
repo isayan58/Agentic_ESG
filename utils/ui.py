@@ -82,6 +82,7 @@ _FONT_LINK = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
 """
 
 _GLOBAL_CSS = f"""
@@ -101,6 +102,21 @@ _GLOBAL_CSS = f"""
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv03';
+    }}
+
+    /* ---- Material Symbols — ensure icon ligatures render, not text ---- */
+    .material-symbols-rounded {{
+        font-family: 'Material Symbols Rounded' !important;
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        font-style: normal;
+        font-size: 24px;
+        line-height: 1;
+        letter-spacing: normal;
+        text-transform: none;
+        display: inline-block;
+        white-space: nowrap;
+        direction: ltr;
+        -webkit-font-smoothing: antialiased;
     }}
     h1, h2, h3, h4, h5 {{
         font-family: var(--font-display);
@@ -394,14 +410,12 @@ def hero(
         )
 
     st.markdown(
-        f"""
-        <div class="esg-hero">
-            {eyebrow_html}
-            <h1>{prefix}{safe_title}</h1>
-            {subtitle_html}
-            {chip_html}
-        </div>
-        """,
+        f'<div class="esg-hero">'
+        f'{eyebrow_html}'
+        f'<h1>{prefix}{safe_title}</h1>'
+        f'{subtitle_html}'
+        f'{chip_html}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -422,12 +436,10 @@ def section_header(title: str, caption: Optional[str] = None) -> None:
         if caption else ""
     )
     st.markdown(
-        f"""
-        <div class="esg-section">
-            <span class="esg-section-title">{html.escape(title)}</span>
-            {cap_html}
-        </div>
-        """,
+        f'<div class="esg-section">'
+        f'<span class="esg-section-title">{html.escape(title)}</span>'
+        f'{cap_html}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -478,16 +490,13 @@ def agent_card(
     status_color = _STATUS_COLORS.get(status_key, TOKENS["text_muted"])
     run_label = last_run[:16] if last_run and last_run != "Never" else "Never"
     st.markdown(
-        f"""
-        <div class="esg-agent-card" style="border-left-color:{color};">
-            <div class="esg-agent-title">{html.escape(icon)} {html.escape(name)}</div>
-            <div style="margin-top:0.4rem;color:{status_color};
-                        font-size:0.85rem;font-weight:500;">
-                {status_emoji} {html.escape(status_key.capitalize())}
-            </div>
-            <div class="esg-agent-meta">Last run: {html.escape(run_label)}</div>
-        </div>
-        """,
+        f'<div class="esg-agent-card" style="border-left-color:{color};">'
+        f'<div class="esg-agent-title">{html.escape(icon)} {html.escape(name)}</div>'
+        f'<div style="margin-top:0.4rem;color:{status_color};font-size:0.85rem;font-weight:500;">'
+        f'{status_emoji} {html.escape(status_key.capitalize())}'
+        f'</div>'
+        f'<div class="esg-agent-meta">Last run: {html.escape(run_label)}</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
