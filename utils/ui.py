@@ -96,8 +96,10 @@ _GLOBAL_CSS = f"""
         --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
     }}
 
-    html, body, [class*="st-"], .stApp, .stMarkdown, .stText,
-    .stCaption, .stButton > button {{
+    /* Exclude .material-symbols-rounded so icon spans keep their font,
+       even when they also carry a st-emotion-cache-* class. */
+    html, body, [class*="st-"]:not(.material-symbols-rounded),
+    .stApp, .stMarkdown, .stText, .stCaption, .stButton > button {{
         font-family: var(--font-body);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
@@ -108,14 +110,17 @@ _GLOBAL_CSS = f"""
     .material-symbols-rounded {{
         font-family: 'Material Symbols Rounded' !important;
         font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        /* 'liga' is required for text-to-icon ligature substitution */
+        font-feature-settings: 'liga' 1 !important;
         font-style: normal;
         font-size: 24px;
         line-height: 1;
         letter-spacing: normal;
-        text-transform: none;
+        text-transform: none !important;
         display: inline-block;
         white-space: nowrap;
         direction: ltr;
+        word-spacing: normal;
         -webkit-font-smoothing: antialiased;
     }}
     h1, h2, h3, h4, h5 {{
