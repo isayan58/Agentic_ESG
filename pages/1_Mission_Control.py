@@ -101,6 +101,23 @@ for i, (key, config) in enumerate(AGENT_CONFIG.items()):
             color=config["color"],
         )
 
+# ── Real-data status banner ──
+_cm = st.session_state.get("conn_manager")
+if _cm and _cm.has_sources():
+    _srcs = _cm.list_sources()
+    _labels = ", ".join(f"**{s['display_name']}** → `{s['target_schema']}`" for s in _srcs)
+    st.success(
+        f"📂 **{len(_srcs)} real data source(s) registered** — {_labels}. "
+        f"The pipeline will use your data instead of sample data.",
+        icon="✅",
+    )
+else:
+    st.info(
+        "ℹ️ No real data sources registered. The pipeline will run on built-in sample data. "
+        "Upload your own data on the **Data Collector** page first.",
+        icon="💡",
+    )
+
 # ── Run Pipeline ──
 col1, col2 = st.columns([1, 3])
 with col1:

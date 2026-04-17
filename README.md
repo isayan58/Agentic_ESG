@@ -1,3 +1,15 @@
+---
+title: ESG CoPilot Dashboard
+emoji: 🌍
+colorFrom: green
+colorTo: blue
+sdk: streamlit
+sdk_version: 1.56.0
+app_file: Home.py
+pinned: false
+license: mit
+---
+
 # ESG CoPilot: Autonomous ESG Intelligence
 
 > From manual compliance to autonomous ESG excellence.
