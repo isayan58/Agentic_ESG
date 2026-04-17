@@ -21,6 +21,7 @@ import html
 from typing import Optional, Sequence
 
 import streamlit as st
+import streamlit.components.v1 as _components
 
 # ---------------------------------------------------------------------------
 # Optional React-backed libraries
@@ -82,7 +83,31 @@ _FONT_LINK = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+"""
+
+# Injected via components.html() so it lands in the real <head>,
+# not a sandboxed markdown div that some browsers ignore for font loading.
+_MATERIAL_SYMBOLS_JS = """
+<script>
+(function() {
+    try {
+        var doc = (window.parent || window).document;
+        if (doc.getElementById('esg-mat-sym-font')) return;
+        var pre1 = doc.createElement('link');
+        pre1.rel = 'preconnect'; pre1.href = 'https://fonts.googleapis.com';
+        doc.head.appendChild(pre1);
+        var pre2 = doc.createElement('link');
+        pre2.rel = 'preconnect'; pre2.href = 'https://fonts.gstatic.com';
+        pre2.crossOrigin = 'anonymous';
+        doc.head.appendChild(pre2);
+        var link = doc.createElement('link');
+        link.id  = 'esg-mat-sym-font';
+        link.rel = 'stylesheet';
+        link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200';
+        doc.head.appendChild(link);
+    } catch(e) {}
+})();
+</script>
 """
 
 _GLOBAL_CSS = f"""
@@ -362,10 +387,17 @@ def inject_global_css() -> None:
     The first render also wires up ``style_metric_cards`` (which mutates
     Streamlit-generated DOM) — that side-effect is one-shot per session.
     """
-    # Font loader (uses <link> tags; Streamlit's HTML sanitiser tolerates
-    # these, but rejects @import directives inside <style> blocks).
+    # Typography fonts via <link> (Streamlit tolerates these in markdown).
     st.markdown(_FONT_LINK, unsafe_allow_html=True)
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
+
+    # Material Symbols needs to land in the real <head> to be picked up
+    # as a font loader — st.markdown output ends up in a sandboxed div
+    # that some browsers skip for @font-face. Use a 0-height component
+    # iframe whose script writes the <link> into window.parent.document.head.
+    if not st.session_state.get("_esg_mat_sym_injected"):
+        _components.html(_MATERIAL_SYMBOLS_JS, height=0)
+        st.session_state["_esg_mat_sym_injected"] = True
 
     if not st.session_state.get("_esg_metric_cards_styled"):
         if _HAS_EXTRAS and style_metric_cards is not None:
