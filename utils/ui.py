@@ -82,6 +82,7 @@ _FONT_LINK = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
 """
 
 _GLOBAL_CSS = f"""
@@ -101,6 +102,21 @@ _GLOBAL_CSS = f"""
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv03';
+    }}
+
+    /* ---- Material Symbols — ensure icon ligatures render, not text ---- */
+    .material-symbols-rounded {{
+        font-family: 'Material Symbols Rounded' !important;
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        font-style: normal;
+        font-size: 24px;
+        line-height: 1;
+        letter-spacing: normal;
+        text-transform: none;
+        display: inline-block;
+        white-space: nowrap;
+        direction: ltr;
+        -webkit-font-smoothing: antialiased;
     }}
     h1, h2, h3, h4, h5 {{
         font-family: var(--font-display);
