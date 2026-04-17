@@ -59,6 +59,9 @@ class ROIAgent(BaseAgent):
         # --- Investment Quality Score ---
         iqs = self._investment_quality_score(kpi_results, financial_roi, strategic_roi)
 
+        # --- Peer Benchmarking (optional — only runs if peer data uploaded) ---
+        peer_benchmarking = self._compute_peer_benchmarking(kpi_results, fin_df)
+
         # --- Narrative ---
         narrative = self._generate_narrative(kpi_results, financial_roi, strategic_roi, iqs)
 
@@ -68,6 +71,7 @@ class ROIAgent(BaseAgent):
             "strategic_roi": strategic_roi,
             "j_curve": j_curve,
             "investment_quality_score": iqs,
+            "peer_benchmarking": peer_benchmarking,
             "narrative": narrative,
             "generated_at": datetime.now().isoformat(),
         }
@@ -286,6 +290,217 @@ class ROIAgent(BaseAgent):
                 "risk_reduction": 0.15,
             },
         }
+
+    # ── Peer Benchmarking ──────────────────────────────────────────────────────
+
+    def _compute_peer_benchmarking(self, kpi_results: dict, fin_df) -> dict:
+        """Compare the company's metrics against uploaded sector peers.
+
+        Reads from any available peer schema (peer_metrics > peer_benchmark >
+        built from peer_financials + peer_esg).  Returns {"available": False}
+        when no peer data has been uploaded.
+        """
+        import pandas as pd
+
+        peer_metrics_df = get_dataset("peer_metrics")
+        peer_bench_df   = get_dataset("peer_benchmark")
+        peer_esg_df     = get_dataset("peer_esg")
+        peer_fin_df     = get_dataset("peer_financials")
+
+        if all(df.empty for df in [peer_metrics_df, peer_bench_df, peer_esg_df, peer_fin_df]):
+            return {"available": False}
+
+        # ── Build unified comparison frame ────────────────────────────────
+        peers = pd.DataFrame()
+        peer_source = "none"
+
+        if not peer_metrics_df.empty:
+            if {"esg_score", "ebitda_margin", "roa"} & set(peer_metrics_df.columns):
+                if "year" in peer_metrics_df.columns:
+                    latest = peer_metrics_df["year"].max()
+                    peers = peer_metrics_df[peer_metrics_df["year"] == latest].copy()
+                else:
+                    peers = peer_metrics_df.copy()
+                peer_source = "peer_metrics"
+
+        if peers.empty and not peer_bench_df.empty:
+            peers = peer_bench_df.rename(columns={
+                "roa_avg":             "roa",
+                "ebitda_margin_avg":   "ebitda_margin",
+                "esg_capex_pct_avg":   "esg_capex_pct",
+                "esg_score_avg":       "esg_score",
+                "net_debt_ebitda_avg": "net_debt_to_ebitda",
+                "asset_turnover_avg":  "asset_turnover",
+            }).copy()
+            peer_source = "peer_benchmark"
+
+        if peers.empty and not peer_esg_df.empty:
+            # Build from raw ESG (+ merge financials if available)
+            peers = peer_esg_df.copy()
+            if "year" in peers.columns:
+                peers = peers[peers["year"] == peers["year"].max()].copy()
+            if not peer_fin_df.empty:
+                fin_l = peer_fin_df.copy()
+                if "year" in fin_l.columns:
+                    fin_l = fin_l[fin_l["year"] == fin_l["year"].max()]
+                ccol = next((c for c in ["company", "Company"] if c in fin_l.columns), None)
+                if ccol:
+                    fin_l = fin_l.rename(columns={ccol: "company"})
+                    if "ebitda" in fin_l.columns and "revenue" in fin_l.columns:
+                        fin_l["ebitda_margin"] = (
+                            fin_l["ebitda"] / fin_l["revenue"].replace(0, float("nan")) * 100
+                        ).round(2)
+                    if "net_profit" in fin_l.columns and "total_assets" in fin_l.columns:
+                        fin_l["roa"] = (
+                            fin_l["net_profit"] / fin_l["total_assets"].replace(0, float("nan")) * 100
+                        ).round(2)
+                    pcol = next((c for c in ["company", "Company"] if c in peers.columns), None)
+                    if pcol:
+                        peers = peers.rename(columns={pcol: "company"})
+                    mcols = ["company"] + [c for c in ["ebitda_margin", "roa"] if c in fin_l.columns]
+                    peers = peers.merge(fin_l[mcols], on="company", how="left")
+            peer_source = "peer_esg"
+
+        if peers.empty:
+            return {"available": False, "reason": "No usable peer data"}
+
+        # Normalise company column
+        ccol = next((c for c in ["company", "Company"] if c in peers.columns), None)
+        if ccol and ccol != "company":
+            peers = peers.rename(columns={ccol: "company"})
+        sector_col = next((c for c in ["sector", "Sector"] if c in peers.columns), None)
+
+        # ── Company's own values ──────────────────────────────────────────
+        fin_summary = kpi_results.get("financial_summary", {})
+        company_esg_score     = self._derive_company_esg_score(kpi_results)
+        company_ebitda_margin = float(fin_summary.get("ebitda_margin_latest", 0) or 0)
+        company_roa           = float(fin_summary.get("roa_latest", 0) or 0)
+        company_scope12_kt    = round(self._derive_company_scope12() / 1000, 1)
+
+        metric_defs = [
+            {"key": "esg_score",          "label": "ESG Score",            "unit": "/100", "company_value": company_esg_score,      "higher_is_better": True},
+            {"key": "ebitda_margin",       "label": "EBITDA Margin",        "unit": "%",    "company_value": company_ebitda_margin,   "higher_is_better": True},
+            {"key": "roa",                 "label": "Return on Assets",     "unit": "%",    "company_value": company_roa,             "higher_is_better": True},
+            {"key": "scope1_2_emissions",  "label": "Scope 1+2 Emissions",  "unit": " kt",  "company_value": company_scope12_kt,      "higher_is_better": False},
+        ]
+
+        # ── Per-metric stats and percentile ranks ─────────────────────────
+        benchmarks: dict = {}
+        rankings:   list = []
+
+        for mdef in metric_defs:
+            k = mdef["key"]
+            if k not in peers.columns:
+                continue
+
+            col_data = pd.to_numeric(peers[k], errors="coerce").dropna()
+            if col_data.empty:
+                continue
+
+            # Normalise decimals → percentages for ratio columns
+            if k in ("esg_capex_pct", "green_assets_pct") and col_data.max() <= 2.0:
+                col_data = col_data * 100
+            # Scope 1+2: convert peer tCO2e → ktCO2e if stored as large numbers
+            if k == "scope1_2_emissions" and col_data.median() > 10_000:
+                col_data = col_data / 1000
+
+            p_median = round(float(col_data.median()), 2)
+            p_mean   = round(float(col_data.mean()),   2)
+            p_min    = round(float(col_data.min()),    2)
+            p_max    = round(float(col_data.max()),    2)
+
+            cv = mdef["company_value"] or 0
+            n  = len(col_data)
+            # Percentile: % of peers the company beats on this dimension
+            beats = sum(1 for v in col_data if (v < cv if mdef["higher_is_better"] else v > cv))
+            percentile = round(beats / n * 100) if n else None
+
+            gap = round(cv - p_median, 2)
+            if gap > 0:
+                pos_label = f"+{gap} vs median ({'better' if mdef['higher_is_better'] else 'worse'})"
+            elif gap < 0:
+                pos_label = f"{gap} vs median ({'worse' if mdef['higher_is_better'] else 'better'})"
+            else:
+                pos_label = "At sector median"
+
+            best = p_max if mdef["higher_is_better"] else p_min
+
+            benchmarks[k] = {
+                "label":            mdef["label"],
+                "unit":             mdef["unit"],
+                "company_value":    cv,
+                "peer_median":      p_median,
+                "peer_mean":        p_mean,
+                "peer_min":         p_min,
+                "peer_max":         p_max,
+                "sector_best":      best,
+                "percentile":       percentile,
+                "gap_vs_median":    gap,
+                "position":         pos_label,
+                "higher_is_better": mdef["higher_is_better"],
+            }
+
+            unit = mdef["unit"]
+            rankings.append({
+                "Metric":        mdef["label"],
+                "Your Company":  f"{cv}{unit}",
+                "Sector Median": f"{p_median}{unit}",
+                "Sector Best":   f"{best}{unit}",
+                "Percentile":    f"{percentile}th" if percentile is not None else "N/A",
+                "vs Median":     pos_label,
+            })
+
+        # ── Full peer table for charting ──────────────────────────────────
+        peer_table = []
+        for _, row in peers.iterrows():
+            entry = {"company": str(row.get("company", "Unknown"))}
+            if sector_col:
+                entry["sector"] = str(row.get(sector_col, ""))
+            for mdef in metric_defs:
+                k = mdef["key"]
+                if k not in peers.columns:
+                    continue
+                raw = row.get(k)
+                if raw is not None and str(raw) not in ("nan", "None", ""):
+                    v = float(raw)
+                    if k in ("esg_capex_pct", "green_assets_pct") and v <= 2.0:
+                        v *= 100
+                    if k == "scope1_2_emissions" and v > 10_000:
+                        v /= 1000
+                    entry[k] = round(v, 2)
+            peer_table.append(entry)
+
+        sectors_covered = []
+        if sector_col:
+            sectors_covered = peers[sector_col].dropna().unique().tolist()
+
+        return {
+            "available":       True,
+            "peer_count":      len(peers),
+            "peer_source":     peer_source,
+            "sectors_covered": sectors_covered,
+            "company_name":    company_cfg.company_name,
+            "benchmarks":      benchmarks,
+            "rankings":        rankings,
+            "peer_table":      peer_table,
+        }
+
+    def _derive_company_esg_score(self, kpi_results: dict) -> float:
+        """Approximate ESG score from esg_metrics status column."""
+        from utils.data_processing import load_esg_metrics
+        esg_df = get_dataset("esg_metrics", load_esg_metrics)
+        if not esg_df.empty and "status" in esg_df.columns:
+            total = int(esg_df["status"].notna().sum())
+            if total:
+                met = int((esg_df["status"] == "Met").sum())
+                return round(40 + (met / total) * 48, 1)  # 100% met → ~88, 0% met → ~40
+        return round(float(kpi_results.get("composite_esg_financial_score", 0) or 0), 1)
+
+    def _derive_company_scope12(self) -> float:
+        """Return Scope 1+2 tCO2e from carbon results in shared state."""
+        carbon = state_manager.subscribe("carbon_results") or {}
+        scope_curr = carbon.get("scope_totals_current", {})
+        return float(scope_curr.get("Scope 1", 0) or 0) + float(scope_curr.get("Scope 2", 0) or 0)
 
     # ── AI Narrative ───────────────────────────────────────────────────────
 
