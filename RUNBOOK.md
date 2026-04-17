@@ -172,6 +172,19 @@ orchestrator.run_single_agent("carbon_accountant")      # Single agent
 orchestrator.get_agent("data_collector")                # Access agent instance
 ```
 
+**Passing real data sources into the pipeline**
+
+To wire user-uploaded or registered data sources into the pipeline, pass a `ConnectionManager` instance via `data_collector_kwargs`. This ensures the Data Collector's Phase 0 can fetch real sources instead of falling back to samples:
+
+```python
+orchestrator.run_full_pipeline(
+    progress_callback=None,
+    data_collector_kwargs={"connection_manager": conn_mgr}  # pass real sources
+)
+```
+
+`conn_mgr` is the `ConnectionManager` instance from `st.session_state.conn_manager` (populated by Test & Preview). If `data_collector_kwargs` is omitted or `connection_manager` is `None`, Phase 0 is skipped and the pipeline runs on sample data only.
+
 If a dependency fails, the orchestrator marks the downstream agent as skipped instead of continuing with inconsistent inputs.
 
 ### HFClient (`core/hf_client.py`)
@@ -199,11 +212,59 @@ Wraps HuggingFace Inference API with automatic fallback:
 | 0 | Fetch from real data sources via ConnectionManager (if configured) |
 | 1 | Load 7 local sample datasets (emissions, esg_metrics, supply_chain, energy, waste, diversity, financials) |
 | 2 | Auto-discover from enterprise connectors (SAP ERP, Workday HR, IoT, EcoVadis, PostgreSQL, CDP/MSCI) |
-| 3 | Process user-uploaded files (CSV/JSON) |
+| 3 | Process user-uploaded files — CSV, Excel (.xlsx/.xls), JSON — with auto-schema detection and canonical dataset routing |
 | 4 | Detect missing data — proactive gap alerts |
 | 5 | Compute overall quality |
 | 6 | AI-powered quality issue classification |
 | 7 | Assign verifiable confidence scores |
+
+### Upload Data Flow
+
+This subsection describes exactly what happens from the moment a user uploads a file through to that data driving pipeline calculations.
+
+**Trigger: Test & Preview**
+
+When the user clicks "Test & Preview" in Data Collector → Connect Data Sources → File Upload:
+
+1. The uploaded bytes are read into a `pd.DataFrame` (CSV via `pd.read_csv`, Excel via `pd.read_excel`, JSON via `pd.read_json`).
+2. `auto_detect_schema(df)` scans the column names against indicator columns for each of the 7 schemas and returns the best match (see [Schema Mapping & Validation](#schema-mapping--validation)).
+3. The detected schema and the raw DataFrame are written into:
+   - `st.session_state.preview_df` — the raw preview frame (RAM, session-scoped)
+   - `st.session_state.preview_config` — the detected schema name and suggested column mapping (RAM, session-scoped)
+4. The source is immediately auto-registered in `st.session_state.conn_manager._sources` under the key `real_{schema}` (e.g. `real_emissions`). This canonical key is what the pipeline looks for when preferring real data over sample data.
+5. A confirmation message is displayed on screen. No additional "Save Data Source" click is needed.
+
+**What "canonical routing" means**
+
+The Data Collector resolves datasets at runtime via `_resolve_canonical_datasets()`. It checks for `real_{schema}` keys first. If a `real_emissions` source is registered, it takes priority over the bundled `sample_emissions.csv`. Sources stored under arbitrary filenames (e.g. `my_data.xlsx`) do not match a canonical slot and are therefore ignored by downstream agents — this was the root cause of Bug 3 (fixed).
+
+**Pipeline run**
+
+When the user clicks "Run Full Pipeline" in Mission Control:
+
+1. `st.session_state.conn_manager` (the session `ConnectionManager` with registered sources) is read from session state.
+2. It is passed to `Orchestrator.run_full_pipeline()` via the `data_collector_kwargs` parameter:
+   ```python
+   orchestrator.run_full_pipeline(
+       progress_callback=cb,
+       data_collector_kwargs={"connection_manager": conn_mgr}
+   )
+   ```
+3. The orchestrator forwards the kwargs into `DataCollectorAgent.run(connection_manager=conn_mgr)`.
+4. Phase 0 fetches the real sources via the `connection_manager`. Real data is published to `state_manager` under `dataset_{schema}` channels.
+5. All downstream agents consume the published real data through `core/data_access.py` before falling back to sample data.
+
+**Data storage summary**
+
+| Stage | Storage location | Scope |
+|-------|-----------------|-------|
+| After Test & Preview | `st.session_state.preview_df`, `st.session_state.preview_config` | RAM, session |
+| After auto-registration | `st.session_state.conn_manager._sources[real_{schema}]` | RAM, session |
+| After pipeline run | `state_manager` pub/sub channels | RAM, process-wide |
+
+All storage is RAM-only. Data is lost on browser refresh or process restart.
+
+---
 
 ### Data Quality Formula
 
@@ -1094,44 +1155,191 @@ by_schema = mgr.fetch_all_by_schema()
 
 ## Schema Mapping & Validation
 
-### ESG Schemas
+7 target schemas are defined in `utils/schema_mapper.py`. The sections below document every column for each schema, the auto-detection logic, and the column-mapping strategy.
 
-7 target schemas defined in `utils/schema_mapper.py`:
+---
 
-| Schema | Key Columns | Use Case |
-|--------|------------|----------|
-| `emissions` | scope, category, emissions_tco2e, year, quarter | Scope 1/2/3 carbon accounting |
-| `esg_metrics` | metric_id, metric_name, pillar, unit, value_2024, target_2024, status | KPI tracking |
-| `supply_chain` | supplier_name, country, sector, esg_score, risk_rating, emission_contribution_tco2e | Supplier risk |
-| `energy` | facility, energy_source, consumption_mwh, renewable, year | Energy mix |
-| `waste` | waste_type, quantity_tonnes, disposal_method, year | Waste management |
-| `diversity` | department, gender, count, percentage, year | Workforce diversity |
-| `financials` | year, quarter, revenue_inr_crores, ebitda_margin_pct, esg_linked_capex_inr_crores | ROI and KPI analysis |
+### Schema: `emissions`
+
+Scope 1/2/3 carbon accounting data.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year (e.g. 2024) |
+| `quarter` | str | Required | Quarter (Q1, Q2, Q3, Q4) |
+| `scope` | str | Required | Emission scope (Scope 1, Scope 2, Scope 3) |
+| `category` | str | Required | Emission category (e.g. Fleet Vehicles, Electricity) |
+| `emissions_tco2e` | float | Required | Emissions in tonnes CO2 equivalent |
+| `unit` | str | Optional | Unit of measurement (default: tCO2e) |
+| `source` | str | Optional | Data source (e.g. Fuel logs, Utility bills) |
+| `confidence` | float | Optional | Confidence score 0–1 |
+
+---
+
+### Schema: `esg_metrics`
+
+ESG KPI tracking across Environmental, Social, and Governance pillars.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `metric_id` | str | Required | Unique metric identifier (e.g. E01, S03) |
+| `pillar` | str | Required | ESG pillar (Environmental, Social, Governance) |
+| `category` | str | Required | Metric category (e.g. Climate, Workforce) |
+| `metric_name` | str | Required | Human-readable metric name |
+| `unit` | str | Optional | Unit of measurement |
+| `value_2023` | float | Optional | Value for 2023 |
+| `value_2024` | float | Optional | Value for 2024 |
+| `target_2024` | float | Optional | Target value for 2024 |
+| `status` | str | Optional | Status (Met, Not Met, On Track) |
+| `data_source` | str | Optional | Data source description |
+| `confidence` | float | Optional | Confidence score 0–1 |
+
+---
+
+### Schema: `supply_chain`
+
+Supplier ESG scores, risk ratings, and emission contributions.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `supplier_id` | str | Required | Unique supplier identifier |
+| `supplier_name` | str | Required | Supplier company name |
+| `country` | str | Required | Country of operation |
+| `sector` | str | Optional | Industry sector |
+| `tier` | str | Optional | Supply chain tier (Tier 1, Tier 2, Tier 3) |
+| `esg_score` | float | Optional | ESG score (0–100) |
+| `risk_rating` | str | Optional | Risk rating (Low, Medium, High, Critical) |
+| `emission_contribution_tco2e` | float | Optional | Emission contribution in tCO2e |
+| `audit_status` | str | Optional | Audit status |
+| `last_audit_date` | str | Optional | Last audit date (YYYY-MM-DD) |
+| `key_risk_factors` | str | Optional | Key risk factors (comma-separated) |
+
+---
+
+### Schema: `energy`
+
+Energy consumption by source, facility, and period.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year |
+| `quarter` | str | Required | Quarter (Q1–Q4) |
+| `energy_source` | str | Required | Energy source (Grid Electricity, Solar, etc.) |
+| `consumption_mwh` | float | Required | Energy consumption in MWh |
+| `cost_inr_lakhs` | float | Optional | Cost in INR lakhs |
+| `location` | str | Optional | Facility location |
+| `renewable` | str | Optional | Is renewable? (Yes/No) |
+
+---
+
+### Schema: `waste`
+
+Waste generation, type, and disposal methods.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year |
+| `quarter` | str | Required | Quarter (Q1–Q4) |
+| `waste_type` | str | Required | Waste type (Hazardous, Non-Hazardous) |
+| `category` | str | Required | Waste category (e.g. Paper, Plastic, E-waste) |
+| `quantity_mt` | float | Required | Quantity in metric tonnes |
+| `disposal_method` | str | Optional | Disposal method (Recycling, Landfill, etc.) |
+| `recycled_pct` | float | Optional | Recycled percentage (0–100) |
+| `location` | str | Optional | Facility location |
+
+---
+
+### Schema: `diversity`
+
+Workforce diversity and representation metrics.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year |
+| `category` | str | Required | Diversity category (Gender, Age, etc.) |
+| `subcategory` | str | Required | Subcategory (Overall, Leadership, etc.) |
+| `metric` | str | Required | Metric name |
+
+---
+
+### Schema: `financials`
+
+Financial performance and ESG-linked investment data.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year |
+| `quarter` | str | Required | Quarter (Q1–Q4) |
+| `revenue_inr_crores` | float | Required | Revenue in INR crores |
+| `ebitda_inr_crores` | float | Optional | EBITDA in INR crores |
+| `ebitda_margin_pct` | float | Optional | EBITDA margin percentage |
+| `pat_inr_crores` | float | Optional | Profit after tax in INR crores |
+| `roa_pct` | float | Optional | Return on assets percentage |
+| `roe_pct` | float | Optional | Return on equity percentage |
+| `debt_equity_ratio` | float | Optional | Debt to equity ratio |
+| `cost_of_capital_pct` | float | Optional | Cost of capital percentage |
+| `pe_ratio` | float | Optional | Price to earnings ratio |
+| `carbon_tax_exposure_lakhs` | float | Optional | Carbon tax exposure in INR lakhs |
+| `energy_cost_inr_crores` | float | Optional | Energy cost in INR crores |
+| `employee_turnover_pct` | float | Optional | Employee turnover percentage |
+| `brand_value_index` | float | Optional | Brand value index |
+| `talent_retention_score` | float | Optional | Talent retention score |
+| `esg_linked_capex_inr_crores` | float | Optional | ESG-linked CapEx in INR crores |
+
+---
 
 ### Auto-Detection
 
-`auto_detect_schema(df)` uses a scoring heuristic:
-1. Check for indicator columns (e.g., "emissions_tco2e" → emissions, "metric_id" → esg_metrics)
-2. Score each schema by counting how many of its column names appear in the DataFrame
-3. Return the highest-scoring schema (or None if no match)
+`auto_detect_schema(df)` identifies the schema from indicator columns present in the uploaded DataFrame:
 
-### Column Mapping
+| Indicator Column(s) | Detected Schema |
+|--------------------|----------------|
+| `emissions_tco2e` | `emissions` |
+| `metric_id` | `esg_metrics` |
+| `supplier_name` or `esg_score` | `supply_chain` |
+| `consumption_mwh` or `energy_source` | `energy` |
+| `quantity_mt` or `waste_type` | `waste` |
+| `subcategory` + a diversity category value | `diversity` |
+| `revenue_inr_crores` or `esg_linked_capex` | `financials` |
 
-`suggest_column_mapping(df, target_schema)` matches source columns to ESG schema columns:
-1. Exact name match
-2. Normalized match (lowercase, strip whitespace/underscores)
-3. Synonym matching via `_SYNONYMS` dict (e.g., "co2" → "emissions_tco2e")
+Detection is done by scanning column names for these indicators. The schema with the highest indicator score wins. If no indicator matches, returns `None`.
 
-### Validation
+---
 
-`validate_mapped_data(df, target_schema)` returns:
+### Column Mapping Strategy
+
+`suggest_column_mapping(df, target_schema)` maps source columns in the uploaded file to ESG schema columns in three steps, tried in order:
+
+1. **Exact match** — source column name matches schema column name character-for-character.
+2. **Normalized match** — both names are lowercased and underscores/whitespace stripped before comparing (e.g. `Emissions tCO2e` → `emissionstco2e` matches `emissionstco2e`).
+3. **Synonym match** — source column name is looked up in the `_SYNONYMS` dictionary. Common synonym mappings include:
+   - `"co2"`, `"co2_emissions"`, `"ghg"` → `emissions_tco2e`
+   - `"scope1"`, `"scope_1"` → `scope`
+   - `"mwh"`, `"energy_mwh"` → `consumption_mwh`
+   - `"revenue"`, `"total_revenue"` → `revenue_inr_crores`
+   - `"capex"`, `"esg_capex"` → `esg_linked_capex_inr_crores`
+   - `"gender"` → `category` (for diversity schema)
+
+---
+
+### Validation Output
+
+`validate_mapped_data(df, target_schema)` returns a structured result:
+
 ```python
 {
-    "errors": ["Missing required column: ..."],
-    "warnings": ["Optional column not mapped: ..."],
-    "stats": {"rows": int, "columns_mapped": int, "columns_total": int, "completeness": float}
+    "errors":   ["Missing required column: emissions_tco2e", ...],
+    "warnings": ["Optional column not mapped: confidence", ...],
+    "stats": {
+        "rows":             int,    # total rows in DataFrame
+        "columns_mapped":   int,    # schema columns successfully mapped
+        "columns_total":    int,    # total schema columns for this schema
+        "completeness":     float,  # mapped / total as a fraction
+    }
 }
 ```
+
+Errors are raised for missing required columns. Warnings are raised for unmapped optional columns. A DataFrame with no errors is accepted for pipeline use even if optional columns are absent.
 
 ---
 
@@ -1254,6 +1462,11 @@ The deployed HuggingFace Spaces already include all cloud dependencies in their 
 | Delta Lake cloud table fails | Missing storage credentials | Provide `storage_options_json` with cloud credentials (see Delta Lake Connector section) |
 | Folder mode returns empty DataFrame | No supported files under prefix | Ensure files have extensions: `.csv`, `.json`, `.xlsx`, `.xls`, `.parquet` |
 | S3/GCS/Azure "No supported files found" | Path doesn't end with `/` | Append `/` to enable folder mode (e.g., `data/esg/` not `data/esg`) |
+| Uploaded Excel file ignored by pipeline | `.xlsx`/`.xls` not handled in Phase 3 (now fixed — use latest version) | Update to latest version; use `.csv` if issue persists on older builds |
+| Data not reflected in calculations after upload | "Save Data Source" step was skipped | Now auto-registered on Test & Preview; check that the green banner appears in Mission Control before running |
+| Pipeline uses sample data despite upload | `connection_manager` not passed to orchestrator (now fixed) | Update to latest version; verify the green banner in Mission Control shows registered sources before clicking Run |
+| Icon text shows instead of icon symbol (e.g. "arrow_forward" as text) | Material Symbols font overridden by body font CSS rule | Now fixed; hard-refresh the browser (Cmd+Shift+R on Mac, Ctrl+Shift+R on Windows/Linux) to clear the cached stylesheet |
+| Raw HTML tags visible on Sign In page or other pages | `st.markdown()` HTML string had 8+ spaces of leading indentation, triggering CommonMark indented-code-block rule | Now fixed; if running locally, delete `__pycache__` directories and restart Streamlit |
 
 ### Checking Agent State
 
