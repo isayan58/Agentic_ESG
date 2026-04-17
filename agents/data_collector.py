@@ -86,6 +86,9 @@ class DataCollectorAgent(BaseAgent):
             _canonical_schema_names = [
                 "emissions", "esg_metrics", "supply_chain",
                 "energy", "waste", "diversity", "financials",
+                # Peer benchmarking schemas (optional — no missing-data alerts)
+                "peer_companies", "peer_financials", "peer_esg",
+                "peer_metrics", "peer_benchmark",
             ]
             for file_name, file_data in uploaded_files.items():
                 try:
@@ -211,6 +214,9 @@ class DataCollectorAgent(BaseAgent):
         schema_names = [
             "emissions", "esg_metrics", "supply_chain",
             "energy", "waste", "diversity", "financials",
+            # Peer benchmarking schemas
+            "peer_companies", "peer_financials", "peer_esg",
+            "peer_metrics", "peer_benchmark",
         ]
 
         for schema_name in schema_names:
