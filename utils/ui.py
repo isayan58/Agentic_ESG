@@ -394,14 +394,12 @@ def hero(
         )
 
     st.markdown(
-        f"""
-        <div class="esg-hero">
-            {eyebrow_html}
-            <h1>{prefix}{safe_title}</h1>
-            {subtitle_html}
-            {chip_html}
-        </div>
-        """,
+        f'<div class="esg-hero">'
+        f'{eyebrow_html}'
+        f'<h1>{prefix}{safe_title}</h1>'
+        f'{subtitle_html}'
+        f'{chip_html}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -422,12 +420,10 @@ def section_header(title: str, caption: Optional[str] = None) -> None:
         if caption else ""
     )
     st.markdown(
-        f"""
-        <div class="esg-section">
-            <span class="esg-section-title">{html.escape(title)}</span>
-            {cap_html}
-        </div>
-        """,
+        f'<div class="esg-section">'
+        f'<span class="esg-section-title">{html.escape(title)}</span>'
+        f'{cap_html}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -478,16 +474,13 @@ def agent_card(
     status_color = _STATUS_COLORS.get(status_key, TOKENS["text_muted"])
     run_label = last_run[:16] if last_run and last_run != "Never" else "Never"
     st.markdown(
-        f"""
-        <div class="esg-agent-card" style="border-left-color:{color};">
-            <div class="esg-agent-title">{html.escape(icon)} {html.escape(name)}</div>
-            <div style="margin-top:0.4rem;color:{status_color};
-                        font-size:0.85rem;font-weight:500;">
-                {status_emoji} {html.escape(status_key.capitalize())}
-            </div>
-            <div class="esg-agent-meta">Last run: {html.escape(run_label)}</div>
-        </div>
-        """,
+        f'<div class="esg-agent-card" style="border-left-color:{color};">'
+        f'<div class="esg-agent-title">{html.escape(icon)} {html.escape(name)}</div>'
+        f'<div style="margin-top:0.4rem;color:{status_color};font-size:0.85rem;font-weight:500;">'
+        f'{status_emoji} {html.escape(status_key.capitalize())}'
+        f'</div>'
+        f'<div class="esg-agent-meta">Last run: {html.escape(run_label)}</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
