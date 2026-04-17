@@ -82,17 +82,42 @@ class DataCollectorAgent(BaseAgent):
 
         # ── Phase 3: Process uploaded files ──
         if uploaded_files:
+            from utils.schema_mapper import auto_detect_schema, suggest_column_mapping, apply_column_mapping
+            _canonical_schema_names = [
+                "emissions", "esg_metrics", "supply_chain",
+                "energy", "waste", "diversity", "financials",
+            ]
             for file_name, file_data in uploaded_files.items():
                 try:
-                    if file_name.endswith(".csv"):
+                    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+                    if ext == "csv":
                         df = pd.read_csv(file_data)
-                    elif file_name.endswith(".json"):
+                    elif ext in ("xlsx", "xls"):
+                        df = pd.read_excel(file_data)
+                    elif ext == "json":
                         df = pd.read_json(file_data)
                     else:
+                        self.log(f"Skipping unsupported format: {file_name}")
                         continue
-                    datasets[file_name] = df
-                    quality_scores[file_name] = compute_data_quality(df)
-                    self.log(f"Ingested uploaded file: {file_name}")
+
+                    # Try to map to a canonical schema so downstream agents
+                    # receive real data instead of sample data.
+                    detected = auto_detect_schema(df)
+                    if detected and detected in _canonical_schema_names:
+                        mapping = suggest_column_mapping(df, detected)
+                        mapped_df = apply_column_mapping(df, mapping, detected)
+                        # Store under the canonical name (real_ prefix so
+                        # _resolve_canonical_datasets picks it over sample data).
+                        key = f"real_{detected}"
+                        datasets[key] = mapped_df if not mapped_df.empty else df
+                        self.log(f"Uploaded file '{file_name}' mapped to schema '{detected}' ({len(df)} rows)")
+                    else:
+                        # Store by filename as a supplementary dataset.
+                        key = file_name
+                        datasets[key] = df
+                        self.log(f"Ingested uploaded file: {file_name} (schema undetected, stored as-is)")
+
+                    quality_scores[key] = compute_data_quality(datasets[key])
                 except Exception as e:
                     self.log(f"Error processing {file_name}: {e}")
 

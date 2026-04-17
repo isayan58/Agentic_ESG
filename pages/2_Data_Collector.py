@@ -78,8 +78,26 @@ with main_tab1:
                     st.success(result["message"])
                     safe_dataframe(df.head(10), use_container_width=True)
                     detected = auto_detect_schema(df)
-                    if detected:
-                        st.info(f"Auto-detected schema: **{detected}**")
+
+                    # Auto-register immediately so the pipeline can use the data
+                    # without requiring a separate "Save Data Source" click.
+                    auto_name = file_name.rsplit(".", 1)[0].replace(" ", "_").lower()
+                    auto_schema = detected or get_schema_names()[0]
+                    auto_mapping = suggest_column_mapping(df, auto_schema)
+                    conn_mgr.add_source(
+                        source_id=auto_name,
+                        connector_type="file_upload",
+                        config={"file_bytes": file_bytes, "file_name": file_name},
+                        target_schema=auto_schema,
+                        column_mapping=auto_mapping,
+                        display_name=file_name,
+                    )
+                    st.info(
+                        f"✅ **Auto-registered** as `{auto_schema}` schema "
+                        f"({len(df):,} rows). "
+                        f"{'Schema detected from column names.' if detected else 'Schema guessed — adjust below if needed.'} "
+                        f"Run the pipeline in Mission Control to use this data."
+                    )
                 else:
                     st.error(result["message"])
             except Exception as e:
