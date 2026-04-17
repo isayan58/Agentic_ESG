@@ -34,8 +34,16 @@ class Orchestrator:
         for key, agent_cls, _ in PIPELINE_ORDER:
             self.agents[key] = agent_cls()
 
-    def run_full_pipeline(self, progress_callback=None):
-        """Execute all agents in dependency order."""
+    def run_full_pipeline(self, progress_callback=None, data_collector_kwargs=None):
+        """Execute all agents in dependency order.
+
+        Args:
+            progress_callback: optional callable(agent_key, status, step, total)
+            data_collector_kwargs: optional dict of extra kwargs forwarded to
+                DataCollectorAgent.run() — used to pass connection_manager and
+                uploaded_files from the session so real user data flows through
+                the full pipeline, not just the standalone Data Collector page.
+        """
         results = {}
 
         for i, (key, _, deps) in enumerate(PIPELINE_ORDER):
@@ -63,7 +71,8 @@ class Orchestrator:
             if progress_callback:
                 progress_callback(key, "running", i + 1, len(PIPELINE_ORDER))
 
-            agent_results = agent.run()
+            run_kwargs = data_collector_kwargs if (key == "data_collector" and data_collector_kwargs) else {}
+            agent_results = agent.run(**run_kwargs)
             results[key] = agent_results
 
             status = "completed" if agent.status == "completed" else "error"

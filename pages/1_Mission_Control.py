@@ -125,7 +125,18 @@ if run_pipeline:
             status_text.error(f"{icon} {name} failed or was skipped ({step}/{total})")
 
     with st.spinner("Running full ESG pipeline..."):
-        results = orch.run_full_pipeline(progress_callback=progress_callback)
+        # Forward any real data sources the user registered on the Data
+        # Collector page so uploaded files/connections flow into the pipeline.
+        conn_mgr = st.session_state.get("conn_manager")
+        dc_kwargs = (
+            {"connection_manager": conn_mgr}
+            if conn_mgr and conn_mgr.has_sources()
+            else {}
+        )
+        results = orch.run_full_pipeline(
+            progress_callback=progress_callback,
+            data_collector_kwargs=dc_kwargs or None,
+        )
         st.session_state.pipeline_results = results
 
     progress_bar.progress(1.0)
