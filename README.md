@@ -337,6 +337,105 @@ See **[RUNBOOK.md](RUNBOOK.md)** for the complete technical reference including:
 
 ---
 
+## Platform Changes
+
+This section documents verified changes introduced in recent development cycles.
+
+---
+
+### Authentication & Access Control
+
+ESG CoPilot now ships with a lightweight but production-grade authentication layer (`utils/auth.py`, `pages/0_Sign_In.py`).
+
+**How it works:**
+
+- Passwords are stored as bcrypt hashes (never in plaintext).
+- Sessions are managed via an [itsdangerous](https://itsdangerous.palletsprojects.com/) signed cookie with a 14-day expiry.
+- Two storage backends are available:
+  - `MemoryBackend` — default; stores users in RAM for the lifetime of the process. Suitable for Spaces demos.
+  - `FileBackend` — persists users to `users.json` on disk. Use this for self-hosted deployments where you need accounts to survive restarts.
+- Every page calls `sidebar_auth_widget()`, which renders a sign-in form or a sign-out button in the Streamlit sidebar depending on session state.
+- Protected pages call `require_login()` at the top; unauthenticated visitors are redirected to the Sign In page.
+- Once a user is authenticated, the Sign In page is hidden from the sidebar navigation via a CSS injection so the nav stays clean.
+
+**To protect a page**, add this at the top of the page script:
+
+```python
+from utils.auth import require_login
+require_login()
+```
+
+---
+
+### Home Page & Design System
+
+The application entry point has been renamed from `app.py` to `Home.py`. The README frontmatter (`app_file: Home.py`) and the HuggingFace Spaces configuration reflect this change.
+
+The Home page has been fully redesigned as a product landing experience:
+
+- **Hero section** — headline, sub-headline, and primary call-to-action.
+- **Stat band** — key platform metrics in a horizontal strip.
+- **Feature grid** — capability tiles with icons and short descriptions.
+- **Agent tiles** — one tile per agent showing name, role, and status.
+- **Trust strip** — frameworks, certifications, and data partnerships.
+- **Footer** — links and legal notice.
+
+**Typography** is loaded from Google Fonts:
+
+| Role | Font |
+| --- | --- |
+| Display / headings | Plus Jakarta Sans |
+| Body copy | Inter |
+| Code blocks | JetBrains Mono |
+
+---
+
+### Data Upload → Pipeline Wiring
+
+Four bugs in the upload-to-pipeline flow were identified and fixed. The correct end-to-end workflow is now:
+
+**Step-by-step upload workflow:**
+
+1. Go to **Data Collector → Connect Data Sources → File Upload**.
+2. Upload a CSV, Excel (`.xlsx` / `.xls`), or JSON file.
+3. Click **Test & Preview**. The file is immediately auto-registered with auto-detected schema. A confirmation message is shown — no additional save step is required.
+4. Go to **Mission Control**. A green banner confirms that your real data sources are wired in.
+5. Click **Run Full Pipeline**. Your uploaded data drives all calculations.
+
+> **Note:** Data is session-scoped. It lives in RAM only and is lost on browser refresh or Space restart. See [Known Limitation: Session-Scoped Storage](#known-limitation-session-scoped-storage) below.
+
+**Bugs fixed:**
+
+| # | Bug | Root Cause | Fix |
+| --- | --- | --- | --- |
+| 1 | Upload required a separate "Save Data Source" click that users routinely missed | Auto-registration did not run on Test & Preview | "Test & Preview" now immediately auto-registers the source with auto-detected schema |
+| 2 | Excel files were silently ignored | Phase 3 of `DataCollectorAgent.execute()` only handled `.csv` and `.json` | Added `pd.read_excel()` handling for `.xlsx` / `.xls` |
+| 3 | Uploaded data never reached pipeline calculations | Files stored under their original filename (e.g. `my_data.xlsx`), never matching a `real_{schema}` canonical slot | Auto-detection now stores uploaded data under `real_{schema}` (e.g. `real_emissions`), giving it priority over sample data |
+| 4 | `connection_manager` always arrived as `None` in the orchestrator | `Orchestrator.run_full_pipeline()` called `DataCollectorAgent.run()` with no kwargs | Added `data_collector_kwargs` parameter to `run_full_pipeline()`; Mission Control now reads `st.session_state.conn_manager` and passes it through |
+
+---
+
+### Known Limitation: Session-Scoped Storage
+
+All data in ESG CoPilot is stored exclusively in process RAM. There is no database, no disk persistence, and no cross-session sharing.
+
+| Stage | Where data lives |
+| --- | --- |
+| After Test & Preview | `st.session_state.preview_df`, `st.session_state.preview_config` |
+| After auto-registration | `st.session_state.conn_manager._sources` |
+| After pipeline run | `state_manager` pub/sub channels (process-wide RAM) |
+
+**Practical implications:**
+
+- Refreshing the browser tab clears all uploaded data and pipeline results.
+- Restarting the Streamlit server (or a HuggingFace Space restart) clears everything.
+- Multiple browser tabs do not share session data; each tab is its own isolated session.
+- If you need to re-run the pipeline after a refresh, re-upload your file and click "Test & Preview" again before running.
+
+There is currently no option to persist data to a database or download session state. This is a planned improvement.
+
+---
+
 ## License
 
 This project is proprietary. All rights reserved.
