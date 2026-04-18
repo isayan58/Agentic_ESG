@@ -10,6 +10,7 @@ from utils.ui import (
 )
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
+from utils.session import get_session_connection_manager
 
 try:
     import plotly.graph_objects as go
@@ -24,6 +25,7 @@ inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to explore the ESG ROI dashboard.")
+get_session_connection_manager()
 
 hero(
     title="ESG ROI Agent",

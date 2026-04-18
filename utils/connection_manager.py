@@ -42,10 +42,61 @@ def _signature(*parts) -> str:
 
 
 class ConnectionManager:
-    """Manages real data source connections for a user session."""
+    """Manages real data source connections for a user session.
 
-    def __init__(self):
+    Supports optional persistence via an ``on_change`` callback. When set,
+    the callback is invoked (with ``self`` as the only argument) after
+    every ``add_source`` / ``remove_source`` so a store can snapshot the
+    registry to durable storage. The callback is *best-effort*: failures
+    are swallowed so a transient Hub outage can't break a user's session.
+    """
+
+    def __init__(self, on_change=None):
         self._sources: dict[str, dict] = {}
+        self._on_change = on_change
+
+    # ── Persistence hooks ──────────────────────────────────────────
+
+    def set_on_change(self, callback) -> None:
+        """Install or replace the change-callback after construction."""
+        self._on_change = callback
+
+    def _fire_change(self) -> None:
+        cb = self._on_change
+        if cb is None:
+            return
+        try:
+            cb(self)
+        except Exception:
+            # Never let a persistence failure surface into the UI path.
+            pass
+
+    def hydrate_sources(self, records: list[dict]) -> None:
+        """Replace the in-memory registry with ``records`` from a store.
+
+        Deliberately bypasses the on_change callback — we're loading *from*
+        the store, not writing back to it. Missing / malformed fields get
+        permissive defaults so a schema change can't brick a user's saved
+        sources.
+        """
+        self._sources = {}
+        for rec in records or []:
+            sid = rec.get("id") or rec.get("source_id")
+            if not sid or not rec.get("connector_type"):
+                continue
+            self._sources[sid] = {
+                "connector_type": rec["connector_type"],
+                "config": rec.get("config") or {},
+                "target_schema": rec.get("target_schema") or "emissions",
+                "column_mapping": rec.get("column_mapping") or {},
+                "display_name": rec.get("display_name") or f"{rec['connector_type']}:{sid}",
+                "added_at": rec.get("added_at") or datetime.now().isoformat(),
+                "last_fetch": None,
+                "last_row_count": 0,
+                "status": "configured",
+                "_cached_signature": None,
+                "_cached_df": None,
+            }
 
     # ── Source registration ────────────────────────────────────────
 
@@ -55,7 +106,7 @@ class ConnectionManager:
         """Register (or overwrite) a configured data source.
 
         Overwriting an existing source clears its cached DataFrame so the
-        next fetch sees the new config.
+        next fetch sees the new config. Fires the persistence callback.
         """
         self._sources[source_id] = {
             "connector_type": connector_type,
@@ -71,10 +122,17 @@ class ConnectionManager:
             "_cached_signature": None,
             "_cached_df": None,
         }
+        self._fire_change()
 
     def remove_source(self, source_id: str) -> bool:
-        """Remove a data source. Returns True if it existed."""
-        return self._sources.pop(source_id, None) is not None
+        """Remove a data source. Returns True if it existed.
+
+        Fires the persistence callback when something was actually removed.
+        """
+        removed = self._sources.pop(source_id, None) is not None
+        if removed:
+            self._fire_change()
+        return removed
 
     def get_source(self, source_id: str) -> dict | None:
         return self._sources.get(source_id)

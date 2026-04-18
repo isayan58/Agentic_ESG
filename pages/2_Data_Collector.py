@@ -12,6 +12,7 @@ from utils.schema_mapper import (
     validate_mapped_data, get_schema_names, get_schema_columns, ESG_SCHEMAS,
 )
 from utils.connection_manager import ConnectionManager
+from utils.session import get_session_connection_manager
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, pwc_header
 
@@ -27,8 +28,10 @@ st.markdown("---")
 if "data_collector" not in st.session_state:
     st.session_state.data_collector = DataCollectorAgent()
     st.session_state.data_collector_results = None
-if "conn_manager" not in st.session_state:
-    st.session_state.conn_manager = ConnectionManager()
+# Hydrate the per-user connection manager from persistent storage.
+# Stashes the result under st.session_state.conn_manager so the rest of
+# this page (and every other page) keeps working unchanged.
+get_session_connection_manager()
 if "preview_df" not in st.session_state:
     st.session_state.preview_df = None
     st.session_state.preview_source_type = None

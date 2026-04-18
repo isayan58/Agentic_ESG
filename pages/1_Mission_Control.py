@@ -16,12 +16,17 @@ from utils.ui import (
 )
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
+from utils.session import get_session_connection_manager
 
 st.set_page_config(page_title="Mission Control | ESG CoPilot", page_icon="🎛️", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to run the 9-agent pipeline and view Mission Control.")
+# Hydrate (or rebuild) this user's persistent ConnectionManager as early
+# as possible so the Run buttons below see sources the user registered
+# in a previous session.
+get_session_connection_manager()
 
 hero(
     title="Mission Control",

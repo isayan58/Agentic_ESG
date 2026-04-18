@@ -68,7 +68,18 @@ def refresh_real_data(only_changed: bool = False,
            "errors": {source_id: message}}``
     """
     conn_mgr = st.session_state.get("conn_manager")
-    if conn_mgr is None or not conn_mgr.has_sources():
+    if conn_mgr is None:
+        # Lazy bootstrap: if a user is signed in and has saved sources
+        # in the HF Dataset, hydrate them now so the first page they
+        # land on (which might not be Data Collector) still sees them.
+        # If hydration fails, fall through to the original contract so
+        # guest / offline flows keep behaving identically.
+        try:
+            from utils.session import get_session_connection_manager
+            conn_mgr = get_session_connection_manager()
+        except Exception:
+            conn_mgr = None
+    if conn_mgr is None:
         return {
             "refreshed": False,
             "reason": "no_sources",
@@ -79,6 +90,14 @@ def refresh_real_data(only_changed: bool = False,
             "errors": {},
         }
 
+    # When the manager exists but has zero sources (e.g. the user just
+    # removed their last registered source), we still need to:
+    #   (a) clear any stale ``dataset_*`` channels published by a prior
+    #       run so removed-source data can't leak, and
+    #   (b) re-run the Data Collector so sample data repopulates the
+    #       canonical channels for downstream agents.
+    # Falling through the normal path accomplishes both — only the
+    # "truly nothing to do" case (no manager at all) short-circuits.
     signature = _compute_sources_signature(conn_mgr)
 
     # Reuse the page-scoped DataCollector if it exists (preserves the
