@@ -12,8 +12,11 @@ from utils.charts import (
 from utils.data_processing import load_supply_chain
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
+from utils.ui import inject_global_css, pwc_header
 
 st.set_page_config(page_title="Carbon Accountant | ESG CoPilot", page_icon="🌱", layout="wide")
+inject_global_css()
+pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Carbon Accountant agent.")
 st.title("🌱 Carbon Accountant Agent")
