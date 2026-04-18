@@ -301,9 +301,20 @@ if results:
                     "15 Indian listed companies across PetroChemical, Power, and Mining sectors."
                 )
             else:
+                # ── Palette constants ─────────────────────────────────────
+                _C_YOU     = "#E8453C"             # your company — red
+                _C_PEERS   = "#4472C4"             # peer companies — blue
+                _C_MEDIAN  = "#F59E0B"             # sector median line — amber
+                _C_GRID    = "rgba(0,0,0,0.07)"
+                _LAYOUT    = dict(
+                    plot_bgcolor  = "rgba(0,0,0,0)",
+                    paper_bgcolor = "rgba(0,0,0,0)",
+                    font          = dict(family="Inter, sans-serif", size=12),
+                )
+
                 # ── Header strip ──────────────────────────────────────────
-                peer_count  = peer.get("peer_count", 0)
-                sectors     = peer.get("sectors_covered", [])
+                peer_count   = peer.get("peer_count", 0)
+                sectors      = peer.get("sectors_covered", [])
                 source_label = {
                     "peer_metrics":   "pre-calculated ratios",
                     "peer_benchmark": "5-year averages",
@@ -312,195 +323,288 @@ if results:
 
                 section_header(
                     "Peer Benchmarking",
-                    f"{peer_count} companies · {', '.join(sectors) if sectors else 'All sectors'} · Source: {source_label}",
+                    f"{peer_count} companies · "
+                    f"{', '.join(sectors) if sectors else 'All sectors'} · "
+                    f"Source: {source_label}",
                 )
 
-                benchmarks  = peer.get("benchmarks", {})
+                benchmarks   = peer.get("benchmarks", {})
                 company_name = peer.get("company_name", "Your Company")
+                peer_table   = peer.get("peer_table", [])
 
-                # ── KPI comparison cards ──────────────────────────────────
+                # ── KPI comparison cards (st.metric for delta colouring) ──
                 if benchmarks:
                     bm_cols = st.columns(len(benchmarks))
                     for col, (mk, b) in zip(bm_cols, benchmarks.items()):
                         with col:
-                            cv       = b.get("company_value", 0)
-                            median   = b.get("peer_median", 0)
-                            gap      = b.get("gap_vs_median", 0)
-                            pct      = b.get("percentile")
-                            unit     = b.get("unit", "")
-                            better   = b.get("higher_is_better", True)
+                            cv     = b.get("company_value", 0) or 0
+                            gap    = b.get("gap_vs_median", 0) or 0
+                            pct    = b.get("percentile")
+                            unit   = b.get("unit", "")
+                            better = b.get("higher_is_better", True)
 
-                            # Delta colour: green if above median on "higher-is-better",
-                            # green if below median on "lower-is-better"
-                            if gap != 0:
-                                sign     = "+" if gap > 0 else ""
-                                is_good  = (gap > 0 and better) or (gap < 0 and not better)
-                                delta_str = f"{sign}{gap}{unit} vs median"
-                            else:
-                                delta_str = "At sector median"
-                                is_good   = True
+                            sign      = "+" if gap > 0 else ""
+                            delta_str = (
+                                f"{sign}{gap:.2f}{unit} vs median"
+                                if gap != 0 else "At sector median"
+                            )
+                            if pct is not None:
+                                delta_str += f" · {pct}th pct"
 
-                            pct_str = f"{pct}th percentile" if pct is not None else ""
-                            kpi_card(
-                                b["label"],
-                                f"{cv}{unit}",
-                                f"{delta_str} · {pct_str}",
-                                key=f"peer_card_{mk}",
+                            # green when the gap is genuinely beneficial
+                            delta_color = (
+                                "normal"  if better else "inverse"
+                            )
+                            st.metric(
+                                label       = b["label"],
+                                value       = f"{cv:g}{unit}",
+                                delta       = delta_str,
+                                delta_color = delta_color,
                             )
 
                 st.divider()
 
-                # ── ESG Score bar chart ───────────────────────────────────
-                peer_table = peer.get("peer_table", [])
+                if not _PLOTLY:
+                    st.info("Install `plotly` to enable benchmark charts.")
+                elif not peer_table:
+                    st.caption("No peer data available for charts.")
+                else:
+                    base_df = pd.DataFrame(peer_table)
 
-                if peer_table and "esg_score" in benchmarks and _PLOTLY:
-                    section_header(
-                        "ESG Score vs Peers",
-                        f"{company_name} highlighted — sector peer distribution.",
-                    )
-                    chart_df = pd.DataFrame(peer_table)
-                    if "esg_score" in chart_df.columns and "company" in chart_df.columns:
-                        chart_df = chart_df.dropna(subset=["esg_score"]).sort_values("esg_score")
-                        colors = [
-                            "#E8453C" if c == company_name else "#CADCFC"
-                            for c in chart_df["company"]
-                        ]
-                        fig = go.Figure(go.Bar(
-                            x=chart_df["esg_score"],
-                            y=chart_df["company"],
-                            orientation="h",
-                            marker_color=colors,
-                            text=[f"{v:.1f}" for v in chart_df["esg_score"]],
-                            textposition="outside",
-                        ))
-                        company_score = benchmarks["esg_score"]["company_value"]
-                        fig.add_vline(
-                            x=benchmarks["esg_score"]["peer_median"],
-                            line_dash="dash", line_color="gray",
-                            annotation_text="Sector median",
-                            annotation_position="top right",
-                        )
-                        fig.update_layout(
-                            xaxis_title="ESG Score (/100)",
-                            yaxis_title=None,
-                            height=max(350, peer_count * 30),
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            margin=dict(l=40, r=60, t=30, b=40),
-                            font=dict(family="Inter, sans-serif", size=12),
+                    # ── Helper: build bar-chart DataFrame, inject company ─
+                    def _bar_df(metric_col: str, company_val: float,
+                                ascending: bool = True):
+                        """
+                        Return (chart_df, company_display_name).
+                        Adds a "(You)" row for the user's company when it is
+                        not already present in the uploaded peer data.
+                        """
+                        if metric_col not in base_df.columns:
+                            return pd.DataFrame(), company_name
+                        cdf = (base_df[["company", metric_col]]
+                               .dropna(subset=[metric_col])
+                               .copy())
+                        # Normalise company column name
+                        if "Company" in cdf.columns and "company" not in cdf.columns:
+                            cdf = cdf.rename(columns={"Company": "company"})
+
+                        you_label = f"{company_name} (You)"
+                        if company_val and company_name not in cdf["company"].values:
+                            cdf = pd.concat(
+                                [cdf, pd.DataFrame([{"company": you_label,
+                                                     metric_col: company_val}])],
+                                ignore_index=True,
+                            )
+                        else:
+                            you_label = company_name
+
+                        cdf = cdf.sort_values(metric_col, ascending=ascending)
+                        return cdf, you_label
+
+                    def _bar_colors(companies, you_label):
+                        return [_C_YOU if c == you_label else _C_PEERS
+                                for c in companies]
+
+                    def _hbar_layout(n_bars: int, x_title: str,
+                                     x_max: float) -> dict:
+                        return dict(
+                            **_LAYOUT,
+                            xaxis=dict(
+                                title     = x_title,
+                                showgrid  = True,
+                                gridcolor = _C_GRID,
+                                range     = [0, x_max],
+                                fixedrange= True,
+                            ),
+                            yaxis=dict(title=None, automargin=True,
+                                       fixedrange=True),
+                            height  = max(400, n_bars * 40 + 80),
+                            margin  = dict(l=0, r=20, t=20, b=40),
+                            bargap  = 0.30,
                             showlegend=False,
                         )
-                        st.plotly_chart(fig, use_container_width=True)
 
-                # ── EBITDA Margin vs ROA scatter ──────────────────────────
-                if (peer_table and "ebitda_margin" in benchmarks
-                        and "roa" in benchmarks and _PLOTLY):
-                    section_header(
-                        "Profitability Landscape",
-                        "EBITDA Margin vs Return on Assets — each dot is a peer company.",
-                    )
-                    sdf = pd.DataFrame(peer_table)
-                    needed = {"company", "ebitda_margin", "roa"}
-                    if needed.issubset(sdf.columns):
-                        sdf = sdf.dropna(subset=["ebitda_margin", "roa"])
-                        is_company = sdf["company"] == company_name
-                        fig2 = go.Figure()
-                        # Peer dots
-                        peers_only = sdf[~is_company]
-                        fig2.add_trace(go.Scatter(
-                            x=peers_only["ebitda_margin"],
-                            y=peers_only["roa"],
-                            mode="markers+text",
-                            text=peers_only["company"],
-                            textposition="top center",
-                            textfont=dict(size=9, color="#555"),
-                            marker=dict(size=10, color="#CADCFC",
-                                        line=dict(width=1, color="#1E2761")),
-                            name="Peers",
-                        ))
-                        # Company dot (highlighted)
-                        co_row = sdf[is_company]
-                        if not co_row.empty:
-                            fig2.add_trace(go.Scatter(
-                                x=co_row["ebitda_margin"],
-                                y=co_row["roa"],
-                                mode="markers+text",
-                                text=co_row["company"],
-                                textposition="top center",
-                                textfont=dict(size=10, color="#E8453C", family="Inter"),
-                                marker=dict(size=16, color="#E8453C",
-                                            symbol="star",
-                                            line=dict(width=1.5, color="white")),
-                                name=company_name,
+                    # ── CHART 1: ESG Score ────────────────────────────────
+                    if "esg_score" in benchmarks and "esg_score" in base_df.columns:
+                        section_header(
+                            "ESG Score vs Peers",
+                            f"Your company highlighted in red · "
+                            f"Sector median: {benchmarks['esg_score']['peer_median']:.1f}",
+                        )
+                        cv1     = benchmarks["esg_score"]["company_value"] or 0
+                        cdf1, you1 = _bar_df("esg_score", cv1, ascending=True)
+                        if not cdf1.empty:
+                            colors1 = _bar_colors(cdf1["company"], you1)
+                            x_max1  = cdf1["esg_score"].max() * 1.20
+                            fig1 = go.Figure(go.Bar(
+                                x            = cdf1["esg_score"],
+                                y            = cdf1["company"],
+                                orientation  = "h",
+                                marker       = dict(color=colors1, line_width=0),
+                                text         = [f"{v:.1f}" for v in cdf1["esg_score"]],
+                                textposition = "outside",
+                                textfont     = dict(size=11),
+                                hovertemplate= (
+                                    "<b>%{y}</b><br>"
+                                    "ESG Score: <b>%{x:.1f}</b> / 100"
+                                    "<extra></extra>"
+                                ),
                             ))
+                            med1 = benchmarks["esg_score"]["peer_median"]
+                            fig1.add_vline(
+                                x=med1, line_dash="dash",
+                                line_color=_C_MEDIAN, line_width=2,
+                                annotation_text=f"Median {med1:.1f}",
+                                annotation_font=dict(color=_C_MEDIAN, size=11),
+                                annotation_position="top right",
+                            )
+                            fig1.update_layout(
+                                **_hbar_layout(len(cdf1), "ESG Score (/ 100)", x_max1)
+                            )
+                            st.plotly_chart(fig1, use_container_width=True)
+
+                    # ── CHART 2: Profitability scatter ────────────────────
+                    if ("ebitda_margin" in benchmarks and "roa" in benchmarks
+                            and {"ebitda_margin", "roa"}.issubset(base_df.columns)):
+                        section_header(
+                            "Profitability Landscape",
+                            "EBITDA Margin vs Return on Assets — "
+                            "dashed lines show sector medians.",
+                        )
+                        sdf = base_df.dropna(subset=["ebitda_margin", "roa"]).copy()
+
+                        # Peers: hover-only labels (no always-on text — avoids clutter)
+                        peers_s = sdf[sdf["company"] != company_name]
+                        fig2    = go.Figure()
+                        fig2.add_trace(go.Scatter(
+                            x             = peers_s["ebitda_margin"],
+                            y             = peers_s["roa"],
+                            mode          = "markers",
+                            marker        = dict(
+                                size   = 12,
+                                color  = _C_PEERS,
+                                opacity= 0.85,
+                                line   = dict(width=1, color="white"),
+                            ),
+                            name          = "Peers",
+                            customdata    = peers_s["company"],
+                            hovertemplate = (
+                                "<b>%{customdata}</b><br>"
+                                "EBITDA Margin: %{x:.1f}%<br>"
+                                "ROA: %{y:.1f}%"
+                                "<extra></extra>"
+                            ),
+                        ))
+
+                        # Your company — always from benchmarks so it always shows
+                        co_em  = benchmarks["ebitda_margin"]["company_value"] or 0
+                        co_roa = benchmarks["roa"]["company_value"] or 0
+                        fig2.add_trace(go.Scatter(
+                            x             = [co_em],
+                            y             = [co_roa],
+                            mode          = "markers+text",
+                            marker        = dict(
+                                size   = 20,
+                                color  = _C_YOU,
+                                symbol = "star",
+                                line   = dict(width=1.5, color="white"),
+                            ),
+                            text          = [f"  {company_name}"],
+                            textposition  = "middle right",
+                            textfont      = dict(size=11, color=_C_YOU),
+                            name          = company_name,
+                            hovertemplate = (
+                                f"<b>{company_name}</b><br>"
+                                "EBITDA Margin: %{x:.1f}%<br>"
+                                "ROA: %{y:.1f}%"
+                                "<extra></extra>"
+                            ),
+                        ))
+
                         # Median crosshairs
+                        med_em  = benchmarks["ebitda_margin"]["peer_median"]
+                        med_roa = benchmarks["roa"]["peer_median"]
                         fig2.add_vline(
-                            x=benchmarks["ebitda_margin"]["peer_median"],
-                            line_dash="dot", line_color="rgba(0,0,0,0.25)",
+                            x=med_em, line_dash="dot",
+                            line_color="rgba(0,0,0,0.30)", line_width=1.5,
+                            annotation_text=f"Median {med_em:.1f}%",
+                            annotation_font=dict(size=10, color="#666"),
+                            annotation_position="top left",
                         )
                         fig2.add_hline(
-                            y=benchmarks["roa"]["peer_median"],
-                            line_dash="dot", line_color="rgba(0,0,0,0.25)",
+                            y=med_roa, line_dash="dot",
+                            line_color="rgba(0,0,0,0.30)", line_width=1.5,
+                            annotation_text=f"Median {med_roa:.1f}%",
+                            annotation_font=dict(size=10, color="#666"),
+                            annotation_position="bottom right",
                         )
                         fig2.update_layout(
-                            xaxis_title="EBITDA Margin (%)",
-                            yaxis_title="Return on Assets (%)",
-                            height=420,
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            margin=dict(l=50, r=40, t=30, b=50),
-                            font=dict(family="Inter, sans-serif", size=12),
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                            **_LAYOUT,
+                            xaxis=dict(
+                                title="EBITDA Margin (%)", showgrid=True,
+                                gridcolor=_C_GRID, zeroline=False,
+                            ),
+                            yaxis=dict(
+                                title="Return on Assets (%)", showgrid=True,
+                                gridcolor=_C_GRID, zeroline=False,
+                            ),
+                            height=440,
+                            margin=dict(l=50, r=120, t=20, b=50),
+                            legend=dict(
+                                orientation="h", yanchor="bottom",
+                                y=1.02, xanchor="right", x=1,
+                            ),
                         )
                         st.plotly_chart(fig2, use_container_width=True)
 
-                # ── Scope 1+2 emissions bar ───────────────────────────────
-                if (peer_table and "scope1_2_emissions" in benchmarks and _PLOTLY):
-                    section_header(
-                        "Scope 1+2 Emissions vs Peers",
-                        "Lower is better. Values in ktCO₂e.",
-                    )
-                    edf = pd.DataFrame(peer_table)
-                    if "scope1_2_emissions" in edf.columns and "company" in edf.columns:
-                        edf = edf.dropna(subset=["scope1_2_emissions"]).sort_values(
-                            "scope1_2_emissions", ascending=False
+                    # ── CHART 3: Scope 1+2 Emissions ─────────────────────
+                    if ("scope1_2_emissions" in benchmarks
+                            and "scope1_2_emissions" in base_df.columns):
+                        section_header(
+                            "Scope 1+2 Emissions vs Peers",
+                            "Lower is better · Values in ktCO₂e · "
+                            f"Sector median: {benchmarks['scope1_2_emissions']['peer_median']:,.0f}",
                         )
-                        ecolors = [
-                            "#E8453C" if c == company_name else "#CADCFC"
-                            for c in edf["company"]
-                        ]
-                        fig3 = go.Figure(go.Bar(
-                            x=edf["scope1_2_emissions"],
-                            y=edf["company"],
-                            orientation="h",
-                            marker_color=ecolors,
-                            text=[f"{v:,.0f}" for v in edf["scope1_2_emissions"]],
-                            textposition="outside",
-                        ))
-                        fig3.add_vline(
-                            x=benchmarks["scope1_2_emissions"]["peer_median"],
-                            line_dash="dash", line_color="gray",
-                            annotation_text="Sector median",
-                            annotation_position="top right",
-                        )
-                        fig3.update_layout(
-                            xaxis_title="Scope 1+2 Emissions (ktCO₂e)",
-                            yaxis_title=None,
-                            height=max(350, peer_count * 30),
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            margin=dict(l=40, r=80, t=30, b=40),
-                            font=dict(family="Inter, sans-serif", size=12),
-                            showlegend=False,
-                        )
-                        st.plotly_chart(fig3, use_container_width=True)
+                        cv3     = benchmarks["scope1_2_emissions"]["company_value"] or 0
+                        # Sort highest first (worst emitters on top)
+                        cdf3, you3 = _bar_df("scope1_2_emissions", cv3, ascending=False)
+                        if not cdf3.empty:
+                            colors3 = _bar_colors(cdf3["company"], you3)
+                            x_max3  = cdf3["scope1_2_emissions"].max() * 1.20
+                            fig3 = go.Figure(go.Bar(
+                                x            = cdf3["scope1_2_emissions"],
+                                y            = cdf3["company"],
+                                orientation  = "h",
+                                marker       = dict(color=colors3, line_width=0),
+                                text         = [f"{v:,.0f}" for v in cdf3["scope1_2_emissions"]],
+                                textposition = "outside",
+                                textfont     = dict(size=11),
+                                hovertemplate= (
+                                    "<b>%{y}</b><br>"
+                                    "Scope 1+2: <b>%{x:,.0f}</b> ktCO₂e"
+                                    "<extra></extra>"
+                                ),
+                            ))
+                            med3 = benchmarks["scope1_2_emissions"]["peer_median"]
+                            fig3.add_vline(
+                                x=med3, line_dash="dash",
+                                line_color=_C_MEDIAN, line_width=2,
+                                annotation_text=f"Median {med3:,.0f}",
+                                annotation_font=dict(color=_C_MEDIAN, size=11),
+                                annotation_position="top right",
+                            )
+                            fig3.update_layout(
+                                **_hbar_layout(len(cdf3),
+                                               "Scope 1+2 Emissions (ktCO₂e)", x_max3)
+                            )
+                            st.plotly_chart(fig3, use_container_width=True)
 
                 # ── Rankings table ────────────────────────────────────────
                 rankings = peer.get("rankings", [])
                 if rankings:
                     section_header(
-                        "Metric Rankings",
-                        "How your company positions on each benchmarked dimension.",
+                        "Rankings Summary",
+                        "Where your company stands on each benchmarked dimension.",
                     )
                     safe_dataframe(
                         pd.DataFrame(rankings),
@@ -509,7 +613,7 @@ if results:
                     )
 
                 # ── Full peer data table ───────────────────────────────────
-                with st.expander("Full peer dataset", expanded=False):
+                with st.expander("📋 Full peer dataset", expanded=False):
                     if peer_table:
                         safe_dataframe(
                             pd.DataFrame(peer_table),
@@ -518,8 +622,3 @@ if results:
                         )
                     else:
                         st.caption("No peer data available.")
-
-                if not _PLOTLY:
-                    st.caption(
-                        "Install `plotly` to enable bar and scatter charts in this tab."
-                    )
