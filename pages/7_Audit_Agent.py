@@ -5,6 +5,7 @@ from agents.audit_agent import AuditAgent
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, pwc_header
+from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
 
 st.set_page_config(page_title="Audit Agent | ESG CoPilot", page_icon="🔍", layout="wide")
 inject_global_css()
@@ -13,6 +14,7 @@ sidebar_auth_widget()
 require_login("Sign in to access the Audit Agent.")
 st.title("🔍 Audit Agent")
 st.markdown("*Compliance verification, data auditing, and audit trail management*")
+data_freshness_caption()
 st.markdown("---")
 
 if "audit_agent" not in st.session_state:
@@ -24,6 +26,8 @@ agent = st.session_state.audit_agent
 st.info("For best results, run Data Collector, Regulatory Tracker, and Carbon Accountant first.")
 
 if st.button("🔄 Run Audit Verification", type="primary"):
+    with st.spinner("Refreshing data from registered sources..."):
+        refresh_real_data()
     with st.spinner("Running compliance audit..."):
         results = agent.run()
         st.session_state.audit_results = results

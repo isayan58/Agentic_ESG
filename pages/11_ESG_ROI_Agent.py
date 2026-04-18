@@ -9,6 +9,7 @@ from utils.ui import (
     pwc_header,
 )
 from utils.auth import require_login, sidebar_auth_widget
+from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
 
 try:
     import plotly.graph_objects as go
@@ -59,20 +60,12 @@ if _cm and _cm.has_sources():
         icon="✅",
     )
 
-if run_roi:
-    with st.spinner("Running ESG ROI analysis..."):
-        # ── Step 0: Seed state_manager with any real / uploaded data ────
-        # The ROI agent reads canonical datasets from shared state (state_manager).
-        # Running the Data Collector first guarantees that uploaded peer data
-        # (and any other real sources registered on the Data Collector page)
-        # are published to state_manager before the ROI agent tries to read them.
-        conn_mgr = st.session_state.get("conn_manager")
-        if conn_mgr and conn_mgr.has_sources():
-            with st.status("Ingesting your uploaded data…", expanded=False):
-                orch.run_single_agent("data_collector", connection_manager=conn_mgr)
-                st.write("✅ Uploaded data ingested into pipeline")
+data_freshness_caption()
 
-        # ── Step 1: Run ROI Agent ────────────────────────────────────────
+if run_roi:
+    with st.spinner("Refreshing data from registered sources..."):
+        refresh_real_data()
+    with st.spinner("Running ESG ROI analysis..."):
         results = orch.run_single_agent("roi_agent")
         st.session_state.roi_results = results
 
