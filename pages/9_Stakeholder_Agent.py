@@ -3,6 +3,7 @@ import streamlit as st
 from agents.stakeholder_agent import StakeholderAgent
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, pwc_header
+from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
 
 st.set_page_config(page_title="Stakeholder Agent | ESG CoPilot", page_icon="👥", layout="wide")
 inject_global_css()
@@ -11,6 +12,7 @@ sidebar_auth_widget()
 require_login("Sign in to access the Stakeholder Agent.")
 st.title("👥 Stakeholder Agent")
 st.markdown("*Generates audience-tailored ESG communications*")
+data_freshness_caption()
 st.markdown("---")
 
 if "stakeholder_agent" not in st.session_state:
@@ -22,6 +24,8 @@ agent = st.session_state.stakeholder_agent
 st.info("For best results, run the full pipeline first to provide context from all agents.")
 
 if st.button("🔄 Generate Communications", type="primary"):
+    with st.spinner("Refreshing data from registered sources..."):
+        refresh_real_data()
     with st.spinner("Generating stakeholder communications..."):
         results = agent.run()
         st.session_state.stakeholder_results = results

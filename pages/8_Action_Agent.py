@@ -6,6 +6,7 @@ from utils.charts import action_timeline, chart_unavailable_message
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, pwc_header
+from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
 
 st.set_page_config(page_title="Action Agent | ESG CoPilot", page_icon="🎯", layout="wide")
 inject_global_css()
@@ -14,6 +15,7 @@ sidebar_auth_widget()
 require_login("Sign in to access the Action Agent.")
 st.title("🎯 Action Agent")
 st.markdown("*Generates prioritized, actionable ESG recommendations with timelines*")
+data_freshness_caption()
 st.markdown("---")
 
 if "action_agent" not in st.session_state:
@@ -32,6 +34,8 @@ def render_chart(fig):
 st.info("For best results, run Risk Predictor, Audit Agent, and Carbon Accountant first.")
 
 if st.button("🔄 Generate Recommendations", type="primary"):
+    with st.spinner("Refreshing data from registered sources..."):
+        refresh_real_data()
     with st.spinner("Generating action recommendations..."):
         results = agent.run()
         st.session_state.action_results = results
