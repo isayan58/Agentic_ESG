@@ -280,6 +280,10 @@ def login(identifier: str, password: str) -> Optional[dict]:
 def logout() -> None:
     st.session_state.pop("user", None)
     st.session_state.pop("_auth_token", None)
+    # Drop the per-user ConnectionManager so the next signed-in user
+    # doesn't briefly inherit this account's sources before hydration.
+    st.session_state.pop("conn_manager", None)
+    st.session_state.pop("_conn_manager_owner", None)
     _delete_cookie()
 
 
