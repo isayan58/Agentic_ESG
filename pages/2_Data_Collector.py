@@ -35,6 +35,36 @@ agent = st.session_state.data_collector
 conn_mgr = st.session_state.conn_manager
 
 
+def _auto_register_source(df, connector_type: str, source_id: str,
+                           config: dict, display_name: str = "") -> None:
+    """Register a previewed source into conn_mgr and show a success banner.
+
+    Called immediately after a successful 'Test & Preview' so the user
+    doesn't have to click 'Save Data Source' for the pipeline to pick
+    up their data.  The 'Save Data Source' section below still lets them
+    override the auto-detected schema or give a custom name.
+    """
+    import re as _re
+    safe_id = _re.sub(r"[^a-z0-9_]", "_", source_id.lower())[:48]
+    detected = auto_detect_schema(df)
+    schema = detected or get_schema_names()[0]
+    mapping = suggest_column_mapping(df, schema)
+    conn_mgr.add_source(
+        source_id=safe_id,
+        connector_type=connector_type,
+        config=config,
+        target_schema=schema,
+        column_mapping=mapping,
+        display_name=display_name or f"{connector_type}:{safe_id}",
+    )
+    st.info(
+        f"✅ **Auto-registered** as `{schema}` schema ({len(df):,} rows). "
+        f"{'Schema detected from column names.' if detected else 'Schema guessed — adjust below if needed.'} "
+        "Run the pipeline on **Mission Control** to use this data.",
+        icon="📂",
+    )
+
+
 def render_chart(fig):
     if fig is None:
         st.info(chart_unavailable_message())
@@ -118,9 +148,12 @@ with main_tab1:
                     st.session_state.preview_config = {"url": gs_url, "sheet_id": gs_gid}
                     st.success(result["message"])
                     safe_dataframe(df.head(10), use_container_width=True)
-                    detected = auto_detect_schema(df)
-                    if detected:
-                        st.info(f"Auto-detected schema: **{detected}**")
+                    _auto_register_source(
+                        df, "google_sheets",
+                        source_id=f"gsheets_{(gs_gid or '0').replace('/', '_')}",
+                        config={"url": gs_url, "sheet_id": gs_gid},
+                        display_name=f"Google Sheets (GID: {gs_gid or '0'})",
+                    )
                 else:
                     st.error(result["message"])
             except Exception as e:
@@ -156,9 +189,17 @@ with main_tab1:
                                                        "json_path": api_json_path}
                     st.success(result["message"])
                     safe_dataframe(df.head(10), use_container_width=True)
-                    detected = auto_detect_schema(df)
-                    if detected:
-                        st.info(f"Auto-detected schema: **{detected}**")
+                    import re as _re2
+                    _api_id = "api_" + _re2.sub(r"[^a-z0-9]", "_", api_url.lower())[-30:]
+                    _api_config = {"url": api_url, "method": api_method,
+                                   "headers": headers, "body": api_body,
+                                   "json_path": api_json_path}
+                    _auto_register_source(
+                        df, "rest_api",
+                        source_id=_api_id,
+                        config=_api_config,
+                        display_name=f"REST API ({api_url[:50]})",
+                    )
                 else:
                     st.error(result["message"])
             except Exception as e:
@@ -188,9 +229,13 @@ with main_tab1:
                     st.session_state.preview_config = config
                     st.success(result["message"])
                     safe_dataframe(df.head(10), use_container_width=True)
-                    detected = auto_detect_schema(df)
-                    if detected:
-                        st.info(f"Auto-detected schema: **{detected}**")
+                    _s3_key_safe = s3_key.replace("/", "_")[-24:]
+                    _auto_register_source(
+                        df, "aws_s3",
+                        source_id=f"s3_{s3_bucket}_{_s3_key_safe}",
+                        config=config,
+                        display_name=f"S3: s3://{s3_bucket}/{s3_key}",
+                    )
                 else:
                     st.error(result["message"])
             except Exception as e:
@@ -216,9 +261,12 @@ with main_tab1:
                     st.session_state.preview_config = config
                     st.success(result["message"])
                     safe_dataframe(df.head(10), use_container_width=True)
-                    detected = auto_detect_schema(df)
-                    if detected:
-                        st.info(f"Auto-detected schema: **{detected}**")
+                    _auto_register_source(
+                        df, "gcp_bigquery",
+                        source_id=f"bq_{bq_project}",
+                        config=config,
+                        display_name=f"BigQuery: {bq_project}",
+                    )
                 else:
                     st.error(result["message"])
             except Exception as e:
@@ -244,9 +292,13 @@ with main_tab1:
                     st.session_state.preview_config = config
                     st.success(result["message"])
                     safe_dataframe(df.head(10), use_container_width=True)
-                    detected = auto_detect_schema(df)
-                    if detected:
-                        st.info(f"Auto-detected schema: **{detected}**")
+                    _gcs_blob_safe = gcs_blob.replace("/", "_")[-24:]
+                    _auto_register_source(
+                        df, "gcp_storage",
+                        source_id=f"gcs_{gcs_bucket}_{_gcs_blob_safe}",
+                        config=config,
+                        display_name=f"GCS: gs://{gcs_bucket}/{gcs_blob}",
+                    )
                 else:
                     st.error(result["message"])
             except Exception as e:
@@ -273,9 +325,13 @@ with main_tab1:
                     st.session_state.preview_config = config
                     st.success(result["message"])
                     safe_dataframe(df.head(10), use_container_width=True)
-                    detected = auto_detect_schema(df)
-                    if detected:
-                        st.info(f"Auto-detected schema: **{detected}**")
+                    _az_blob_safe = az_blob_name.replace("/", "_")[-24:]
+                    _auto_register_source(
+                        df, "azure_blob",
+                        source_id=f"azure_{az_container}_{_az_blob_safe}",
+                        config=config,
+                        display_name=f"Azure Blob: {az_container}/{az_blob_name}",
+                    )
                 else:
                     st.error(result["message"])
             except Exception as e:
@@ -313,23 +369,51 @@ with main_tab1:
                     st.session_state.preview_config = config
                     st.success(result["message"])
                     safe_dataframe(df.head(10), use_container_width=True)
-                    detected = auto_detect_schema(df)
-                    if detected:
-                        st.info(f"Auto-detected schema: **{detected}**")
+                    import re as _re3
+                    _dl_safe = _re3.sub(r"[^a-z0-9]", "_", dl_uri.lower())[-30:]
+                    _auto_register_source(
+                        df, "delta_lake",
+                        source_id=f"delta_{_dl_safe}",
+                        config=config,
+                        display_name=f"Delta Lake: {dl_uri[-55:]}",
+                    )
                 else:
                     st.error(result["message"])
             except Exception as e:
                 st.error(f"Error: {e}")
 
-    # ── Save Data Source ──
+    # ── Registered Sources Summary + Schema Override ──
     st.markdown("---")
-    st.markdown("### Save Data Source")
+
+    # Always show registered sources
+    sources = conn_mgr.list_sources()
+    if sources:
+        st.markdown("#### ✅ Registered Data Sources")
+        st.caption(
+            "These sources are auto-registered and will flow into the full pipeline. "
+            "Use **Save Data Source** below to rename or change the target schema."
+        )
+        _icon_map = {
+            "file_upload": "📁", "google_sheets": "📊", "rest_api": "🌐",
+            "aws_s3": "☁️", "gcp_bigquery": "🔷", "gcp_storage": "🔷",
+            "azure_blob": "🔵", "delta_lake": "🔺",
+        }
+        for src in sources:
+            _ci = _icon_map.get(src["connector_type"], "🔌")
+            st.markdown(
+                f"{_ci} **{src['display_name']}** → `{src['target_schema']}` "
+                f"· {src['connector_type']} · {src.get('last_row_count', '?')} rows"
+            )
+        st.markdown("")
+
+    st.markdown("### Override Schema / Rename Source")
+    st.caption("Optional — only needed if auto-detected schema is wrong or you want a custom name.")
     if st.session_state.preview_df is not None:
         detected_schema = auto_detect_schema(st.session_state.preview_df)
         target_schema = st.selectbox("Target ESG Schema", get_schema_names(),
                                      index=get_schema_names().index(detected_schema) if detected_schema in get_schema_names() else 0)
 
-        if st.button("💾 Save Data Source", type="primary") and source_name and target_schema:
+        if st.button("💾 Save / Override Data Source", type="primary") and source_name and target_schema:
             mapping = suggest_column_mapping(st.session_state.preview_df, target_schema)
             source_id = source_name.lower().replace(" ", "_")
             conn_mgr.add_source(
@@ -348,15 +432,8 @@ with main_tab1:
             if validation["warnings"]:
                 for w in validation["warnings"]:
                     st.warning(w)
-
-        # Show registered sources
-        sources = conn_mgr.list_sources()
-        if sources:
-            st.markdown("#### Registered Data Sources")
-            for src in sources:
-                st.markdown(f"- **{src['display_name']}** → `{src['target_schema']}` ({src['connector_type']})")
     else:
-        st.info("Test a connection above to preview data, then save it here.")
+        st.info("Test a connection above to preview data, then override here if needed.")
 
 # ────────────────────────────────────────────────────────────────
 # TAB 2: Run Collection

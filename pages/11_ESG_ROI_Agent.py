@@ -45,8 +45,32 @@ if "orchestrator" not in st.session_state:
 orch = st.session_state.orchestrator
 
 run_roi = st.button("Run ESG ROI Analysis", type="primary", use_container_width=True)
+
+# Banner: show registered data sources so the user knows what feeds the analysis
+_cm = st.session_state.get("conn_manager")
+if _cm and _cm.has_sources():
+    _srcs = _cm.list_sources()
+    _labels = ", ".join(f"**{s['display_name']}** → `{s['target_schema']}`" for s in _srcs)
+    st.success(
+        f"📂 **{len(_srcs)} real data source(s) registered** — {_labels}. "
+        "These will be ingested before the ROI analysis runs.",
+        icon="✅",
+    )
+
 if run_roi:
     with st.spinner("Running ESG ROI analysis..."):
+        # ── Step 0: Seed state_manager with any real / uploaded data ────
+        # The ROI agent reads canonical datasets from shared state (state_manager).
+        # Running the Data Collector first guarantees that uploaded peer data
+        # (and any other real sources registered on the Data Collector page)
+        # are published to state_manager before the ROI agent tries to read them.
+        conn_mgr = st.session_state.get("conn_manager")
+        if conn_mgr and conn_mgr.has_sources():
+            with st.status("Ingesting your uploaded data…", expanded=False):
+                orch.run_single_agent("data_collector", connection_manager=conn_mgr)
+                st.write("✅ Uploaded data ingested into pipeline")
+
+        # ── Step 1: Run ROI Agent ────────────────────────────────────────
         results = orch.run_single_agent("roi_agent")
         st.session_state.roi_results = results
 
