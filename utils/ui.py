@@ -17,7 +17,9 @@ Design principles
 """
 from __future__ import annotations
 
+import base64
 import html
+from pathlib import Path
 from typing import Optional, Sequence
 
 import streamlit as st
@@ -47,15 +49,16 @@ except Exception:  # pragma: no cover - fallback path
 # Design tokens — kept in Python so they appear in both CSS and Python code
 # ---------------------------------------------------------------------------
 TOKENS = {
-    "brand_primary": "#0f9d58",   # sustainability green
-    "brand_accent": "#1f6feb",    # trust blue
-    "brand_warn": "#f59e0b",
-    "brand_danger": "#dc2626",
-    "brand_success": "#10b981",
+    "brand_primary": "#D04A02",   # PwC orange
+    "brand_primary_dark": "#A23A02",
+    "brand_accent": "#E0301E",    # PwC tomato red (secondary accent)
+    "brand_warn": "#FFB600",      # PwC amber
+    "brand_danger": "#C8102E",
+    "brand_success": "#2E8540",
     "surface": "#ffffff",
-    "surface_muted": "#f6f8fb",
+    "surface_muted": "#fff6ef",   # warm cream
     "surface_raised": "#ffffff",
-    "border": "#e5e7eb",
+    "border": "#f1d9c4",          # warm border
     "text": "#1a202c",
     "text_muted": "#6b7280",
 }
@@ -119,6 +122,30 @@ _GLOBAL_CSS = f"""
         --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system,
                         'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
         --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
+        --pwc-orange: {TOKENS['brand_primary']};
+        --pwc-orange-dark: {TOKENS['brand_primary_dark']};
+        --pwc-tomato: {TOKENS['brand_accent']};
+        --pwc-amber: {TOKENS['brand_warn']};
+    }}
+
+    /* ---- PwC-themed body gradient (orange tinge → white) ----------- */
+    .stApp {{
+        background:
+            linear-gradient(180deg,
+                rgba(208, 74, 2, 0.13) 0%,
+                rgba(255, 182, 0, 0.06) 14%,
+                rgba(255, 255, 255, 1) 38%,
+                rgba(255, 255, 255, 1) 100%) !important;
+        background-attachment: fixed !important;
+    }}
+    [data-testid="stAppViewContainer"] {{ background: transparent !important; }}
+    [data-testid="stHeader"] {{
+        background: transparent !important;
+        backdrop-filter: blur(6px);
+    }}
+    [data-testid="stSidebar"] > div:first-child {{
+        background: linear-gradient(180deg, #fff6ef 0%, #ffffff 80%) !important;
+        border-right: 1px solid {TOKENS['border']};
     }}
 
     /* Exclude .material-symbols-rounded so icon spans keep their font,
@@ -200,19 +227,19 @@ _GLOBAL_CSS = f"""
         font-size: 1.6rem;
     }}
 
-    /* Primary button — brand gradient */
+    /* Primary button — PwC orange gradient */
     div.stButton > button[kind="primary"] {{
         background: linear-gradient(135deg, {TOKENS['brand_primary']} 0%,
                                               {TOKENS['brand_accent']} 100%);
         border: none;
         color: white;
         font-weight: 600;
-        box-shadow: 0 4px 12px rgba(31, 111, 235, 0.25);
+        box-shadow: 0 4px 12px rgba(208, 74, 2, 0.30);
         transition: transform 120ms ease, box-shadow 120ms ease;
     }}
     div.stButton > button[kind="primary"]:hover {{
         transform: translateY(-1px);
-        box-shadow: 0 6px 18px rgba(31, 111, 235, 0.35);
+        box-shadow: 0 6px 18px rgba(208, 74, 2, 0.40);
     }}
 
     /* Tab styling — shadcn-like pill tabs */
@@ -242,9 +269,9 @@ _GLOBAL_CSS = f"""
     .esg-hero {{
         position: relative;
         background:
-            radial-gradient(1200px 400px at 0% 0%, rgba(15, 157, 88, 0.10), transparent 60%),
-            radial-gradient(1000px 380px at 100% 0%, rgba(31, 111, 235, 0.10), transparent 60%),
-            linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            radial-gradient(1200px 400px at 0% 0%, rgba(208, 74, 2, 0.14), transparent 60%),
+            radial-gradient(1000px 380px at 100% 0%, rgba(255, 182, 0, 0.14), transparent 60%),
+            linear-gradient(180deg, #fffaf4 0%, #ffffff 100%);
         border: 1px solid {TOKENS['border']};
         border-radius: 20px;
         padding: 2.4rem 2.5rem 2.2rem 2.5rem;
@@ -252,7 +279,7 @@ _GLOBAL_CSS = f"""
         overflow: hidden;
         box-shadow:
             0 1px 2px rgba(15, 23, 42, 0.04),
-            0 12px 32px rgba(15, 23, 42, 0.05);
+            0 12px 32px rgba(208, 74, 2, 0.07);
     }}
     .esg-hero::before {{
         content: "";
@@ -260,13 +287,13 @@ _GLOBAL_CSS = f"""
         inset: 0;
         pointer-events: none;
         background:
-            linear-gradient(to right, rgba(15, 157, 88, 0.0) 92%, rgba(15, 157, 88, 0.06) 100%),
-            linear-gradient(to left,  rgba(31, 111, 235, 0.0) 92%, rgba(31, 111, 235, 0.06) 100%);
+            linear-gradient(to right, rgba(208, 74, 2, 0.0) 92%, rgba(208, 74, 2, 0.08) 100%),
+            linear-gradient(to left,  rgba(255, 182, 0, 0.0) 92%, rgba(255, 182, 0, 0.08) 100%);
     }}
     .esg-hero h1 {{
         margin: 0 0 0.5rem 0;
         font-size: 2.35rem;
-        background: linear-gradient(135deg, {TOKENS['brand_primary']} 0%, #0b7a43 35%, {TOKENS['brand_accent']} 100%);
+        background: linear-gradient(135deg, {TOKENS['brand_primary']} 0%, {TOKENS['brand_accent']} 55%, {TOKENS['brand_warn']} 100%);
         -webkit-background-clip: text;
         background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -284,9 +311,9 @@ _GLOBAL_CSS = f"""
         gap: 0.4rem;
         padding: 0.28rem 0.75rem;
         border-radius: 999px;
-        background: rgba(15, 157, 88, 0.08);
-        border: 1px solid rgba(15, 157, 88, 0.22);
-        color: #0b7a43;
+        background: rgba(208, 74, 2, 0.10);
+        border: 1px solid rgba(208, 74, 2, 0.28);
+        color: {TOKENS['brand_primary_dark']};
         font-size: 0.78rem;
         font-weight: 600;
         letter-spacing: 0.02em;
@@ -296,7 +323,55 @@ _GLOBAL_CSS = f"""
     .esg-hero .esg-eyebrow .esg-eyebrow-dot {{
         width: 6px; height: 6px; border-radius: 50%;
         background: {TOKENS['brand_primary']};
-        box-shadow: 0 0 0 3px rgba(15, 157, 88, 0.18);
+        box-shadow: 0 0 0 3px rgba(208, 74, 2, 0.20);
+    }}
+
+    /* ---- PwC logo header bar (used by pwc_header()) ---------------- */
+    .pwc-header {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0 1.0rem 0;
+        margin-bottom: 0.4rem;
+        border-bottom: 1px solid rgba(208, 74, 2, 0.18);
+    }}
+    .pwc-header .pwc-header-brand {{
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+    }}
+    .pwc-header img.pwc-logo {{
+        height: 44px;
+        width: auto;
+        display: block;
+    }}
+    .pwc-header .pwc-header-text {{
+        display: flex;
+        flex-direction: column;
+        line-height: 1.1;
+    }}
+    .pwc-header .pwc-header-title {{
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 0.98rem;
+        color: {TOKENS['text']};
+        letter-spacing: -0.01em;
+    }}
+    .pwc-header .pwc-header-sub {{
+        font-size: 0.74rem;
+        color: {TOKENS['text_muted']};
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-top: 2px;
+    }}
+    .pwc-header .pwc-accent-bar {{
+        height: 4px;
+        width: 64px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, {TOKENS['brand_primary']} 0%,
+                                              {TOKENS['brand_accent']} 55%,
+                                              {TOKENS['brand_warn']} 100%);
+        box-shadow: 0 1px 4px rgba(208, 74, 2, 0.30);
     }}
     .esg-chip-row {{
         display: flex;
@@ -411,6 +486,71 @@ def inject_global_css() -> None:
             except Exception:
                 pass
         st.session_state["_esg_metric_cards_styled"] = True
+
+
+# ---------------------------------------------------------------------------
+# PwC-branded page header — logo + product mark, top of every page
+# ---------------------------------------------------------------------------
+_PWC_LOGO_CANDIDATES = (
+    "pwc_logo.png",
+    "assets/pwc_logo.png",
+    "static/pwc_logo.png",
+)
+
+
+@st.cache_data(show_spinner=False)
+def _pwc_logo_data_uri() -> str:
+    """Locate pwc_logo.png and return it as a base64 data URI (cached).
+
+    Falls back to an empty string when the logo isn't found, so the header
+    still renders without breaking the page.
+    """
+    here = Path(__file__).resolve().parent
+    search_roots = (
+        here.parent,                  # repo root
+        here.parent.parent,           # parent of repo (defensive)
+        Path.cwd(),                   # current working directory
+    )
+    for root in search_roots:
+        for rel in _PWC_LOGO_CANDIDATES:
+            p = root / rel
+            if p.is_file():
+                try:
+                    encoded = base64.b64encode(p.read_bytes()).decode("ascii")
+                    return f"data:image/png;base64,{encoded}"
+                except Exception:
+                    continue
+    return ""
+
+
+def pwc_header(
+    product: str = "ESG CoPilot",
+    tagline: str = "Powered by PwC",
+) -> None:
+    """Render the PwC logo + product wordmark at the top of a page.
+
+    Designed to be called once per page, immediately after
+    ``inject_global_css()`` (or any helper that calls it). Safe on reruns.
+    """
+    inject_global_css()
+    logo_uri = _pwc_logo_data_uri()
+    logo_html = (
+        f'<img class="pwc-logo" src="{logo_uri}" alt="PwC"/>'
+        if logo_uri else ""
+    )
+    st.markdown(
+        f'<div class="pwc-header">'
+        f'<div class="pwc-header-brand">'
+        f'{logo_html}'
+        f'<div class="pwc-header-text">'
+        f'<span class="pwc-header-title">{html.escape(product)}</span>'
+        f'<span class="pwc-header-sub">{html.escape(tagline)}</span>'
+        f'</div>'
+        f'</div>'
+        f'<div class="pwc-accent-bar"></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------
