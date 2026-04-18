@@ -22,7 +22,7 @@ class DataCollectorAgent(BaseAgent):
         self.missing_data_alerts = []
 
     def execute(self, uploaded_files=None, use_connectors=True,
-                connection_manager=None, **kwargs):
+                connection_manager=None, use_cache=False, **kwargs):
         self.log("Starting autonomous data collection")
         datasets = {}
         quality_scores = {}
@@ -31,7 +31,13 @@ class DataCollectorAgent(BaseAgent):
         if connection_manager is not None and connection_manager.has_sources():
             self.log("Fetching from real data sources...")
             try:
-                by_schema = connection_manager.fetch_all_by_schema()
+                # use_cache=True reuses per-source DataFrames when the
+                # source config signature is unchanged, so unchanged
+                # Snowflake queries don't re-execute on every Run.
+                try:
+                    by_schema = connection_manager.fetch_all_by_schema(use_cache=use_cache)
+                except TypeError:
+                    by_schema = connection_manager.fetch_all_by_schema()
                 for schema_name, df in by_schema.items():
                     if not df.empty:
                         key = f"real_{schema_name}"

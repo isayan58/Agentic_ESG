@@ -2,11 +2,43 @@
 
 Stores source configurations in memory only (session-scoped).
 Orchestrates fetching from real connectors and applying column mappings.
+Per-source config signatures enable selective re-fetch so an unchanged
+Snowflake query doesn't re-execute on every page Run.
 """
+import hashlib
+import json
+
 import pandas as pd
 from datetime import datetime
 from utils.real_connectors import get_connector
 from utils.schema_mapper import apply_column_mapping
+
+
+def _signature(*parts) -> str:
+    """Return a stable SHA-256 digest for arbitrary JSON-able values.
+
+    Bytes are hashed with full SHA-256 (no truncation) so upload collisions
+    are astronomically unlikely.
+    """
+    def _coerce(value):
+        if isinstance(value, (bytes, bytearray)):
+            return f"bytes:{len(value)}:{hashlib.sha256(bytes(value)).hexdigest()}"
+        if isinstance(value, dict):
+            return {k: _coerce(v) for k, v in sorted(value.items())}
+        if isinstance(value, (list, tuple)):
+            return [_coerce(v) for v in value]
+        try:
+            json.dumps(value)
+            return value
+        except TypeError:
+            return repr(value)
+
+    coerced = [_coerce(p) for p in parts]
+    try:
+        serialised = json.dumps(coerced, sort_keys=True, default=str)
+    except Exception:
+        serialised = repr(coerced)
+    return hashlib.sha256(serialised.encode("utf-8")).hexdigest()
 
 
 class ConnectionManager:
@@ -15,10 +47,16 @@ class ConnectionManager:
     def __init__(self):
         self._sources: dict[str, dict] = {}
 
+    # ── Source registration ────────────────────────────────────────
+
     def add_source(self, source_id: str, connector_type: str, config: dict,
                    target_schema: str, column_mapping: dict,
                    display_name: str = "") -> None:
-        """Register a configured data source."""
+        """Register (or overwrite) a configured data source.
+
+        Overwriting an existing source clears its cached DataFrame so the
+        next fetch sees the new config.
+        """
         self._sources[source_id] = {
             "connector_type": connector_type,
             "config": config,
@@ -29,6 +67,9 @@ class ConnectionManager:
             "last_fetch": None,
             "last_row_count": 0,
             "status": "configured",
+            # Per-source cache
+            "_cached_signature": None,
+            "_cached_df": None,
         }
 
     def remove_source(self, source_id: str) -> bool:
@@ -39,20 +80,53 @@ class ConnectionManager:
         return self._sources.get(source_id)
 
     def list_sources(self) -> list[dict]:
-        """Return all registered sources with their metadata."""
+        """Return all registered sources with their metadata (cache fields stripped)."""
         return [
-            {"id": sid, **meta}
+            {"id": sid, **{k: v for k, v in meta.items() if not k.startswith("_")}}
             for sid, meta in self._sources.items()
         ]
 
     def has_sources(self) -> bool:
         return len(self._sources) > 0
 
-    def fetch_source(self, source_id: str) -> pd.DataFrame:
-        """Fetch data from one source, apply column mapping, return mapped DataFrame."""
+    # ── Signatures ────────────────────────────────────────────────
+
+    def source_signature(self, source_id: str) -> str:
+        """Hash of the source's connector + target schema + mapping + config."""
+        src = self._sources.get(source_id)
+        if src is None:
+            return ""
+        return _signature(
+            src["connector_type"],
+            src["target_schema"],
+            src["column_mapping"],
+            src["config"],
+        )
+
+    def sources_signature(self) -> str:
+        """Hash across every registered source (order-independent)."""
+        return _signature(sorted(
+            (sid, self.source_signature(sid)) for sid in self._sources
+        ))
+
+    # ── Fetching ──────────────────────────────────────────────────
+
+    def fetch_source(self, source_id: str, use_cache: bool = False) -> pd.DataFrame:
+        """Fetch data from one source, apply column mapping, return mapped DataFrame.
+
+        When ``use_cache=True`` and the source's config signature matches the
+        last successful fetch, the cached DataFrame is returned without
+        round-tripping to the remote system.
+        """
         source = self._sources.get(source_id)
         if source is None:
             raise KeyError(f"Unknown source: {source_id}")
+
+        sig = self.source_signature(source_id)
+        if (use_cache
+                and source.get("_cached_signature") == sig
+                and source.get("_cached_df") is not None):
+            return source["_cached_df"].copy()
 
         connector = get_connector(source["connector_type"])
         raw_df = connector.fetch(**source["config"])
@@ -64,36 +138,41 @@ class ConnectionManager:
             source["target_schema"],
         )
 
-        # Update metadata
+        # Update metadata + cache
         source["last_fetch"] = datetime.now().isoformat()
         source["last_row_count"] = len(mapped_df)
         source["status"] = "active"
+        source["_cached_signature"] = sig
+        source["_cached_df"] = mapped_df.copy()
 
         return mapped_df
 
-    def fetch_all(self) -> dict[str, pd.DataFrame]:
+    def fetch_all(self, use_cache: bool = False) -> dict[str, pd.DataFrame]:
         """Fetch from all registered sources.
 
         Returns {source_id: mapped_DataFrame}.
         If a source fails, its value is an empty DataFrame and status is set to 'error'.
+        ``use_cache`` is forwarded to :meth:`fetch_source`.
         """
         results = {}
         for source_id in list(self._sources):
             try:
-                results[source_id] = self.fetch_source(source_id)
+                results[source_id] = self.fetch_source(source_id, use_cache=use_cache)
             except Exception as e:
                 self._sources[source_id]["status"] = "error"
                 self._sources[source_id]["error"] = str(e)
                 results[source_id] = pd.DataFrame()
         return results
 
-    def fetch_all_by_schema(self) -> dict[str, pd.DataFrame]:
+    def fetch_all_by_schema(self, use_cache: bool = False) -> dict[str, pd.DataFrame]:
         """Fetch all sources and group by target schema.
 
         Returns {schema_name: concatenated_DataFrame}.
         Multiple sources targeting the same schema are concatenated.
+        When ``use_cache=True``, unchanged sources reuse their last fetched
+        DataFrame instead of re-executing against the remote system.
         """
-        all_data = self.fetch_all()
+        all_data = self.fetch_all(use_cache=use_cache)
         by_schema: dict[str, list[pd.DataFrame]] = {}
 
         for source_id, df in all_data.items():
@@ -106,3 +185,20 @@ class ConnectionManager:
             schema: pd.concat(dfs, ignore_index=True)
             for schema, dfs in by_schema.items()
         }
+
+    def source_errors(self) -> dict[str, str]:
+        """Return {source_id: error_message} for every source that last errored."""
+        return {
+            sid: meta.get("error", "unknown error")
+            for sid, meta in self._sources.items()
+            if meta.get("status") == "error"
+        }
+
+    def invalidate_cache(self, source_id: str | None = None) -> None:
+        """Drop cached DataFrames so the next fetch hits the remote system."""
+        targets = [source_id] if source_id else list(self._sources)
+        for sid in targets:
+            src = self._sources.get(sid)
+            if src:
+                src["_cached_signature"] = None
+                src["_cached_df"] = None
