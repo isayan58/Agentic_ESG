@@ -89,9 +89,11 @@ with main_tab1:
 
     source_name = st.text_input("Data Source Name", placeholder="e.g. My Emissions Data")
 
-    conn_tab1, conn_tab2, conn_tab3, conn_tab4, conn_tab5, conn_tab6, conn_tab7, conn_tab8 = st.tabs([
+    (conn_tab1, conn_tab2, conn_tab3, conn_tab4, conn_tab5,
+     conn_tab6, conn_tab7, conn_tab8, conn_tab9) = st.tabs([
         "📁 File Upload", "📊 Google Sheets", "🌐 REST API",
-        "☁️ AWS S3", "🔷 BigQuery", "🔷 GCS", "🔵 Azure Blob", "🔺 Delta Lake",
+        "☁️ AWS S3", "🔷 BigQuery", "🔷 GCS", "🔵 Azure Blob",
+        "🔺 Delta Lake", "❄️ Snowflake",
     ])
 
     # ── File Upload ──
@@ -385,6 +387,72 @@ with main_tab1:
             except Exception as e:
                 st.error(f"Error: {e}")
 
+    # ── Snowflake ──
+    with conn_tab9:
+        st.markdown(
+            "Run a SQL query against a **Snowflake** warehouse. "
+            "Results feed straight into the ESG pipeline — the schema is "
+            "auto-detected from your query's columns."
+        )
+        sf_account = st.text_input(
+            "Account Identifier",
+            placeholder="xy12345.us-east-1  (or your org-account e.g. myorg-myaccount)",
+            help="The part before '.snowflakecomputing.com' in your login URL.",
+        )
+        col_sf1, col_sf2 = st.columns(2)
+        with col_sf1:
+            sf_user = st.text_input("User", placeholder="SERVICE_USER")
+            sf_warehouse = st.text_input("Warehouse", placeholder="COMPUTE_WH")
+            sf_database = st.text_input("Database", placeholder="ESG_DB")
+        with col_sf2:
+            sf_password = st.text_input("Password", type="password")
+            sf_role = st.text_input("Role (optional)", placeholder="SYSADMIN")
+            sf_schema = st.text_input("Schema", placeholder="PUBLIC")
+        sf_query = st.text_area(
+            "SQL Query",
+            placeholder="SELECT * FROM ESG_DB.PUBLIC.EMISSIONS_2024",
+            height=110,
+        )
+        avail = get_available_connectors()["snowflake"]
+        if not avail["available"]:
+            st.warning(
+                f"snowflake-connector-python not installed. Run: `{avail['install_hint']}`"
+            )
+        if (st.button("Test & Preview", key="test_sf")
+                and sf_account and sf_user and sf_password and sf_query):
+            try:
+                connector = get_connector("snowflake")
+                config = {
+                    "account": sf_account, "user": sf_user, "password": sf_password,
+                    "warehouse": sf_warehouse, "database": sf_database,
+                    "schema": sf_schema, "role": sf_role, "query": sf_query,
+                }
+                result = connector.test_connection(**config)
+                if result["success"]:
+                    df = connector.fetch(**config)
+                    st.session_state.preview_df = df
+                    st.session_state.preview_source_type = "snowflake"
+                    st.session_state.preview_config = config
+                    st.success(result["message"])
+                    safe_dataframe(df.head(10), use_container_width=True)
+                    # Build a human-readable but key-safe source id
+                    _sf_parts = [p for p in (sf_database, sf_schema) if p]
+                    _sf_suffix = "_".join(_sf_parts) or sf_account
+                    _auto_register_source(
+                        df, "snowflake",
+                        source_id=f"snowflake_{_sf_suffix}",
+                        config=config,
+                        display_name=(
+                            f"Snowflake: {sf_account}"
+                            + (f" / {sf_database}" if sf_database else "")
+                            + (f".{sf_schema}" if sf_schema else "")
+                        ),
+                    )
+                else:
+                    st.error(result["message"])
+            except Exception as e:
+                st.error(f"Error: {e}")
+
     # ── Registered Sources Summary + Schema Override ──
     st.markdown("---")
 
@@ -399,7 +467,7 @@ with main_tab1:
         _icon_map = {
             "file_upload": "📁", "google_sheets": "📊", "rest_api": "🌐",
             "aws_s3": "☁️", "gcp_bigquery": "🔷", "gcp_storage": "🔷",
-            "azure_blob": "🔵", "delta_lake": "🔺",
+            "azure_blob": "🔵", "delta_lake": "🔺", "snowflake": "❄️",
         }
         for src in sources:
             _ci = _icon_map.get(src["connector_type"], "🔌")
