@@ -21,8 +21,9 @@ Complete technical reference for all 9 AI agents: architecture, calculations, sc
 13. [Data Connectors](#data-connectors) (incl. Delta Lake, folder/prefix mode)
 14. [Schema Mapping & Validation](#schema-mapping--validation)
 15. [AI Models & Fallbacks](#ai-models--fallbacks)
-16. [Deployment](#deployment)
-17. [Troubleshooting](#troubleshooting)
+16. [Data Freshness & Pipeline Refresh](#data-freshness--pipeline-refresh)
+17. [Deployment](#deployment)
+18. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1129,7 +1130,7 @@ df = connector.fetch(bucket="my-bucket", key="data.csv", ...)
 
 ### Connection Manager
 
-The `ConnectionManager` class (`utils/connection_manager.py`) manages multiple registered data sources in a session-scoped registry:
+The `ConnectionManager` class (`utils/connection_manager.py`) manages multiple registered data sources in a session-scoped registry, with per-source config-signature caching so unchanged sources don't re-execute remotely on every pipeline Run.
 
 ```python
 from utils.connection_manager import ConnectionManager
@@ -1149,7 +1150,23 @@ mgr.add_source(source_id="delta_emissions", connector_type="delta_lake",
 # Fetch all sources, grouped by schema
 by_schema = mgr.fetch_all_by_schema()
 # Returns: {"emissions": pd.DataFrame, "esg_metrics": pd.DataFrame, ...}
+
+# Fetch with per-source cache reuse — unchanged sources skip the remote round-trip
+by_schema = mgr.fetch_all_by_schema(use_cache=True)
+
+# Stable hashes (SHA-256) for change detection
+sig_one = mgr.source_signature("my_s3_data")   # per source
+sig_all = mgr.sources_signature()              # every registered source
+
+# Inspect / recover from failures
+errors = mgr.source_errors()                   # {source_id: "error message", ...}
+mgr.invalidate_cache("my_s3_data")             # force next fetch to hit the remote
+mgr.invalidate_cache()                         # clear cache for every source
 ```
+
+**Caching contract.** Each source keeps an internal `(_cached_signature, _cached_df)` pair. Signatures are full SHA-256 digests over the connector type, target schema, column mapping, and config (file bytes included). When `use_cache=True` and the signature matches, `fetch_source()` returns a **copy** of the cached DataFrame without calling the connector. Any change to the config — a new Snowflake query, a different S3 key, a re-uploaded file — invalidates the signature automatically.
+
+**Error semantics.** `fetch_all*()` never raises for a single source; failures are recorded on the source (`status = "error"`, `error = "..."`) and returned as an empty DataFrame so the pipeline can proceed on sample data for that schema. Call `source_errors()` afterward to surface them to the user.
 
 ---
 
@@ -1367,6 +1384,102 @@ The fallback ensures the platform always works without an API token — ideal fo
 
 ---
 
+## Data Freshness & Pipeline Refresh
+
+Every agent is a pure function of what the Data Collector last published to `state_manager`. Because `state_manager` is a module-level singleton, a cached dataset from an earlier run would otherwise leak into the next page the user visits. This section documents how the platform guarantees that **any change to any registered data source is picked up on the next Run**, and how it behaves when sources fail.
+
+### Guarantees
+
+- **Edit any source → next Run sees it.** Every single-agent page (Regulatory, Carbon, Report, Risk, Audit, Action, Stakeholder, ESG ROI) calls `refresh_real_data()` *before* its agent runs. Mission Control's full-pipeline run does the equivalent by forwarding the `ConnectionManager` into the Data Collector and stamping the same session-state keys afterwards.
+- **Removed sources leave no residue.** Stale `dataset_*` / `validated_*` channels in `state_manager` are cleared before the Data Collector republishes.
+- **Unchanged sources are free.** With `only_changed=True`, sources whose config signature matches the last successful fetch reuse a cached DataFrame; the remote system is not hit.
+- **Errors are visible.** A failed fetch (bad Snowflake credential, revoked S3 key, 404 on a Sheet) is surfaced as `st.warning()` plus a second line on the freshness caption — no silent fallback to sample data.
+
+### Component map
+
+| Component | File | Role |
+|---|---|---|
+| `refresh_real_data()` | `utils/pipeline_refresh.py` | Public helper every page's Run button calls. Re-invokes the Data Collector, clears stale state, surfaces errors, stamps session keys. |
+| `data_freshness_caption()` | `utils/pipeline_refresh.py` | Renders "Real data refreshed N sec ago from M source(s). Click Run to pull the latest." plus a warning line when the last refresh had errors. |
+| `stamp_refresh_from_pipeline()` | `utils/pipeline_refresh.py` | Called by Mission Control after `run_full_pipeline` to keep every page's freshness caption honest when the Data Collector ran outside the helper. |
+| `ConnectionManager.sources_signature()` | `utils/connection_manager.py` | Full SHA-256 digest over every registered source's connector type, schema, mapping, and config. |
+| `ConnectionManager.source_errors()` | `utils/connection_manager.py` | Returns `{source_id: message}` for every source currently in error state. |
+| `ConnectionManager.fetch_all_by_schema(use_cache=True)` | `utils/connection_manager.py` | Selective re-fetch: unchanged sources return cached DataFrames; changed sources hit the connector. |
+
+### `refresh_real_data()` API
+
+```python
+from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
+
+# Every single-agent page does this:
+if st.button("Run …", type="primary"):
+    with st.spinner("Refreshing data from registered sources..."):
+        refresh_real_data()
+    with st.spinner("Running the agent..."):
+        results = agent.run()
+```
+
+**Signature**
+
+```python
+refresh_real_data(
+    only_changed: bool = False,   # reuse cache for sources whose signature is unchanged
+    show_toast:   bool = False,   # render a ✅ toast on success
+    show_errors:  bool = True,    # render st.warning() per failed source
+) -> dict
+```
+
+**Return payload**
+
+```python
+{
+    "refreshed": True,                  # False only when no sources are registered
+    "reason":    "full" | "only_changed" | "no_sources",
+    "sources":   3,
+    "records":   12_450,
+    "timestamp": "2026-04-18T12:34:56.789",
+    "signature": "a1b2c3…",             # 64-char SHA-256 of all source configs
+    "errors":    {"snow_fin": "Authentication failed"},
+}
+```
+
+**Session-state keys it writes** (also written by `stamp_refresh_from_pipeline`):
+
+| Key | Purpose |
+|---|---|
+| `_last_data_refresh` | ISO-8601 timestamp of the most recent refresh — drives the "N sec ago" caption. |
+| `_last_data_refresh_signature` | SHA-256 hash of source configs at refresh time. |
+| `_last_data_refresh_records` | Total rows ingested across all real sources. |
+| `_last_data_refresh_errors` | `{source_id: message}` so every page can display outstanding errors. |
+
+### Stale-channel clearing
+
+Before the Data Collector re-publishes, `refresh_real_data()` drops every key in `state_manager._channels` whose name starts with `dataset_` or `validated_`. This is how the platform handles the "user removed a source" case: the Data Collector only re-publishes what's *currently* registered, so a previously-published `dataset_supply_chain` no longer leaks through if the Snowflake source that produced it was deleted.
+
+### DataCollector integration
+
+`DataCollectorAgent.execute()` accepts `use_cache: bool = False`. When the helper passes `only_changed=True` through, the agent forwards it to `ConnectionManager.fetch_all_by_schema(use_cache=True)`. The agent is backward-compatible: if it encounters an older manager without the kwarg, it catches `TypeError` and falls back to the cacheless call.
+
+### Behaviour matrix
+
+| User action | Next Run behaviour |
+|---|---|
+| Edits a Snowflake query and clicks Run on any agent page | Helper fires → signature changes → connector re-executes → fresh DataFrame → agent runs on fresh data. |
+| Clicks Run a second time without touching anything | Default: full re-fetch (safest). With `only_changed=True`: cache hit, no remote traffic. |
+| Removes a registered source, clicks Run | Stale `dataset_{schema}` channel cleared → Data Collector re-publishes without it → downstream agents read via `core.data_access.get_dataset(...)` which falls back to sample data for that schema. |
+| Re-uploads a CSV with identical bytes | Signature stable (full SHA-256 over the bytes) → cache hit when `only_changed=True`. |
+| Re-uploads a CSV with different bytes | Signature changes (length differs, or hash differs) → connector re-parses. |
+| Runs the full pipeline from Mission Control | `Orchestrator.run_full_pipeline()` calls the Data Collector with the active `ConnectionManager`; Mission Control then calls `stamp_refresh_from_pipeline()` so every agent page's "N sec ago" caption is accurate. |
+| Snowflake credential expires mid-session | `source_errors()` contains the failure → `st.warning()` on the page → caption grows a "Last refresh had errors on `snow_fin` — sample data used for affected schemas." line. |
+| Opens a second browser tab | `st.session_state` is per-tab. Each tab has its own `conn_manager` and its own freshness timestamps. By design. |
+
+### Caveats that still apply
+
+- The signature does **not** hash remote data content — only config. With the default `only_changed=False`, this doesn't matter because we always re-fetch. With `only_changed=True`, a Snowflake table whose rows change while the query string stays identical will return cached data until the user edits the query or calls `invalidate_cache()`.
+- `state_manager` is still a module-level singleton. All current agents re-read on `.run()`, so the clearing step is sufficient; future agents that cache a reference at `__init__` would bypass it.
+
+---
+
 ## Deployment
 
 ### Local Development
@@ -1467,6 +1580,12 @@ The deployed HuggingFace Spaces already include all cloud dependencies in their 
 | Pipeline uses sample data despite upload | `connection_manager` not passed to orchestrator (now fixed) | Update to latest version; verify the green banner in Mission Control shows registered sources before clicking Run |
 | Icon text shows instead of icon symbol (e.g. "arrow_forward" as text) | Material Symbols font overridden by body font CSS rule | Now fixed; hard-refresh the browser (Cmd+Shift+R on Mac, Ctrl+Shift+R on Windows/Linux) to clear the cached stylesheet |
 | Raw HTML tags visible on Sign In page or other pages | `st.markdown()` HTML string had 8+ spaces of leading indentation, triggering CommonMark indented-code-block rule | Now fixed; if running locally, delete `__pycache__` directories and restart Streamlit |
+| Agent page shows stale data after editing a Snowflake query / S3 key / Sheet ID | Page was built before the refresh helper was added, or `refresh_real_data()` was removed from the Run handler | Re-add `from utils.pipeline_refresh import refresh_real_data, data_freshness_caption` and call `refresh_real_data()` in a spinner before the agent's `.run()` (pattern used on pages 3–9, 11). |
+| "Refreshed 2 hr ago" caption on an agent page right after a full-pipeline run | Mission Control forgot to stamp the session-state keys | Verify `stamp_refresh_from_pipeline(...)` is called inside the `run_pipeline` block in `pages/1_Mission_Control.py` after `orch.run_full_pipeline(...)` completes. |
+| Source silently returns empty DataFrame, agents fall back to sample data with no warning | Connector errored but the page isn't calling `refresh_real_data()` (which surfaces `source_errors()` as `st.warning()`) | Wire the helper in; or call `conn_mgr.source_errors()` manually and render warnings in the page. |
+| Removed a source but old data still appears in carbon / risk / audit totals | Stale `dataset_{schema}` channel in `state_manager` from a previous run | Click Run on any agent page once — the helper clears `dataset_*` / `validated_*` channels before the Data Collector republishes. For a full wipe: `state_manager.clear()`. |
+| Unchanged Snowflake query re-executes on every Run (slow / costly) | Default `refresh_real_data()` call re-fetches all sources | Call `refresh_real_data(only_changed=True)` in the Run handler to reuse per-source cached DataFrames when config signatures match. |
+| Changed Snowflake table rows aren't visible even though the query is the same | With `only_changed=True`, cache is keyed on config signature, not on remote row counts | Edit the query (anything triggers a new signature), click "Test" on the Data Collector page, or call `conn_mgr.invalidate_cache(source_id)` to force the next fetch. |
 
 ### Checking Agent State
 

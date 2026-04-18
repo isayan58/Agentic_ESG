@@ -15,12 +15,18 @@ from utils.ui import (
     badge, grade_pill, inject_global_css, pwc_header,
 )
 from utils.auth import require_login, sidebar_auth_widget
+from utils.pipeline_refresh import stamp_refresh_from_pipeline
+from utils.session import get_session_connection_manager
 
 st.set_page_config(page_title="Mission Control | ESG CoPilot", page_icon="🎛️", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to run the 9-agent pipeline and view Mission Control.")
+# Hydrate (or rebuild) this user's persistent ConnectionManager as early
+# as possible so the Run buttons below see sources the user registered
+# in a previous session.
+get_session_connection_manager()
 
 hero(
     title="Mission Control",
@@ -156,6 +162,17 @@ if run_pipeline:
             data_collector_kwargs=dc_kwargs or None,
         )
         st.session_state.pipeline_results = results
+
+        # Keep every agent page's "data freshness" caption in sync — the
+        # full pipeline just re-ingested the registered sources via the
+        # Data Collector, so stamp the refresh timestamp here.
+        if conn_mgr and conn_mgr.has_sources():
+            dc_res = results.get("data_collector", {}) if isinstance(results, dict) else {}
+            stamp_refresh_from_pipeline(
+                sources=len(conn_mgr.list_sources()),
+                records=int(dc_res.get("total_records", 0)) if isinstance(dc_res, dict) else 0,
+                errors=conn_mgr.source_errors() if hasattr(conn_mgr, "source_errors") else {},
+            )
 
     progress_bar.progress(1.0)
     errored = [key for key, value in results.items() if isinstance(value, dict) and "error" in value]

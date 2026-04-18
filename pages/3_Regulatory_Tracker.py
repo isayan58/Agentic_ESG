@@ -7,6 +7,7 @@ from utils.monitoring import regulatory_updater
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, pwc_header
+from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
 
 st.set_page_config(page_title="Regulatory Tracker | ESG CoPilot", page_icon="📋", layout="wide")
 inject_global_css()
@@ -15,6 +16,7 @@ sidebar_auth_widget()
 require_login("Sign in to access the Regulatory Tracker agent.")
 st.title("📋 Regulatory Tracker Agent")
 st.markdown("*Monitors global ESG frameworks — auto-updates within 24 hours of any mandate shift*")
+data_freshness_caption()
 st.markdown("---")
 
 if "reg_tracker" not in st.session_state:
@@ -38,6 +40,8 @@ frameworks_display = st.multiselect(
 )
 
 if st.button("🔄 Run Compliance Analysis", type="primary"):
+    with st.spinner("Refreshing data from registered sources..."):
+        refresh_real_data()
     with st.spinner("Analyzing regulatory compliance..."):
         results = agent.run()
         st.session_state.reg_tracker_results = results

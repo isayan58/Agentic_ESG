@@ -6,6 +6,7 @@ from utils.charts import risk_gauge, charts_available, chart_unavailable_message
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, pwc_header
+from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
 
 st.set_page_config(page_title="Risk Predictor | ESG CoPilot", page_icon="⚠️", layout="wide")
 inject_global_css()
@@ -14,6 +15,7 @@ sidebar_auth_widget()
 require_login("Sign in to access the Risk Predictor agent.")
 st.title("⚠️ Risk Predictor Agent")
 st.markdown("*Advanced climate risk forecasting, ESG rating prediction, and dynamic scenario analysis*")
+data_freshness_caption()
 st.markdown("---")
 
 if "risk_agent" not in st.session_state:
@@ -30,6 +32,8 @@ def render_chart(fig):
         st.plotly_chart(fig, use_container_width=True)
 
 if st.button("🔄 Run Risk Analysis", type="primary"):
+    with st.spinner("Refreshing data from registered sources..."):
+        refresh_real_data()
     with st.spinner("Running risk analysis..."):
         results = agent.run()
         st.session_state.risk_results = results

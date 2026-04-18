@@ -49,6 +49,12 @@ try:
 except ImportError:
     DELTALAKE_AVAILABLE = False
 
+try:
+    import snowflake.connector as _snowflake_connector  # noqa: F401
+    SNOWFLAKE_AVAILABLE = True
+except ImportError:
+    SNOWFLAKE_AVAILABLE = False
+
 
 # ── Base ─────────────────────────────────────────────────────────────────────
 
@@ -721,6 +727,113 @@ class DeltaLakeConnector(RealConnector):
         return filters
 
 
+# ── Snowflake ───────────────────────────────────────────────────────────────
+
+class SnowflakeConnector(RealConnector):
+    """Run a SQL query against a Snowflake warehouse.
+
+    Auth: username + password (simplest path for demos / SSO-disabled
+    service users). For production you can swap this for key-pair or
+    OAuth — the config surface stays the same.
+    """
+
+    connector_type = "snowflake"
+    display_name = "Snowflake"
+    icon = "❄️"
+
+    def test_connection(self, account: str = "", user: str = "", password: str = "",
+                        warehouse: str = "", database: str = "", schema: str = "",
+                        role: str = "", query: str = "", **kw) -> dict:
+        if not SNOWFLAKE_AVAILABLE:
+            return {"success": False,
+                    "message": "snowflake-connector-python not installed. "
+                               "Run: pip install snowflake-connector-python[pandas]"}
+        if not account or not user or not password:
+            return {"success": False,
+                    "message": "Account identifier, user, and password are all required."}
+        try:
+            conn = self._connect(account, user, password, warehouse,
+                                 database, schema, role)
+            try:
+                if query:
+                    test_query = f"SELECT * FROM ({query}) AS _t LIMIT 5"
+                    df = self._query_to_dataframe(conn, test_query)
+                    return {
+                        "success": True,
+                        "message": (f"Connected to {account} — query OK "
+                                    f"({len(df)} rows × {len(df.columns)} cols preview)"),
+                        "preview_cols": list(df.columns),
+                    }
+                # No query: just verify the session
+                df = self._query_to_dataframe(conn, "SELECT CURRENT_VERSION() AS v")
+                version = df.iloc[0, 0] if not df.empty else "?"
+                return {"success": True,
+                        "message": f"Connected to Snowflake (server v{version}). "
+                                   "Provide a SQL query to fetch data."}
+            finally:
+                conn.close()
+        except Exception as e:
+            return {"success": False, "message": f"Snowflake error: {e}"}
+
+    def fetch(self, account: str = "", user: str = "", password: str = "",
+              warehouse: str = "", database: str = "", schema: str = "",
+              role: str = "", query: str = "",
+              row_limit: int = 50000, **kw) -> pd.DataFrame:
+        if not SNOWFLAKE_AVAILABLE:
+            raise ImportError(
+                "snowflake-connector-python not installed. "
+                "Run: pip install snowflake-connector-python[pandas]"
+            )
+        if not query:
+            raise ValueError("No SQL query provided")
+        conn = self._connect(account, user, password, warehouse,
+                             database, schema, role)
+        try:
+            df = self._query_to_dataframe(conn, query)
+        finally:
+            conn.close()
+        if len(df) > row_limit:
+            df = df.head(row_limit)
+        return df
+
+    def _connect(self, account, user, password, warehouse,
+                 database, schema, role):
+        kwargs = {
+            "account": account,
+            "user": user,
+            "password": password,
+        }
+        if warehouse:
+            kwargs["warehouse"] = warehouse
+        if database:
+            kwargs["database"] = database
+        if schema:
+            kwargs["schema"] = schema
+        if role:
+            kwargs["role"] = role
+        return _snowflake_connector.connect(**kwargs)
+
+    def _query_to_dataframe(self, conn, query: str) -> pd.DataFrame:
+        """Run a query and return a DataFrame.
+
+        Prefers the cursor's built-in ``fetch_pandas_all`` (fast path via
+        the Snowflake Python connector's Arrow bridge) and falls back to
+        a plain row-tuple materialisation so we don't require pyarrow.
+        """
+        cur = conn.cursor()
+        try:
+            cur.execute(query)
+            # Fast path via Arrow (requires pyarrow)
+            try:
+                return cur.fetch_pandas_all()
+            except Exception:
+                rows = cur.fetchall()
+                cols = [c[0] for c in cur.description] if cur.description else []
+                return pd.DataFrame(rows, columns=cols)
+        finally:
+            cur.close()
+
+
 # ── Connector Registry ───────────────────────────────────────────────────────
 
 REAL_CONNECTORS = {
@@ -733,6 +846,7 @@ REAL_CONNECTORS = {
     "gcp_storage":    GCPStorageConnector,
     "azure_blob":     AzureBlobConnector,
     "delta_lake":     DeltaLakeConnector,
+    "snowflake":      SnowflakeConnector,
 }
 
 
@@ -768,4 +882,7 @@ def get_available_connectors() -> dict:
         "delta_lake":    {"name": "Delta Lake Table",              "icon": "🔺",
                           "available": DELTALAKE_AVAILABLE,
                           "install_hint": "pip install deltalake"},
+        "snowflake":     {"name": "Snowflake",                     "icon": "❄️",
+                          "available": SNOWFLAKE_AVAILABLE,
+                          "install_hint": "pip install 'snowflake-connector-python[pandas]'"},
     }
