@@ -13,7 +13,7 @@ from utils.auth import (
     sidebar_auth_widget,
     signup,
 )
-from utils.ui import hero, inject_global_css, section_header
+from utils.ui import hero, inject_global_css, pwc_header, section_header
 
 st.set_page_config(
     page_title="Sign In | ESG CoPilot",
@@ -22,6 +22,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_global_css()
+pwc_header()
 sidebar_auth_widget()
 
 hero(

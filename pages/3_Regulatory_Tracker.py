@@ -6,8 +6,11 @@ from utils.charts import compliance_radar, chart_unavailable_message
 from utils.monitoring import regulatory_updater
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
+from utils.ui import inject_global_css, pwc_header
 
 st.set_page_config(page_title="Regulatory Tracker | ESG CoPilot", page_icon="📋", layout="wide")
+inject_global_css()
+pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Regulatory Tracker agent.")
 st.title("📋 Regulatory Tracker Agent")

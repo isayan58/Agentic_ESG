@@ -5,8 +5,11 @@ from agents.risk_predictor import RiskPredictorAgent
 from utils.charts import risk_gauge, charts_available, chart_unavailable_message
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
+from utils.ui import inject_global_css, pwc_header
 
 st.set_page_config(page_title="Risk Predictor | ESG CoPilot", page_icon="⚠️", layout="wide")
+inject_global_css()
+pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Risk Predictor agent.")
 st.title("⚠️ Risk Predictor Agent")

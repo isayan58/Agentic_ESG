@@ -1,10 +1,10 @@
 [theme]
-# ESG CoPilot design system — sustainability greens + trust blue,
+# ESG CoPilot design system — PwC-themed (PwC orange + warm neutrals),
 # tuned to harmonise with the shadcn React components in utils/ui.py.
 base = "light"
-primaryColor = "#0f9d58"
+primaryColor = "#D04A02"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f6f8fb"
+secondaryBackgroundColor = "#fff6ef"
 textColor = "#1a202c"
 font = "sans serif"
 

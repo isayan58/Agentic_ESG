@@ -2,8 +2,11 @@
 import streamlit as st
 from agents.stakeholder_agent import StakeholderAgent
 from utils.auth import require_login, sidebar_auth_widget
+from utils.ui import inject_global_css, pwc_header
 
 st.set_page_config(page_title="Stakeholder Agent | ESG CoPilot", page_icon="👥", layout="wide")
+inject_global_css()
+pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Stakeholder Agent.")
 st.title("👥 Stakeholder Agent")

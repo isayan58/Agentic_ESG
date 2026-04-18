@@ -1,8 +1,8 @@
 ---
 title: ESG CoPilot Dashboard
 emoji: 🌍
-colorFrom: green
-colorTo: blue
+colorFrom: red
+colorTo: yellow
 sdk: streamlit
 sdk_version: 1.56.0
 app_file: Home.py
