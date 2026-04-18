@@ -10,7 +10,7 @@ from __future__ import annotations
 import streamlit as st
 
 from utils.auth import current_user, sidebar_auth_widget
-from utils.ui import hero, inject_global_css, section_header
+from utils.ui import hero, inject_global_css, pwc_header, section_header
 
 st.set_page_config(
     page_title="ESG CoPilot — Autonomous ESG Intelligence",
@@ -19,6 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_global_css()
+pwc_header()
 
 # ---------------------------------------------------------------------------
 # Page-local CSS — product-grade polish on top of the global design system

@@ -13,8 +13,11 @@ from utils.schema_mapper import (
 )
 from utils.connection_manager import ConnectionManager
 from utils.auth import require_login, sidebar_auth_widget
+from utils.ui import inject_global_css, pwc_header
 
 st.set_page_config(page_title="Data Collector | ESG CoPilot", page_icon="📊", layout="wide")
+inject_global_css()
+pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Data Collector agent.")
 st.title("📊 Data Collector Agent")
