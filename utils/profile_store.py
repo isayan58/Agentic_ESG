@@ -21,6 +21,7 @@ the field-by-field interpretation.
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -50,6 +51,44 @@ LOCAL_FALLBACK_DIR = Path("data") / "profiles"
 DEFAULT_PROFILE_PATH = Path("data") / "company_profile.json"
 CACHE_TTL_SECONDS = 30
 MAX_RETRIES = 3
+
+
+# Sentinel for "the caller did not supply a load token" so we can
+# distinguish it from an explicit ``None`` that means "forced overwrite".
+_TOKEN_UNSET = object()
+
+
+class ProfileConflict(RuntimeError):
+    """Raised when a profile save would overwrite changes made by another
+    writer (another tab, another replica, another user session).
+
+    The caller is expected to surface a "someone else edited this — reload
+    or overwrite?" prompt to the user. Re-raise with ``force=True`` (or
+    pass ``expected_token=None``) to intentionally clobber.
+    """
+
+    def __init__(self, message: str, *, current_profile: dict, current_token: str):
+        super().__init__(message)
+        self.current_profile = current_profile
+        self.current_token = current_token
+
+
+def _compute_token(profile: dict | None) -> str:
+    """Stable short hash of a profile dict — used for optimistic concurrency.
+
+    Two semantically-identical profiles produce the same token regardless
+    of key order. ``None`` / empty profile yields a sentinel token so a
+    user who has never saved a profile is distinguishable from a user
+    whose last-known state was empty-dict.
+    """
+    if profile is None:
+        return "none"
+    try:
+        serialised = json.dumps(profile or {}, sort_keys=True, default=str,
+                                 ensure_ascii=False)
+    except Exception:
+        serialised = repr(profile)
+    return hashlib.sha256(serialised.encode("utf-8")).hexdigest()[:16]
 
 
 def _resolve_token() -> Optional[str]:
@@ -153,30 +192,89 @@ class ProfileStore:
         If the user has no saved profile, a *copy* of the bundled default
         profile is returned so the caller can mutate it freely.
         """
+        profile, _token = self.load_with_token(username)
+        return profile
+
+    def load_with_token(self, username: str) -> tuple[dict, str]:
+        """Same as :meth:`load` but also returns an opaque token describing
+        the loaded state.
+
+        Pass the token back into :meth:`save` as ``expected_token=`` to
+        get optimistic-concurrency protection: if the stored profile has
+        changed since this load, the save raises :class:`ProfileConflict`
+        instead of silently clobbering the other writer's changes.
+        """
         username = _safe_username(username)
         with self._lock:
             cached = self._cache.get(username)
             if cached and (time.time() - cached[1]) < CACHE_TTL_SECONDS:
-                return json.loads(json.dumps(cached[0]))
+                snapshot = json.loads(json.dumps(cached[0]))
+                return snapshot, _compute_token(cached[0])
 
             profile = self._load_raw(username)
+            had_stored_profile = bool(profile)
             if not profile:
                 profile = self.default_profile()
             self._cache[username] = (profile, time.time())
-            return json.loads(json.dumps(profile))
+            # If the user has *no* stored profile yet, the token represents
+            # "nothing on disk" — first-save must pass expected_token="none"
+            # (our sentinel) to enforce "no one else beat me to the create".
+            token = _compute_token(profile) if had_stored_profile else "none"
+            return json.loads(json.dumps(profile)), token
 
-    def save(self, username: str, profile: dict) -> None:
-        """Persist ``profile`` for ``username``.
+    def save(self, username: str, profile: dict,
+             *, expected_token=_TOKEN_UNSET) -> str:
+        """Persist ``profile`` for ``username``; return the new token.
 
-        Concurrency: per-user JSON files only collide when the same user
-        has two tabs racing. We retry on HF write errors but make no
-        attempt at multi-writer merge — last-write-wins by design.
+        Parameters
+        ----------
+        expected_token
+            Opt-in optimistic concurrency. When supplied, we re-load the
+            currently-stored profile and compare its token against this
+            one. On mismatch we raise :class:`ProfileConflict` with the
+            current state attached so the caller can merge / prompt /
+            retry. Pass the sentinel (default) to preserve the old
+            last-write-wins behaviour for legacy callers.
+
+        Concurrency notes
+        -----------------
+        * Per-user JSON files only collide when the same user has two
+          tabs or two replicas racing.
+        * The check-then-write is not a hard lock (HF Dataset doesn't
+          expose one) — two writers arriving within the same
+          millisecond could still both observe a matching token and
+          both commit. The window is small and the blast radius is a
+          single user's own profile, so we accept it.
         """
         username = _safe_username(username)
         with self._lock:
+            if expected_token is not _TOKEN_UNSET:
+                # Force a fresh read from the backend (bypass cache) so
+                # we actually see a concurrent writer's commit. Clearing
+                # the cache entry makes ``_load_raw`` re-query the store.
+                self._cache.pop(username, None)
+                current_raw = self._load_raw(username)
+                current_token = (
+                    _compute_token(current_raw) if current_raw else "none"
+                )
+                if current_token != expected_token:
+                    # Refresh the cache with the server's version so
+                    # subsequent reads on this process are honest about
+                    # what's actually there.
+                    refreshed = current_raw or self.default_profile()
+                    self._cache[username] = (refreshed, time.time())
+                    raise ProfileConflict(
+                        "Profile was modified by another session since "
+                        "you loaded it. Reload to see the latest state "
+                        "or force-overwrite to discard the other change.",
+                        current_profile=json.loads(json.dumps(refreshed)),
+                        current_token=current_token,
+                    )
+
             self._save_raw(username, profile)
             # Refresh cache with what we just wrote (TTL window resets).
             self._cache[username] = (json.loads(json.dumps(profile)), time.time())
+            return _compute_token(profile)
 
     def clear_cache(self, username: Optional[str] = None) -> None:
         with self._lock:

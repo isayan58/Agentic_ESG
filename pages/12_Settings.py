@@ -14,6 +14,7 @@ import json
 import streamlit as st
 
 from utils.auth import require_login, sidebar_auth_widget
+from utils.profile_store import ProfileConflict
 from utils.session import (
     get_session_company_config,
     get_session_company_profile,
@@ -157,10 +158,19 @@ with tab_advanced:
                 st.error("Profile must be a JSON object (got "
                          f"{type(parsed).__name__}).")
             else:
-                save_session_company_profile(parsed)
-                st.success("Raw profile saved. Reload any agent page to "
-                           "see the new values flow through.")
-                st.rerun()
+                try:
+                    save_session_company_profile(parsed)
+                except ProfileConflict as conflict:
+                    st.session_state["_settings_conflict"] = {
+                        "pending_profile": parsed,
+                        "current_profile": conflict.current_profile,
+                        "message": str(conflict),
+                    }
+                    st.rerun()
+                else:
+                    st.success("Raw profile saved. Reload any agent page to "
+                               "see the new values flow through.")
+                    st.rerun()
         except json.JSONDecodeError as exc:
             st.error(f"Invalid JSON: {exc}")
 
@@ -214,11 +224,63 @@ if save_clicked:
 
     try:
         save_session_company_profile(updated)
+    except ProfileConflict as conflict:
+        # Stash the in-flight edit so we can offer "overwrite anyway".
+        st.session_state["_settings_conflict"] = {
+            "pending_profile": updated,
+            "current_profile": conflict.current_profile,
+            "message": str(conflict),
+        }
+        st.rerun()
+    except Exception as exc:
+        st.error(f"Couldn't save profile: {exc}")
+    else:
         st.success(
             f"Profile saved for **{user['username']}**. Your changes "
             "apply to every agent the next time you run them.")
-    except Exception as exc:
-        st.error(f"Couldn't save profile: {exc}")
+
+# ── Conflict banner ────────────────────────────────────────────────
+# Shown after a save was rejected because another tab / replica wrote
+# to this user's profile between load and save. We surface both sides
+# so the user can choose reload vs. overwrite instead of silently
+# clobbering.
+conflict = st.session_state.get("_settings_conflict")
+if conflict:
+    st.markdown("---")
+    st.warning(
+        "⚠️ **Save conflict.** " + conflict["message"],
+        icon="⚠️",
+    )
+    col_reload, col_force, col_cancel = st.columns(3)
+    with col_reload:
+        if st.button("↻ Reload latest", use_container_width=True):
+            # Drop our cached profile so the next get_ call re-reads
+            # from the store and captures a fresh token.
+            st.session_state.pop("company_profile", None)
+            st.session_state.pop("_company_profile_token", None)
+            st.session_state.pop("_settings_conflict", None)
+            st.rerun()
+    with col_force:
+        if st.button("💥 Overwrite anyway", type="primary",
+                     use_container_width=True):
+            try:
+                save_session_company_profile(
+                    conflict["pending_profile"], force=True,
+                )
+                st.session_state.pop("_settings_conflict", None)
+                st.success("Profile saved (other writer's changes discarded).")
+                st.rerun()
+            except Exception as exc:  # pragma: no cover - defensive
+                st.error(f"Couldn't force-save: {exc}")
+    with col_cancel:
+        if st.button("✕ Dismiss", use_container_width=True):
+            st.session_state.pop("_settings_conflict", None)
+            st.rerun()
+    with st.expander("Show the other writer's version"):
+        st.code(
+            json.dumps(conflict["current_profile"], indent=2, ensure_ascii=False),
+            language="json",
+        )
 
 # ── Storage diagnostic ──────────────────────────────────────────────
 from utils.profile_store import get_profile_store
