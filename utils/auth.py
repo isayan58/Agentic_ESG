@@ -494,10 +494,10 @@ def require_login(message: str = "Please sign in to access this page.") -> dict:
         <div style="
             padding: 2rem 1.5rem;
             border-radius: 16px;
-            background: linear-gradient(135deg, #0f9d58 0%, #0b7a43 100%);
+            background: linear-gradient(135deg, #D04A02 0%, #A23A02 100%);
             color: white;
             text-align: center;
-            box-shadow: 0 12px 32px rgba(15,157,88,0.18);
+            box-shadow: 0 12px 32px rgba(208, 74, 2, 0.18);
         ">
             <div style="font-size: 2.5rem;">&#128274;</div>
             <h2 style="margin:0.25rem 0 0.5rem 0; color:white;">Authentication required</h2>
@@ -605,7 +605,7 @@ def sidebar_auth_widget() -> None:
                     background: #f6f8fb;">
                     <div style="
                         width:36px; height:36px; border-radius:50%;
-                        background: linear-gradient(135deg, #0f9d58, #0b7a43);
+                        background: linear-gradient(135deg, #D04A02, #A23A02);
                         color:white; font-weight:600;
                         display:flex; align-items:center; justify-content:center;
                         font-size:0.85rem;">{initials}</div>
