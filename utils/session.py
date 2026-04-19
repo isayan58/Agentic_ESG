@@ -235,16 +235,45 @@ def get_session_company_config() -> CompanyConfig:
 
     if username:
         profile = get_session_company_profile()
-        try:
-            cfg = CompanyConfig(profile_data=profile)
-        except Exception:
-            cfg = get_default_company_config()
+        cfg, build_error = _build_company_config_safely(profile)
     else:
         cfg = get_default_company_config()
+        build_error = None
 
     st.session_state[_CONFIG_KEY] = cfg
+    # Stash the last build error so pages / banners can surface it
+    # without re-running the construction. Cleared on successful build.
+    st.session_state["_company_cfg_build_error"] = build_error
     set_active_company_config(cfg)
     return cfg
+
+
+def _build_company_config_safely(profile: dict) -> tuple[CompanyConfig, str | None]:
+    """Construct a :class:`CompanyConfig` from ``profile``, never raising.
+
+    Returns ``(cfg, error_message)``. ``error_message`` is ``None`` on
+    success, or a human-readable string on failure (profile was invalid
+    and we fell back to the bundled default). The Settings page reads
+    this so the user sees *why* their edits didn't apply instead of
+    silently running on defaults.
+    """
+    # Cheap structural check first — surfaces malformed profiles with
+    # field-level errors rather than a bare exception.
+    from utils.profile_validator import validate_profile
+    issues = validate_profile(profile)
+    if issues:
+        return get_default_company_config(), (
+            "Profile failed validation: "
+            + "; ".join(issues[:3])
+            + ("…" if len(issues) > 3 else "")
+        )
+    try:
+        return CompanyConfig(profile_data=profile), None
+    except Exception as exc:  # noqa: BLE001 — last-resort guard
+        return get_default_company_config(), (
+            f"Could not build CompanyConfig from profile: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
 
 def rebuild_session_company_config() -> CompanyConfig:

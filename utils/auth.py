@@ -90,9 +90,37 @@ _rate_lock = threading.Lock()
 _login_attempts: dict[str, deque] = {}
 _signup_attempts: dict[str, deque] = {}
 
+# Janitor cadence — sweep idle keys once every N check calls. Keeps
+# the cost amortised to roughly O(1)/call while guaranteeing no key
+# stays in the bucket longer than ~N*window seconds worst case.
+_RATE_SWEEP_EVERY = int(os.getenv("ESG_AUTH_SWEEP_EVERY", "500"))
+_rate_check_counter = 0
+
 
 class RateLimitExceeded(ValueError):
     """Raised when too many auth attempts from the same identifier."""
+
+
+def _sweep_idle_keys(bucket: dict[str, deque], window: int,
+                     now: float | None = None) -> int:
+    """Drop keys whose newest entry is older than ``window``.
+
+    Called periodically from :func:`_check_rate_limit` so the attempt
+    buckets don't grow without bound. Returns the number of keys
+    evicted so tests / diagnostics can observe the sweep.
+
+    Must be called with ``_rate_lock`` held (or from a single-threaded
+    context like a unit test).
+    """
+    if now is None:
+        now = time.monotonic()
+    stale = [
+        k for k, dq in bucket.items()
+        if not dq or (now - dq[-1]) > window
+    ]
+    for k in stale:
+        bucket.pop(k, None)
+    return len(stale)
 
 
 def _check_rate_limit(bucket: dict[str, deque], key: str,
@@ -102,9 +130,23 @@ def _check_rate_limit(bucket: dict[str, deque], key: str,
     Keyed on the normalised identifier (username lowered, remote IP
     would be ideal but Streamlit doesn't expose it reliably). This is
     a best-effort brake, not a security boundary.
+
+    Memory hygiene: every ``_RATE_SWEEP_EVERY`` calls we sweep idle
+    keys out of the bucket. Without this, an attacker cycling random
+    usernames could grow either bucket O(unique-identifiers) without
+    ever triggering the per-key eviction logic.
     """
+    global _rate_check_counter
     now = time.monotonic()
     with _rate_lock:
+        _rate_check_counter += 1
+        if _rate_check_counter % _RATE_SWEEP_EVERY == 0:
+            # Sweep BOTH buckets — the caller only holds a reference
+            # to one, but the lock covers both and the cost is O(N)
+            # over mostly-dead keys.
+            _sweep_idle_keys(_login_attempts, LOGIN_RATE_WINDOW, now=now)
+            _sweep_idle_keys(_signup_attempts, SIGNUP_RATE_WINDOW, now=now)
+
         dq = bucket.setdefault(key, deque())
         # Drop entries older than the window.
         while dq and (now - dq[0]) > window:

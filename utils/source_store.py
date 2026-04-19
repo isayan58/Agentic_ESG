@@ -75,7 +75,28 @@ class SourcePayloadTooLarge(ValueError):
     upload to an external connector (S3, Snowflake, Google Sheets) so
     the bytes live in the source-of-truth system, not in the per-user
     profile file.
+
+    Attributes
+    ----------
+    total_bytes : int
+        Serialised size of the full records list.
+    cap_bytes : int
+        The configured cap (:data:`MAX_PAYLOAD_BYTES`).
+    per_source : list[tuple[str, int]]
+        ``[(source_id, bytes), …]`` sorted largest-first so the UI can
+        point the user at the exact source to trim.
+    largest : tuple[str, int] | None
+        Shortcut to ``per_source[0]`` — the source most worth removing.
     """
+
+    def __init__(self, message: str, *, total_bytes: int = 0,
+                 cap_bytes: int = 0,
+                 per_source: list[tuple[str, int]] | None = None):
+        super().__init__(message)
+        self.total_bytes = total_bytes
+        self.cap_bytes = cap_bytes
+        self.per_source = list(per_source or [])
+        self.largest = self.per_source[0] if self.per_source else None
 
 
 def _resolve_token() -> Optional[str]:
@@ -158,6 +179,45 @@ def source_to_record(source_id: str, meta: dict) -> dict:
         if k in meta:
             record[k] = _coerce_bytes_for_json(meta[k])
     return record
+
+
+def _record_display_label(record: dict) -> str:
+    """Best human-readable label for a record — for size-cap error messages.
+
+    Prefers: display_name → config.file_name → id → "(unnamed)". Keeps
+    the label short so the UI can interpolate it into a single line.
+    """
+    label = record.get("display_name")
+    if not label:
+        cfg = record.get("config") or {}
+        if isinstance(cfg, dict):
+            label = cfg.get("file_name") or cfg.get("object") or cfg.get("query")
+    if not label:
+        label = record.get("id")
+    if not label:
+        return "(unnamed source)"
+    label = str(label).strip()
+    return label if len(label) <= 60 else label[:57] + "…"
+
+
+def _per_record_sizes(records: list[dict]) -> list[tuple[str, int]]:
+    """Return ``[(label, bytes), …]`` sorted largest-first.
+
+    Sizes are approximate — each record is serialised independently,
+    so the sum differs slightly from the full-payload size (missing the
+    JSON array brackets / comma separators). Good enough for pointing
+    the user at the right source to trim.
+    """
+    sized: list[tuple[str, int]] = []
+    for rec in records or []:
+        try:
+            encoded = json.dumps(rec, ensure_ascii=False).encode("utf-8")
+            size = len(encoded)
+        except (TypeError, ValueError):
+            size = 0
+        sized.append((_record_display_label(rec), size))
+    sized.sort(key=lambda pair: pair[1], reverse=True)
+    return sized
 
 
 def record_to_source(record: dict) -> tuple[str, dict]:
@@ -284,11 +344,29 @@ class SourceStore:
         # serialise once and reuse the bytes if the write proceeds.
         payload = json.dumps(records, indent=2, ensure_ascii=False).encode("utf-8")
         if len(payload) > MAX_PAYLOAD_BYTES:
+            # Identify the offender(s) so the UI can point the user at
+            # the specific source to trim instead of saying "too large"
+            # and leaving them to guess.
+            per_source = _per_record_sizes(records)
+            if per_source:
+                top = per_source[0]
+                top_label, top_bytes = top
+                hint = (
+                    f" Largest source is **{top_label}** "
+                    f"(~{top_bytes / 1024:.0f} KB). "
+                )
+            else:
+                hint = " "
             raise SourcePayloadTooLarge(
                 f"Saved sources would be {len(payload):,} bytes "
-                f"(cap {MAX_PAYLOAD_BYTES:,}). Switch inline-upload "
-                "sources to an external connector (S3, Snowflake, "
-                "Google Sheets) so the bytes stay in the source system."
+                f"(cap {MAX_PAYLOAD_BYTES:,})."
+                f"{hint}"
+                "Remove that source, or switch from inline upload to "
+                "an external connector (S3, Snowflake, Google Sheets) "
+                "so the bytes stay in the source-of-truth system.",
+                total_bytes=len(payload),
+                cap_bytes=MAX_PAYLOAD_BYTES,
+                per_source=per_source,
             )
 
         if self._api is not None and self._resolved_backend in (None, "hf_dataset"):
