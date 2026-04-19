@@ -1631,6 +1631,200 @@ These monkey-patches resolve known issues when running Gradio inside Docker/Hugg
 2. `gradio.networking.url_ok` — bypasses localhost health check that fails in containerized environments
 3. `gradio_client.utils._json_schema_to_python_type` — handles bool `additionalProperties` that causes `TypeError: argument of type 'bool' is not iterable`
 
+### Deploying from GitHub to the Streamlit Space
+
+The Streamlit Space (`isayan58/ESG-CoPilot-Dashboard`) is hosted by HuggingFace as a separate git remote. Deploys are explicit pushes from a green `dev` branch on GitHub into the Space's `main` branch. The Space rebuilds automatically once `main` advances.
+
+**One-time remote setup** (already configured in this worktree, do once on a fresh clone):
+
+```bash
+git remote add hf-streamlit https://huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard
+# Authenticate either via the macOS keychain helper or a HF write token in the URL:
+#   https://USER:hf_TOKEN@huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard
+git fetch hf-streamlit
+```
+
+**Standard deploy (clean dev history, no LFS-eligible binaries in any commit):**
+
+```bash
+# 1. Make sure your local dev mirrors GitHub.
+git fetch origin
+git fetch hf-streamlit
+
+# 2. Sanity-check what will change on the Space.
+git log hf-streamlit/main..origin/dev --oneline
+git diff --stat hf-streamlit/main origin/dev
+
+# 3. Push origin/dev to the Space's main branch.
+git push hf-streamlit origin/dev:main
+```
+
+That's the happy path — a fast-forward push that the Space picks up within ~30 seconds.
+
+**Recovery deploy (HF Space was reverted, or a binary blocks a normal push):**
+
+HuggingFace's pre-receive hook scans the *full history* of every pushed branch and rejects any commit that contains a file LFS would track (binaries, large blobs). Even a commit that *adds* and *immediately removes* the file (e.g. a one-pager `.pptx` that we deleted) is enough to break a normal push.
+
+The fix: build a single commit whose **tree** is your target state and whose **parent** is the current Space tip. HF only scans that one new commit, so deleted-but-historically-present binaries are invisible.
+
+```bash
+# 1. Confirm the Space tip and the gap to dev.
+git fetch hf-streamlit
+git diff --stat hf-streamlit/main origin/dev
+
+# 2. Build a one-shot commit on top of the Space tip whose tree == origin/dev's tree.
+TREE=$(git rev-parse origin/dev^{tree})
+COMMIT=$(git commit-tree "$TREE" -p hf-streamlit/main \
+  -m "deploy: sync to dev — <reason for the deploy>")
+echo "Built deploy commit: $COMMIT"
+
+# 3. Push that loose commit straight to main.
+git push hf-streamlit "$COMMIT:main" --force
+
+# 4. Verify the trees now match (output should be empty).
+git fetch hf-streamlit
+git diff --stat origin/dev hf-streamlit/main
+```
+
+The commit is loose (not on any local branch) — it lives only in the Space's history. Your working tree, local branches, and GitHub remote are untouched.
+
+**Troubleshooting deploy push rejections:**
+
+Each row below quotes the literal error you'll see in the terminal so you can grep for it. The "Fix" column is the *minimum* command sequence — drop in for drop in.
+
+#### 1. Binary file rejected by xet/LFS hook
+
+```
+remote: Your push was rejected because it contains binary files.
+remote: Please use https://huggingface.co/docs/hub/xet to store binary files.
+remote: Offending files:
+remote:   - ESG_CoPilot_OnePager.pptx (ref: refs/heads/main)
+ ! [remote rejected] origin/dev -> main (pre-receive hook declined)
+```
+
+**Cause.** HF scans the *full history* of every pushed branch. Even if the file was added in commit `A` and removed in commit `B`, both `A` and `B` are in the pushed history, so HF sees the binary and rejects.
+
+**Fix.** Use the recovery-deploy flow — `git commit-tree` produces exactly one commit on top of `hf-streamlit/main`, and HF only scans that single commit's tree:
+
+```bash
+TREE=$(git rev-parse origin/dev^{tree})
+COMMIT=$(git commit-tree "$TREE" -p hf-streamlit/main \
+  -m "deploy: bypass historical binary <filename>")
+git push hf-streamlit "$COMMIT:main" --force
+```
+
+**Permanent fix** (so the next normal deploy works): keep large binaries out of the repo entirely. Move presentation decks, screenshots, generated PDFs, etc. to an out-of-tree `~/Drive/esg-copilot/` folder and reference them in `.gitignore`. If a binary already snuck in, either accept the recovery-deploy workflow forever or scrub history with `git filter-repo --invert-paths --path <file>` (destructive — coordinate with the team first).
+
+#### 2. Non-fast-forward push
+
+```
+ ! [remote rejected] origin/dev -> main (non-fast-forward)
+error: failed to push some refs to '…ESG-CoPilot-Dashboard'
+hint: Updates were rejected because the remote contains work that you do
+hint: not have locally. This is usually caused by another repository pushing
+```
+
+**Cause.** Someone (or some web edit on the Space's "Files" tab) added a commit to `hf-streamlit/main` that isn't in your local history.
+
+**Fix — preserve the remote commit:**
+```bash
+git fetch hf-streamlit
+git log hf-streamlit/main --oneline -5     # inspect what landed
+git checkout -B deploy/sync hf-streamlit/main
+git merge origin/dev --no-edit
+git push hf-streamlit deploy/sync:main
+```
+
+**Fix — discard the remote commit (when it's a known-bad revert, as happened on 2026-04-20):**
+```bash
+TREE=$(git rev-parse origin/dev^{tree})
+COMMIT=$(git commit-tree "$TREE" -p hf-streamlit/main \
+  -m "deploy: restore reverted state")
+git push hf-streamlit "$COMMIT:main" --force
+```
+
+#### 3. Authentication / authorization failure
+
+```
+remote: Invalid username or password.
+fatal: Authentication failed for 'https://huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard/'
+```
+
+or
+
+```
+remote: Authorization error.
+remote: Sorry, you don't have write access to this repository.
+```
+
+**Cause.** Token missing, expired, or read-only.
+
+**Fix.**
+1. Generate a **write** token at <https://huggingface.co/settings/tokens> (role: `Write`, scope: this Space or all repos).
+2. Update the remote URL with the token embedded:
+   ```bash
+   git remote set-url hf-streamlit \
+     https://isayan58:hf_xxxYourTokenxxx@huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard
+   ```
+3. Or store it in the macOS keychain once:
+   ```bash
+   git config --global credential.helper osxkeychain
+   git push hf-streamlit …    # prompts once, caches forever
+   ```
+
+#### 4. Space stuck on "Building" / build failed
+
+```
+ERROR: Could not find a version that satisfies the requirement <pkg>
+ModuleNotFoundError: No module named '<pkg>'
+```
+
+**Cause.** `requirements.txt` references a package name HF's pip mirror can't resolve, or a transitive dep pinned in `pip freeze` style is unavailable.
+
+**Fix.**
+1. Open the Space → **Logs** tab → **Build logs** to see the failing pip line.
+2. If the package is genuinely needed: pin a known-good version (`pkg>=1.0,<2`) and re-deploy.
+3. If it's a stale transitive (`pkg-only-on-mac`): drop it from `requirements.txt` — we keep that file curated, not generated by `pip freeze`.
+4. After fixing, redeploy via the standard or recovery flow.
+
+#### 5. Space runs but renders the wrong commit
+
+**Cause.** Browser cache, or HF's CDN held a stale build manifest for ~1 minute.
+
+**Fix.**
+1. Confirm the deploy actually advanced `main`:
+   ```bash
+   git fetch hf-streamlit
+   git log hf-streamlit/main --oneline -1
+   ```
+2. Open the Space's **Logs → App logs** and look for the build banner timestamp.
+3. Hard-reload the browser tab: `Cmd+Shift+R` (macOS) / `Ctrl+Shift+F5` (Windows/Linux).
+4. If still stale after 2 minutes, click **Settings → Restart this Space** to force a rebuild.
+
+#### 6. App logs show "ImportError" or per-user data leaks after deploy
+
+**Cause.** A new module or per-user invariant (e.g. the `state_manager` per-user partitioning shipped on 2026-04-20) was introduced in `dev` but not exercised in tests, so a regression slipped through.
+
+**Fix.**
+1. Roll back the Space to the previous good commit while you investigate:
+   ```bash
+   git push hf-streamlit <previous-good-sha>:main --force
+   ```
+2. Reproduce locally: `streamlit run Home.py`, sign in as two distinct users in two browser profiles, and confirm the failure mode.
+3. Add a regression test (see `tests/test_state_manager_isolation.py` for the fake-Streamlit fixture pattern), fix on `claude/<branch>`, merge to `dev`, redeploy.
+
+**Post-deploy verification:**
+
+```bash
+# Should print the deploy commit you just pushed.
+git log hf-streamlit/main --oneline -1
+
+# Tree-level diff should be empty if the deploy is in sync with dev.
+git diff --stat origin/dev hf-streamlit/main
+```
+
+Then open [the Space](https://huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard) and watch the "Building" → "Running" transition in the top-right status badge.
+
 ### Cloud Connector Dependencies
 
 All cloud connector imports are optional (`try/except`), so missing packages never crash the app. For cloud data access, install only the packages you need:

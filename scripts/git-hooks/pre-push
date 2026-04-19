@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# pre-push: protect the HuggingFace Streamlit Space from accidental deploys.
+#
+# Why this exists
+# ---------------
+# The HF Space ``main`` branch has no native branch-protection (HF doesn't
+# expose those rules), so anyone with write access — including
+# accidental web-edits via the Space's Files tab — can push directly.
+# That's exactly how ``main`` got reverted on 2026-04-20, dropping
+# ~7 300 lines of work.
+#
+# This hook blocks any push to the ``hf-streamlit`` remote unless the
+# commit being pushed exactly matches ``origin/dev``'s tip. That makes
+# the deploy contract explicit:
+#   1. Merge to ``origin/dev`` (via PR + CI) first.
+#   2. ``git fetch origin``.
+#   3. ``git push hf-streamlit dev:main``.
+#
+# Bypass (intentional)
+# --------------------
+# ``git push --no-verify hf-streamlit …`` skips the hook. Use only when
+# you genuinely need to deploy a non-dev SHA (e.g. an emergency
+# hotfix from a feature branch).
+#
+# Installation
+# ------------
+# From the repo root, once per clone:
+#
+#     git config core.hooksPath scripts/git-hooks
+#
+# That points Git at this directory for *every* hook (pre-commit,
+# pre-push, etc.) so the team gets the same protection without
+# symlinking individual files.
+
+set -euo pipefail
+
+remote_name="$1"
+remote_url="$2"
+
+# Only intervene for HF Space pushes. Pushes to GitHub origin or any
+# other remote are out of scope.
+case "$remote_url" in
+  *huggingface.co/spaces/*) ;;
+  *)
+    exit 0
+    ;;
+esac
+
+# Read the list of refs being pushed from stdin. Format per `man githooks`:
+#   <local-ref> <local-sha> <remote-ref> <remote-sha>
+# We only care about pushes that update ``refs/heads/main`` on the Space.
+deploy_violation=0
+deploy_messages=()
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Skip the all-zero local_sha — that's a delete request, harmless here.
+  if [[ "$local_sha" =~ ^0+$ ]]; then
+    continue
+  fi
+  # Only enforce on the production branch.
+  if [[ "$remote_ref" != "refs/heads/main" ]]; then
+    continue
+  fi
+
+  # Make sure we have an up-to-date origin/dev to compare against. If
+  # the user hasn't fetched recently, the comparison would be stale.
+  if ! git fetch --quiet origin dev 2>/dev/null; then
+    deploy_messages+=("✗ Could not fetch origin/dev — check your network or 'origin' remote.")
+    deploy_violation=1
+    continue
+  fi
+
+  origin_dev_sha="$(git rev-parse origin/dev)"
+
+  if [[ "$local_sha" == "$origin_dev_sha" ]]; then
+    # Happy path: deploy commit matches origin/dev exactly.
+    continue
+  fi
+
+  # Failure path: local SHA is something else. Diagnose loudly.
+  deploy_messages+=("")
+  deploy_messages+=("✗ Refusing to deploy to ${remote_name} (HuggingFace Streamlit Space).")
+  deploy_messages+=("")
+  deploy_messages+=("  You're pushing:    ${local_sha:0:12}  ($(git log -1 --format='%s' "$local_sha"))")
+  deploy_messages+=("  origin/dev tip is: ${origin_dev_sha:0:12}  ($(git log -1 --format='%s' "$origin_dev_sha"))")
+  deploy_messages+=("")
+  deploy_messages+=("  HF Space deploys MUST originate from origin/dev. To proceed:")
+  deploy_messages+=("    1. Merge your work to dev (PR + CI green).")
+  deploy_messages+=("    2. git fetch origin")
+  deploy_messages+=("    3. git push ${remote_name} origin/dev:main")
+  deploy_messages+=("")
+  deploy_messages+=("  Need to bypass for an emergency hotfix? Re-run with --no-verify:")
+  deploy_messages+=("    git push --no-verify ${remote_name} <sha>:main")
+  deploy_messages+=("")
+  deploy_violation=1
+done
+
+if [[ $deploy_violation -eq 1 ]]; then
+  for line in "${deploy_messages[@]}"; do
+    printf '%s\n' "$line" >&2
+  done
+  exit 1
+fi
+
+exit 0

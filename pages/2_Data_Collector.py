@@ -28,6 +28,12 @@ st.markdown("---")
 
 if "data_collector" not in st.session_state:
     st.session_state.data_collector = DataCollectorAgent()
+# ``data_collector_results`` is initialised independently of the agent
+# itself: ``utils.pipeline_refresh`` may seed ``st.session_state.data_collector``
+# from another page (Mission Control, ROI), which would otherwise skip the
+# guard above and leave ``data_collector_results`` unset — line 626 then
+# raises ``AttributeError`` when this page is opened second.
+if "data_collector_results" not in st.session_state:
     st.session_state.data_collector_results = None
 # Hydrate the per-user connection manager from persistent storage.
 # Stashes the result under st.session_state.conn_manager so the rest of
