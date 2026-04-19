@@ -6,6 +6,7 @@ Presents two tabs — Sign In and Create account — backed by
 import streamlit as st
 
 from utils.auth import (
+    RateLimitExceeded,
     current_user,
     login,
     logout,
@@ -87,15 +88,20 @@ with tab_signin:
         if not identifier or not password:
             st.error("Enter your username/email and password.")
         else:
-            user = login(identifier, password)
-            if user is None:
-                st.error("Invalid credentials. Please check your username/email and password.")
+            try:
+                user = login(identifier, password)
+            except RateLimitExceeded as exc:
+                user = None
+                st.error(f"🚧 {exc}")
             else:
-                st.success(f"Welcome, {user.get('full_name') or user.get('username')}! Redirecting…")
-                try:
-                    st.switch_page("pages/1_Mission_Control.py")
-                except Exception:
-                    st.rerun()
+                if user is None:
+                    st.error("Invalid credentials. Please check your username/email and password.")
+                else:
+                    st.success(f"Welcome, {user.get('full_name') or user.get('username')}! Redirecting…")
+                    try:
+                        st.switch_page("pages/1_Mission_Control.py")
+                    except Exception:
+                        st.rerun()
 
 # ---------------------------------------------------------------------------
 # Sign up

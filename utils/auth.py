@@ -26,6 +26,9 @@ import hashlib
 import os
 import re
 import secrets
+import threading
+import time
+from collections import deque
 from typing import Optional
 
 import streamlit as st
@@ -72,6 +75,47 @@ SESSION_TTL_SECONDS = int(os.getenv("ESG_AUTH_TTL", str(60 * 60 * 24 * 14)))  # 
 COOKIE_SALT = "esg-copilot-session-v1"
 MIN_PASSWORD_LENGTH = 8
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_.\-]{3,32}$")
+
+# Rate limits (per identifier, rolling window). In-memory only — fine for
+# one Space replica. If we ever run multi-replica we'll need a shared
+# backend (Redis / the HF Dataset itself). Keep the numbers generous so
+# real users aren't impeded; these exist to blunt brute-force / script
+# abuse, not to annoy legitimate traffic.
+LOGIN_RATE_LIMIT = int(os.getenv("ESG_AUTH_LOGIN_LIMIT", "10"))      # attempts
+LOGIN_RATE_WINDOW = int(os.getenv("ESG_AUTH_LOGIN_WINDOW", "300"))   # seconds (5 min)
+SIGNUP_RATE_LIMIT = int(os.getenv("ESG_AUTH_SIGNUP_LIMIT", "5"))
+SIGNUP_RATE_WINDOW = int(os.getenv("ESG_AUTH_SIGNUP_WINDOW", "3600"))  # 1h
+
+_rate_lock = threading.Lock()
+_login_attempts: dict[str, deque] = {}
+_signup_attempts: dict[str, deque] = {}
+
+
+class RateLimitExceeded(ValueError):
+    """Raised when too many auth attempts from the same identifier."""
+
+
+def _check_rate_limit(bucket: dict[str, deque], key: str,
+                       limit: int, window: int) -> None:
+    """Record an attempt and raise if we've exceeded ``limit`` in ``window``.
+
+    Keyed on the normalised identifier (username lowered, remote IP
+    would be ideal but Streamlit doesn't expose it reliably). This is
+    a best-effort brake, not a security boundary.
+    """
+    now = time.monotonic()
+    with _rate_lock:
+        dq = bucket.setdefault(key, deque())
+        # Drop entries older than the window.
+        while dq and (now - dq[0]) > window:
+            dq.popleft()
+        if len(dq) >= limit:
+            oldest = dq[0]
+            retry_in = int(window - (now - oldest)) + 1
+            raise RateLimitExceeded(
+                f"Too many attempts. Try again in ~{retry_in}s."
+            )
+        dq.append(now)
 
 
 def _resolve_secret() -> str:
@@ -237,11 +281,21 @@ def signup(
     full_name: str = "",
     role: str = "viewer",
 ) -> dict:
-    """Create a new user. Raises ``ValueError`` on validation / duplicates."""
+    """Create a new user. Raises ``ValueError`` on validation / duplicates.
+
+    Rate-limited per username-or-email to blunt signup-spam scripts. The
+    cap is intentionally generous (5/hour) so a real user typo-ing their
+    password a few times isn't locked out.
+    """
     username = _validate_username(username)
     email = _validate_email(email)
     _validate_password(password)
     full_name = (full_name or "").strip() or username
+
+    _check_rate_limit(_signup_attempts, username.lower(),
+                      SIGNUP_RATE_LIMIT, SIGNUP_RATE_WINDOW)
+    _check_rate_limit(_signup_attempts, email.lower(),
+                      SIGNUP_RATE_LIMIT, SIGNUP_RATE_WINDOW)
 
     store = get_user_store()
     user = User(
@@ -259,10 +313,18 @@ def signup(
 
 
 def login(identifier: str, password: str) -> Optional[dict]:
-    """Authenticate using *username or email* + password."""
+    """Authenticate using *username or email* + password.
+
+    Rate-limited to slow credential-stuffing against a known identifier.
+    Raises :class:`RateLimitExceeded` when tripped so the caller can
+    surface the retry window instead of silently returning ``None``
+    (which would look like a bad password).
+    """
     identifier = (identifier or "").strip()
     if not identifier or not password:
         return None
+    _check_rate_limit(_login_attempts, identifier.lower(),
+                      LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW)
     store = get_user_store()
     user = store.find_by_username(identifier)
     if user is None and "@" in identifier:
@@ -284,6 +346,15 @@ def logout() -> None:
     # doesn't briefly inherit this account's sources before hydration.
     st.session_state.pop("conn_manager", None)
     st.session_state.pop("_conn_manager_owner", None)
+    # Same idea for the per-user company profile / CompanyConfig.
+    st.session_state.pop("company_profile", None)
+    st.session_state.pop("_company_profile_owner", None)
+    st.session_state.pop("_company_cfg", None)
+    try:
+        from core.company_config import set_active_company_config
+        set_active_company_config(None)
+    except Exception:
+        pass
     _delete_cookie()
 
 
@@ -333,9 +404,22 @@ def current_user() -> Optional[dict]:
 # Page gate + sidebar
 # ---------------------------------------------------------------------------
 def require_login(message: str = "Please sign in to access this page.") -> dict:
-    """Gate a page. Renders a sign-in CTA + calls ``st.stop()`` if unauthed."""
+    """Gate a page. Renders a sign-in CTA + calls ``st.stop()`` if unauthed.
+
+    Side effect on success: binds the signed-in user's :class:`CompanyConfig`
+    to the current thread so every agent import of ``company_cfg`` in this
+    rerun automatically resolves to the user's profile. Imported lazily
+    to avoid a circular dependency at module-load time.
+    """
     user = current_user()
     if user:
+        try:
+            from utils.session import get_session_company_config
+            get_session_company_config()
+        except Exception:
+            # Never let a profile-store hiccup block access to a page
+            # the user has already authenticated for.
+            pass
         return user
 
     st.markdown(

@@ -59,6 +59,23 @@ DEFAULT_DATASET = os.getenv("ESG_AUTH_DATASET", "isayan58/esg-copilot-auth")
 SOURCES_DIR_IN_REPO = "sources"
 LOCAL_FALLBACK_DIR = Path("data") / "sources"
 CACHE_TTL_SECONDS = 30
+MAX_RETRIES = 3
+
+# Hard cap on the total serialised size of a single user's sources file.
+# Uploaded files are base64-encoded in-place, so a 2 MB raw upload becomes
+# ~2.7 MB JSON — cap at 4 MB to leave headroom without risking HF rate
+# limits or pathological session_state bloat.
+MAX_PAYLOAD_BYTES = int(os.getenv("ESG_SOURCE_MAX_BYTES", str(4 * 1024 * 1024)))
+
+
+class SourcePayloadTooLarge(ValueError):
+    """Raised when a user's saved sources would exceed the size cap.
+
+    The UI catches this and asks the user to switch from an inline
+    upload to an external connector (S3, Snowflake, Google Sheets) so
+    the bytes live in the source-of-truth system, not in the per-user
+    profile file.
+    """
 
 
 def _resolve_token() -> Optional[str]:
@@ -262,15 +279,38 @@ class SourceStore:
         return records
 
     def _save_raw(self, username: str, records: list[dict]) -> None:
+        # Enforce the size cap up front so the user gets a clean error
+        # rather than a mysterious HF 413 / local disk blowup. We
+        # serialise once and reuse the bytes if the write proceeds.
+        payload = json.dumps(records, indent=2, ensure_ascii=False).encode("utf-8")
+        if len(payload) > MAX_PAYLOAD_BYTES:
+            raise SourcePayloadTooLarge(
+                f"Saved sources would be {len(payload):,} bytes "
+                f"(cap {MAX_PAYLOAD_BYTES:,}). Switch inline-upload "
+                "sources to an external connector (S3, Snowflake, "
+                "Google Sheets) so the bytes stay in the source system."
+            )
+
         if self._api is not None and self._resolved_backend in (None, "hf_dataset"):
-            try:
-                self._save_to_hf(username, records)
-                self._resolved_backend = "hf_dataset"
-                self._last_error = None
-                self._last_error_at = None
-                return
-            except Exception as exc:
-                self._record_error(exc)
+            last_exc: BaseException | None = None
+            for attempt in range(MAX_RETRIES):
+                try:
+                    self._save_to_hf(username, records, payload=payload)
+                    self._resolved_backend = "hf_dataset"
+                    self._last_error = None
+                    self._last_error_at = None
+                    return
+                except HfHubHTTPError as exc:
+                    last_exc = exc
+                    status = getattr(getattr(exc, "response", None), "status_code", None)
+                    if status not in (409, 412, 503):
+                        break
+                    time.sleep(0.25 * (2 ** attempt))
+                except Exception as exc:
+                    last_exc = exc
+                    break
+            if last_exc is not None:
+                self._record_error(last_exc)
         self._save_to_local(username, records)
         self._resolved_backend = "local_json"
 
@@ -303,10 +343,12 @@ class SourceStore:
         except (OSError, json.JSONDecodeError):
             return []
 
-    def _save_to_hf(self, username: str, records: list[dict]) -> None:
+    def _save_to_hf(self, username: str, records: list[dict],
+                    payload: bytes | None = None) -> None:
         assert self._api is not None
         self._ensure_dataset_exists()
-        payload = json.dumps(records, indent=2, ensure_ascii=False).encode("utf-8")
+        if payload is None:
+            payload = json.dumps(records, indent=2, ensure_ascii=False).encode("utf-8")
         self._api.upload_file(
             path_or_fileobj=io.BytesIO(payload),
             path_in_repo=self._path_in_repo(username),

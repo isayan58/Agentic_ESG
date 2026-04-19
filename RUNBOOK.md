@@ -9,7 +9,8 @@ Complete technical reference for all 9 AI agents: architecture, calculations, sc
 1. [Architecture Overview](#architecture-overview)
 2. [Agent Dependency Graph](#agent-dependency-graph)
 3. [Core Infrastructure](#core-infrastructure)
-4. [Agent 1: Data Collector](#agent-1-data-collector)
+4. [Data ETL & Freshness](#data-etl--freshness)
+5. [Agent 1: Data Collector](#agent-1-data-collector)
 5. [Agent 2: Regulatory Tracker](#agent-2-regulatory-tracker)
 6. [Agent 3: Carbon Accountant](#agent-3-carbon-accountant)
 7. [Agent 4: Report Generator](#agent-4-report-generator)
@@ -198,6 +199,96 @@ Wraps HuggingFace Inference API with automatic fallback:
 | `summarize(text)` | BART-large-CNN | First 3 sentences |
 | `classify(text, labels)` | BART-large-MNLI (zero-shot) | Deterministic hash-based scoring |
 | `analyze_sentiment(text)` | DistilBERT-SST-2 | Keyword positive/negative counting |
+
+---
+
+## Data ETL & Freshness
+
+ESG CoPilot does **not** use Airflow, dbt, Prefect, Dagster, Luigi, or any external orchestration framework. The ETL is a bespoke, in-process, per-user pipeline — all four stages run inside the Streamlit worker for the session that triggered them.
+
+### Why in-process, not an external scheduler?
+
+- **Per-user isolation.** Every source is owned by a specific signed-in account; there is no "global" dataset to schedule against. An external orchestrator would need per-user DAGs for no operational gain.
+- **Deterministic freshness.** Pipelines fire on explicit Runs, not cron. A user always knows the dashboard reflects the last Run they initiated — no "is this stale" question.
+- **Zero ops footprint.** Runs on any Streamlit-compatible host (HuggingFace Spaces, Streamlit Cloud, a laptop). No broker, no worker pool, no DB.
+
+### Layers
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  pages/<page>.py  →  refresh_real_data()  →  agent.run()    │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+  ┌──────────────────────────────────────────────────────┐
+  │ L4. Publication  (core/state_manager.py)             │
+  │      dataset_emissions, dataset_esg_metrics, …       │
+  └──────────────────────────────────────────────────────┘
+                           ▲
+                           │   publish mapped DataFrame
+  ┌──────────────────────────────────────────────────────┐
+  │ L3. Orchestration  (utils/connection_manager.py)     │
+  │      fetch_all_by_schema(use_cache=True)             │
+  │      — per-source signature cache                    │
+  │      — schema-level concatenation                    │
+  └──────────────────────────────────────────────────────┘
+                           ▲
+                           │   fetch + map
+  ┌──────────────────────────────────────────────────────┐
+  │ L2. Schema mapping  (utils/schema_mapper.py)         │
+  │      auto_detect_schema → suggest_column_mapping     │
+  │      → apply_column_mapping                          │
+  └──────────────────────────────────────────────────────┘
+                           ▲
+                           │   raw DataFrame
+  ┌──────────────────────────────────────────────────────┐
+  │ L1. Connectors  (utils/real_connectors.py,           │
+  │                 utils/connectors.py)                 │
+  │      CSV, Google Sheets, S3, GCS, Azure Blob,        │
+  │      Snowflake, BigQuery, REST, SQL, Delta           │
+  └──────────────────────────────────────────────────────┘
+```
+
+**Layer 1 – Connectors.** Each adapter implements `fetch(**config) → DataFrame`. SDK imports are lazy, so a missing `boto3` never blocks users who aren't using S3. Upload connectors stream bytes from `st.file_uploader`; cloud connectors accept a folder prefix and auto-discover CSV/JSON/Excel/Parquet.
+
+**Layer 2 – Schema mapping.** Raw columns are matched against seven canonical schemas (`emissions`, `esg_metrics`, `supply_chain`, `energy`, `waste`, `diversity`, `financials`) plus five peer-benchmark schemas. `apply_column_mapping` renames, coerces types, and drops un-mappable columns so every agent downstream sees canonical field names.
+
+**Layer 3 – Orchestration (`ConnectionManager`).** Per-user registry of configured sources, persisted via `utils.source_store`. Drives the ETL with two important properties:
+
+- **Per-source SHA-256 signature cache** (`_signature(connector_type, target_schema, column_mapping, config)`). Unchanged sources skip the remote fetch on subsequent Runs. A config edit flips the signature and forces re-fetch.
+- **Schema-level concatenation** (`fetch_all_by_schema`). Multiple sources targeting the same schema (e.g. two S3 folders of emissions data) are concatenated so agents see a single unified DataFrame.
+
+**Layer 4 – Publication.** Mapped DataFrames are published to the in-memory `state_manager` pub/sub bus under `dataset_<schema>` channels. Every agent reads via `core.data_access.get_dataset(schema, fallback_loader)` which transparently falls back to the bundled sample files when the channel is empty — useful for first-time sign-in and for running an agent in isolation during development.
+
+### Run trigger & freshness
+
+Every page button that reads data calls `utils.pipeline_refresh.refresh_real_data()` before invoking the agent. The refresher:
+
+1. Loads the signed-in user's `ConnectionManager` via `utils.session.get_session_connection_manager()`.
+2. Calls `fetch_all_by_schema(use_cache=True)` — so unchanged sources are free, changed sources re-fetch.
+3. Publishes results to shared state and records a `last_fetch` timestamp per source.
+4. Exposes `data_freshness_caption()` which each page renders under its title so users can see "Fetched 42 seconds ago from 3 sources."
+
+`core.orchestrator.Orchestrator` sequences agent execution respecting the dependency graph (Data → Regulatory/Carbon/Risk → Audit → Report/Action → Stakeholder) so published datasets are available before any dependent agent executes.
+
+### Concurrency model
+
+All persistence writes (`user_store.save`, `source_store.save`, `profile_store.save`) go through the same pattern:
+
+1. In-process `threading.RLock` around every read-modify-write.
+2. Retry loop (3 attempts with exponential backoff 0.25 → 0.5 → 1 s) on HF Dataset 409/412/503 responses so a racing commit from another process doesn't silently drop a write.
+3. On terminal failure, fall back to ephemeral local JSON and surface the full exception chain via `store.diagnostic()` in the sidebar.
+4. `user_store.create_user` additionally re-reads the user list inside each retry attempt so two concurrent signups can't both think the username is free.
+
+Per-user files (`sources/{username}.json`, `profiles/{username}.json`) only collide when the same user has multiple tabs racing — the last write wins by design, and both the source store and profile store invalidate their process-wide cache on save so the "losing" tab sees the winning state on its next rerun.
+
+### Size guardrails
+
+`utils.source_store.MAX_PAYLOAD_BYTES` (default 4 MB, override via `ESG_SOURCE_MAX_BYTES`) caps a single user's serialised source registry. Inline-upload bytes are base64-encoded inside the JSON, so we reject saves that would balloon the profile file and ask the user to switch to an external connector (S3, Snowflake, Google Sheets) instead. This keeps session-state and HF commits well under HF's 100 MB-per-file limit and avoids the "why is sign-in taking 30 seconds" failure mode caused by multi-megabyte profile loads.
+
+### Error surfacing
+
+Every store exposes `diagnostic()` returning `{backend, label, has_token, dataset, last_error, last_error_at}`. The sidebar auth widget reads these and shows a coloured indicator (green = HF persistent, amber = local ephemeral, red = no token / write failure) with an expandable error panel that walks the exception chain (`__cause__` → `__context__`) — this is how we caught the `ValueError` wrapping issue in `hf_hub_download` when first-time users appeared to fall back to local storage.
 
 ---
 
