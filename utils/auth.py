@@ -387,6 +387,51 @@ _HIDE_SIGNIN_NAV_CSS = """
 """
 
 
+def _render_storage_diagnostic() -> None:
+    """Show the persistence backend (and the last HF error if any) in the
+    sidebar. This is the loud signal you need when ``HF_TOKEN`` is misset:
+    instead of "looks fine but data vanished on rebuild", you'll see
+    ``Local JSON — ephemeral`` plus the exception that pushed you there.
+    """
+    try:
+        from utils.user_store import get_user_store
+        from utils.source_store import get_source_store
+    except Exception:
+        return
+
+    user_diag = get_user_store().diagnostic()
+    src_diag = get_source_store().diagnostic()
+    backend = user_diag.get("backend") or src_diag.get("backend")
+    err = user_diag.get("last_error") or src_diag.get("last_error")
+
+    # Color-coded one-liner — green for HF, amber for local fallback.
+    if backend == "hf_dataset":
+        color, label = "#16a34a", "HF Dataset (persistent)"
+    elif backend == "local_json":
+        color, label = "#d97706", "Local JSON (ephemeral)"
+    else:
+        # Backend hasn't been resolved yet — show token presence so the
+        # operator can confirm HF_TOKEN was even read by the process.
+        has_token = user_diag.get("has_token") or src_diag.get("has_token")
+        color = "#16a34a" if has_token else "#dc2626"
+        label = (
+            "HF token detected — backend resolves on first signup/login"
+            if has_token else "No HF_TOKEN — set as a Space secret"
+        )
+
+    st.caption(
+        f"<span style='color:{color}'>● Storage: {label}</span>",
+        unsafe_allow_html=True,
+    )
+    if err:
+        with st.expander("⚠ Last persistence error", expanded=False):
+            st.code(err, language="text")
+            st.caption(
+                f"Dataset: `{user_diag.get('dataset')}` · "
+                f"Token loaded: {'yes' if user_diag.get('has_token') else 'no'}"
+            )
+
+
 def sidebar_auth_widget() -> None:
     """Render a compact auth widget in the sidebar on every page."""
     user = current_user()
@@ -395,6 +440,7 @@ def sidebar_auth_widget() -> None:
         st.markdown(_HIDE_SIGNIN_NAV_CSS, unsafe_allow_html=True)
     with st.sidebar:
         st.markdown("---")
+        _render_storage_diagnostic()
         if user:
             name = user.get("full_name") or user.get("username", "user")
             role = user.get("role", "viewer").title()

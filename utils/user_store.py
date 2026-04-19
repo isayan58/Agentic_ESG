@@ -120,6 +120,10 @@ class UserStore:
         # The authoritative backend decided on first successful operation.
         # "hf_dataset" when we can read/write the dataset, else "local_json".
         self._resolved_backend: Optional[str] = None
+        # Diagnostic: captured exception text whenever the HF backend
+        # silently fell back to local JSON. Surfaced via diagnostic().
+        self._last_error: Optional[str] = None
+        self._last_error_at: Optional[str] = None
 
     # -- Public helpers -----------------------------------------------------
     @property
@@ -133,6 +137,22 @@ class UserStore:
         if self._resolved_backend == "local_json":
             return f"Local JSON ({LOCAL_FALLBACK_PATH}) — ephemeral"
         return "Unresolved — will pick backend on first read"
+
+    def diagnostic(self) -> dict:
+        """Structured diagnostic for the sidebar / debug pages."""
+        return {
+            "backend": self._resolved_backend,
+            "label": self.backend_label(),
+            "has_token": bool(self._token),
+            "dataset": self._dataset,
+            "last_error": self._last_error,
+            "last_error_at": self._last_error_at,
+        }
+
+    def _record_error(self, exc: BaseException) -> None:
+        """Capture exception text + timestamp so the UI can show why HF failed."""
+        self._last_error = f"{type(exc).__name__}: {exc}"
+        self._last_error_at = _utcnow_iso()
 
     # -- CRUD --------------------------------------------------------------
     def find_by_username(self, username: str) -> Optional[User]:
@@ -200,10 +220,14 @@ class UserStore:
                 self._resolved_backend = "hf_dataset"
                 self._cache = users
                 self._cache_loaded_at = time.time()
+                # A successful read clears any prior error.
+                self._last_error = None
+                self._last_error_at = None
                 return users
-            except Exception:
-                # Fall through to local JSON if HF read fails for any reason
-                pass
+            except Exception as exc:
+                # Fall through to local JSON, but record why so the UI can
+                # tell the user their writes are going to ephemeral storage.
+                self._record_error(exc)
 
         users = self._load_from_local()
         self._resolved_backend = "local_json"
@@ -218,10 +242,13 @@ class UserStore:
             try:
                 self._save_to_hf(users)
                 self._resolved_backend = "hf_dataset"
+                self._last_error = None
+                self._last_error_at = None
                 return
-            except Exception:
-                # Fall through to local if HF write fails
-                pass
+            except Exception as exc:
+                # Capture the failure reason before falling back so the
+                # operator can see exactly which HF call failed and why.
+                self._record_error(exc)
         self._save_to_local(users)
         self._resolved_backend = "local_json"
 
