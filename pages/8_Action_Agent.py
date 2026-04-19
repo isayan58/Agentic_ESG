@@ -2,11 +2,20 @@
 import streamlit as st
 import pandas as pd
 from agents.action_agent import ActionAgent
-from utils.charts import action_timeline
+from utils.charts import action_timeline, chart_unavailable_message
+from utils.streamlit_compat import safe_dataframe
+from utils.auth import require_login, sidebar_auth_widget
+from utils.ui import inject_global_css, pwc_header
+from utils.pipeline_refresh import data_freshness_caption
 
 st.set_page_config(page_title="Action Agent | ESG CoPilot", page_icon="🎯", layout="wide")
+inject_global_css()
+pwc_header()
+sidebar_auth_widget()
+require_login("Sign in to access the Action Agent.")
 st.title("🎯 Action Agent")
 st.markdown("*Generates prioritized, actionable ESG recommendations with timelines*")
+data_freshness_caption(can_refresh=False)
 st.markdown("---")
 
 if "action_agent" not in st.session_state:
@@ -14,6 +23,13 @@ if "action_agent" not in st.session_state:
     st.session_state.action_results = None
 
 agent = st.session_state.action_agent
+
+
+def render_chart(fig):
+    if fig is None:
+        st.info(chart_unavailable_message())
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
 st.info("For best results, run Risk Predictor, Audit Agent, and Carbon Accountant first.")
 
@@ -83,12 +99,12 @@ if results and "error" not in results:
             actions_df = pd.DataFrame(actions)
             if "duration_weeks" in actions_df.columns:
                 fig = action_timeline(actions_df)
-                st.plotly_chart(fig, use_container_width=True)
+                render_chart(fig)
 
             # Summary table
             display_cols = ["id", "action", "priority", "category", "duration_weeks", "start_date", "end_date"]
             available_cols = [c for c in display_cols if c in actions_df.columns]
-            st.dataframe(actions_df[available_cols], use_container_width=True, hide_index=True)
+            safe_dataframe(actions_df[available_cols], use_container_width=True, hide_index=True)
 
     with tab3:
         narrative = results.get("roadmap_narrative", "")

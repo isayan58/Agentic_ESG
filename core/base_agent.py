@@ -5,7 +5,7 @@ from core.hf_client import hf_client
 
 
 class BaseAgent(ABC):
-    """Base class that all 8 agents inherit from."""
+    """Base class that all ESG CoPilot agents inherit from."""
 
     def __init__(self, name, description):
         self.name = name

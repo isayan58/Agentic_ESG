@@ -5,7 +5,8 @@ from core.state_manager import state_manager
 from core.company_config import company_cfg
 from utils.data_processing import (
     load_emissions, load_esg_metrics, load_supply_chain,
-    load_energy, load_waste, load_diversity, compute_data_quality,
+    load_energy, load_waste, load_diversity, load_financials,
+    compute_data_quality,
 )
 from utils.connectors import get_all_connectors
 
@@ -21,7 +22,7 @@ class DataCollectorAgent(BaseAgent):
         self.missing_data_alerts = []
 
     def execute(self, uploaded_files=None, use_connectors=True,
-                connection_manager=None, **kwargs):
+                connection_manager=None, use_cache=False, **kwargs):
         self.log("Starting autonomous data collection")
         datasets = {}
         quality_scores = {}
@@ -30,7 +31,13 @@ class DataCollectorAgent(BaseAgent):
         if connection_manager is not None and connection_manager.has_sources():
             self.log("Fetching from real data sources...")
             try:
-                by_schema = connection_manager.fetch_all_by_schema()
+                # use_cache=True reuses per-source DataFrames when the
+                # source config signature is unchanged, so unchanged
+                # Snowflake queries don't re-execute on every Run.
+                try:
+                    by_schema = connection_manager.fetch_all_by_schema(use_cache=use_cache)
+                except TypeError:
+                    by_schema = connection_manager.fetch_all_by_schema()
                 for schema_name, df in by_schema.items():
                     if not df.empty:
                         key = f"real_{schema_name}"
@@ -50,6 +57,7 @@ class DataCollectorAgent(BaseAgent):
             "energy": load_energy,
             "waste": load_waste,
             "diversity": load_diversity,
+            "financials": load_financials,
         }
 
         for name, loader in sources.items():
@@ -80,17 +88,45 @@ class DataCollectorAgent(BaseAgent):
 
         # ── Phase 3: Process uploaded files ──
         if uploaded_files:
+            from utils.schema_mapper import auto_detect_schema, suggest_column_mapping, apply_column_mapping
+            _canonical_schema_names = [
+                "emissions", "esg_metrics", "supply_chain",
+                "energy", "waste", "diversity", "financials",
+                # Peer benchmarking schemas (optional — no missing-data alerts)
+                "peer_companies", "peer_financials", "peer_esg",
+                "peer_metrics", "peer_benchmark",
+            ]
             for file_name, file_data in uploaded_files.items():
                 try:
-                    if file_name.endswith(".csv"):
+                    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+                    if ext == "csv":
                         df = pd.read_csv(file_data)
-                    elif file_name.endswith(".json"):
+                    elif ext in ("xlsx", "xls"):
+                        df = pd.read_excel(file_data)
+                    elif ext == "json":
                         df = pd.read_json(file_data)
                     else:
+                        self.log(f"Skipping unsupported format: {file_name}")
                         continue
-                    datasets[file_name] = df
-                    quality_scores[file_name] = compute_data_quality(df)
-                    self.log(f"Ingested uploaded file: {file_name}")
+
+                    # Try to map to a canonical schema so downstream agents
+                    # receive real data instead of sample data.
+                    detected = auto_detect_schema(df)
+                    if detected and detected in _canonical_schema_names:
+                        mapping = suggest_column_mapping(df, detected)
+                        mapped_df = apply_column_mapping(df, mapping, detected)
+                        # Store under the canonical name (real_ prefix so
+                        # _resolve_canonical_datasets picks it over sample data).
+                        key = f"real_{detected}"
+                        datasets[key] = mapped_df if not mapped_df.empty else df
+                        self.log(f"Uploaded file '{file_name}' mapped to schema '{detected}' ({len(df)} rows)")
+                    else:
+                        # Store by filename as a supplementary dataset.
+                        key = file_name
+                        datasets[key] = df
+                        self.log(f"Ingested uploaded file: {file_name} (schema undetected, stored as-is)")
+
+                    quality_scores[key] = compute_data_quality(datasets[key])
                 except Exception as e:
                     self.log(f"Error processing {file_name}: {e}")
 
@@ -98,6 +134,9 @@ class DataCollectorAgent(BaseAgent):
         self.missing_data_alerts = self._detect_missing_data(datasets, quality_scores)
         for alert in self.missing_data_alerts:
             self.log(f"ALERT: {alert['message']}")
+
+        # Canonical datasets are what downstream analytics should consume.
+        canonical_datasets = self._resolve_canonical_datasets(datasets)
 
         # ── Phase 5: Compute overall quality ──
         overall_completeness = 0
@@ -118,6 +157,8 @@ class DataCollectorAgent(BaseAgent):
         # Publish validated data to shared state
         for name, df in datasets.items():
             state_manager.publish(f"validated_{name}", df.to_dict(), self.name)
+        for schema_name, payload in canonical_datasets.items():
+            state_manager.publish(f"dataset_{schema_name}", payload["data"], self.name)
 
         results = {
             "datasets_loaded": len(datasets),
@@ -127,6 +168,13 @@ class DataCollectorAgent(BaseAgent):
             "overall_confidence": round(overall_confidence, 1),
             "quality_issues": quality_issues,
             "dataset_names": list(datasets.keys()),
+            "canonical_datasets": {
+                name: {
+                    "source": payload["source"],
+                    "records": len(payload["data"]),
+                }
+                for name, payload in canonical_datasets.items()
+            },
             "connector_statuses": self.connector_statuses,
             "missing_data_alerts": self.missing_data_alerts,
             "confidence_scores": confidence_scores,
@@ -146,6 +194,7 @@ class DataCollectorAgent(BaseAgent):
             "energy": "Energy consumption data — required for BRSR, GRI 302, SASB",
             "waste": "Waste management data — required for BRSR, GRI 306",
             "diversity": "Workforce diversity data — required for BRSR, CSRD S1, GRI 405",
+            "financials": "Financial data — required for ESG ROI, J-Curve, and KPI correlations",
         }
         for key, desc in expected.items():
             if key not in datasets:
@@ -164,6 +213,31 @@ class DataCollectorAgent(BaseAgent):
                     "action": f"Review and fill missing fields in {key}",
                 })
         return alerts
+
+    def _resolve_canonical_datasets(self, datasets):
+        """Choose one canonical dataset per schema for downstream analytics."""
+        canonical = {}
+        schema_names = [
+            "emissions", "esg_metrics", "supply_chain",
+            "energy", "waste", "diversity", "financials",
+            # Peer benchmarking schemas
+            "peer_companies", "peer_financials", "peer_esg",
+            "peer_metrics", "peer_benchmark",
+        ]
+
+        for schema_name in schema_names:
+            if f"real_{schema_name}" in datasets and not datasets[f"real_{schema_name}"].empty:
+                canonical[schema_name] = {
+                    "source": "real_source",
+                    "data": datasets[f"real_{schema_name}"].copy(),
+                }
+            elif schema_name in datasets and not datasets[schema_name].empty:
+                canonical[schema_name] = {
+                    "source": "sample_dataset",
+                    "data": datasets[schema_name].copy(),
+                }
+
+        return canonical
 
     def _compute_confidence_scores(self, datasets, quality_scores):
         """Assign verifiable trust scores per dataset for audit readiness."""

@@ -1,6 +1,6 @@
 # ESG CoPilot — Agent Runbook
 
-Complete technical reference for all 8 AI agents: architecture, calculations, scoring logic, data flows, and operational procedures.
+Complete technical reference for all 9 AI agents: architecture, calculations, scoring logic, data flows, and operational procedures.
 
 ---
 
@@ -9,19 +9,22 @@ Complete technical reference for all 8 AI agents: architecture, calculations, sc
 1. [Architecture Overview](#architecture-overview)
 2. [Agent Dependency Graph](#agent-dependency-graph)
 3. [Core Infrastructure](#core-infrastructure)
-4. [Agent 1: Data Collector](#agent-1-data-collector)
+4. [Data ETL & Freshness](#data-etl--freshness)
+5. [Agent 1: Data Collector](#agent-1-data-collector)
 5. [Agent 2: Regulatory Tracker](#agent-2-regulatory-tracker)
 6. [Agent 3: Carbon Accountant](#agent-3-carbon-accountant)
 7. [Agent 4: Report Generator](#agent-4-report-generator)
 8. [Agent 5: Risk Predictor](#agent-5-risk-predictor)
-9. [Agent 6: Audit Agent](#agent-6-audit-agent)
-10. [Agent 7: Action Agent](#agent-7-action-agent)
-11. [Agent 8: Stakeholder Agent](#agent-8-stakeholder-agent)
-12. [Data Connectors](#data-connectors) (incl. Delta Lake, folder/prefix mode)
-13. [Schema Mapping & Validation](#schema-mapping--validation)
-14. [AI Models & Fallbacks](#ai-models--fallbacks)
-15. [Deployment](#deployment)
-16. [Troubleshooting](#troubleshooting)
+9. [Agent 6: ESG ROI Agent](#agent-6-esg-roi-agent)
+10. [Agent 7: Audit Agent](#agent-7-audit-agent)
+11. [Agent 8: Action Agent](#agent-8-action-agent)
+12. [Agent 9: Stakeholder Agent](#agent-9-stakeholder-agent)
+13. [Data Connectors](#data-connectors) (incl. Delta Lake, folder/prefix mode)
+14. [Schema Mapping & Validation](#schema-mapping--validation)
+15. [AI Models & Fallbacks](#ai-models--fallbacks)
+16. [Data Freshness & Pipeline Refresh](#data-freshness--pipeline-refresh)
+17. [Deployment](#deployment)
+18. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -31,23 +34,27 @@ Complete technical reference for all 8 AI agents: architecture, calculations, sc
 ┌─────────────────────────────────────────────────────────────┐
 │                    ESG CoPilot Platform                      │
 ├─────────────────────────────────────────────────────────────┤
-│  UI Layer:  Streamlit (9 pages)   |  Gradio (tabbed)        │
+│  UI Layer:  Streamlit (10 pages)  |  Gradio (tabbed)        │
 ├─────────────────────────────────────────────────────────────┤
 │  Orchestrator: Manages dependency graph & pipeline execution │
 ├─────────────────────────────────────────────────────────────┤
-│  8 Agents: Each inherits BaseAgent, uses HFClient           │
+│  9 Agents: Each inherits BaseAgent, uses HFClient           │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
 │  │ Data     │→│ Regulatory│→│ Carbon   │→│ Risk     │       │
 │  │ Collector│ │ Tracker   │ │ Accountant│ │ Predictor│       │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│  │ Report   │→│ Audit    │→│ Action   │→│Stakeholder│      │
-│  │ Generator│ │ Agent    │ │ Agent    │ │ Agent     │      │
+│  │ Audit    │→│ ROI      │→│ Report   │→│ Action   │       │
+│  │ Agent    │ │ Agent    │ │ Generator│ │ Agent    │       │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
+│                           ┌──────────┐                     │
+│                           │Stakeholder│                    │
+│                           │ Agent     │                    │
+│                           └──────────┘                     │
 ├─────────────────────────────────────────────────────────────┤
-│  State Manager (pub/sub)  |  HF Inference API  |  Connectors│
+│  State Manager (pub/sub)  | KPI Engine | HF API | Connectors│
 ├─────────────────────────────────────────────────────────────┤
-│  Data: CSV/JSON samples  |  Real Sources  |  Cloud Storage   │
+│  Data: CSV/JSON samples + financials | Real Sources | Cloud  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -55,7 +62,7 @@ Complete technical reference for all 8 AI agents: architecture, calculations, sc
 - Python 3.11+
 - Streamlit (dashboard) / Gradio (single-page app)
 - HuggingFace Inference API (Mistral-7B, BART, DistilBERT)
-- Pandas, Plotly, NumPy
+- Pandas, Plotly, NumPy, PyArrow
 - Optional: boto3 (AWS), google-cloud-bigquery (GCP), azure-storage-blob (Azure), deltalake (Delta Lake)
 
 ---
@@ -71,20 +78,23 @@ Pipeline Order:
   3. carbon_accountant    → depends on: data_collector
   4. risk_predictor       → depends on: data_collector, regulatory_tracker
   5. audit_agent          → depends on: data_collector, regulatory_tracker, carbon_accountant
-  6. report_generator     → depends on: audit_agent, carbon_accountant, risk_predictor
-  7. action_agent         → depends on: risk_predictor, audit_agent, report_generator
-  8. stakeholder_agent    → depends on: action_agent, report_generator
+  6. roi_agent            → depends on: data_collector, carbon_accountant, risk_predictor
+  7. report_generator     → depends on: audit_agent, carbon_accountant, risk_predictor, roi_agent
+  8. action_agent         → depends on: risk_predictor, audit_agent, report_generator, roi_agent
+  9. stakeholder_agent    → depends on: action_agent, report_generator
 ```
 
 **State Manager Channels** (pub/sub keys):
 
 | Channel | Published By | Subscribed By |
 |---------|-------------|---------------|
-| `validated_{dataset}` | Data Collector | — |
+| `dataset_{schema}` | Data Collector | All downstream analytical agents |
+| `validated_{dataset}` | Data Collector | Backward-compatible consumers |
 | `data_collection_results` | Data Collector | Audit Agent, Report Generator |
 | `regulatory_results` | Regulatory Tracker | Risk Predictor, Audit Agent, Report Generator, Action Agent |
 | `carbon_results` | Carbon Accountant | Audit Agent, Report Generator, Stakeholder Agent, Action Agent |
 | `risk_results` | Risk Predictor | Action Agent, Stakeholder Agent |
+| `roi_results` | ESG ROI Agent | Report Generator, Action Agent, Stakeholder Agent |
 | `audit_results` | Audit Agent | Report Generator, Action Agent |
 | `report_results` | Report Generator | Stakeholder Agent |
 | `action_results` | Action Agent | Stakeholder Agent |
@@ -121,14 +131,63 @@ state_manager.subscribe(channel)                    # Retrieve data (returns Non
 state_manager.get_all_channels()                    # List all published channels
 ```
 
+### Canonical Data Access (`core/data_access.py`)
+
+Downstream agents now read canonical datasets from shared state first:
+
+```python
+from core.data_access import get_dataset
+
+emissions_df = get_dataset("emissions", fallback_loader=load_emissions)
+financials_df = get_dataset("financials", fallback_loader=load_financials)
+```
+
+This keeps the full pipeline aligned to user-collected data while still allowing single-agent execution with sample fallbacks.
+
+### KPI Engine (`core/kpi_engine.py`)
+
+The KPI Engine is the ESG-to-financial backbone used by the ROI layer:
+
+```python
+kpi_results = kpi_engine.compute_all(
+    financials_df,
+    esg_metrics_df,
+    emissions_df,
+    energy_df,
+    supply_chain_df,
+    diversity_df,
+)
+```
+
+Outputs:
+- ESG-financial correlations
+- Five value-creation channel scores
+- CAGR and volatility
+- Composite ESG-financial score
+
 ### Orchestrator (`core/orchestrator.py`)
 
 ```python
 orchestrator = Orchestrator()
-orchestrator.run_full_pipeline(progress_callback=None)  # All 8 agents in dependency order
+orchestrator.run_full_pipeline(progress_callback=None)  # All 9 agents in dependency order
 orchestrator.run_single_agent("carbon_accountant")      # Single agent
 orchestrator.get_agent("data_collector")                # Access agent instance
 ```
+
+**Passing real data sources into the pipeline**
+
+To wire user-uploaded or registered data sources into the pipeline, pass a `ConnectionManager` instance via `data_collector_kwargs`. This ensures the Data Collector's Phase 0 can fetch real sources instead of falling back to samples:
+
+```python
+orchestrator.run_full_pipeline(
+    progress_callback=None,
+    data_collector_kwargs={"connection_manager": conn_mgr}  # pass real sources
+)
+```
+
+`conn_mgr` is the `ConnectionManager` instance from `st.session_state.conn_manager` (populated by Test & Preview). If `data_collector_kwargs` is omitted or `connection_manager` is `None`, Phase 0 is skipped and the pipeline runs on sample data only.
+
+If a dependency fails, the orchestrator marks the downstream agent as skipped instead of continuing with inconsistent inputs.
 
 ### HFClient (`core/hf_client.py`)
 
@@ -143,6 +202,96 @@ Wraps HuggingFace Inference API with automatic fallback:
 
 ---
 
+## Data ETL & Freshness
+
+ESG CoPilot does **not** use Airflow, dbt, Prefect, Dagster, Luigi, or any external orchestration framework. The ETL is a bespoke, in-process, per-user pipeline — all four stages run inside the Streamlit worker for the session that triggered them.
+
+### Why in-process, not an external scheduler?
+
+- **Per-user isolation.** Every source is owned by a specific signed-in account; there is no "global" dataset to schedule against. An external orchestrator would need per-user DAGs for no operational gain.
+- **Deterministic freshness.** Pipelines fire on explicit Runs, not cron. A user always knows the dashboard reflects the last Run they initiated — no "is this stale" question.
+- **Zero ops footprint.** Runs on any Streamlit-compatible host (HuggingFace Spaces, Streamlit Cloud, a laptop). No broker, no worker pool, no DB.
+
+### Layers
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  pages/<page>.py  →  refresh_real_data()  →  agent.run()    │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+  ┌──────────────────────────────────────────────────────┐
+  │ L4. Publication  (core/state_manager.py)             │
+  │      dataset_emissions, dataset_esg_metrics, …       │
+  └──────────────────────────────────────────────────────┘
+                           ▲
+                           │   publish mapped DataFrame
+  ┌──────────────────────────────────────────────────────┐
+  │ L3. Orchestration  (utils/connection_manager.py)     │
+  │      fetch_all_by_schema(use_cache=True)             │
+  │      — per-source signature cache                    │
+  │      — schema-level concatenation                    │
+  └──────────────────────────────────────────────────────┘
+                           ▲
+                           │   fetch + map
+  ┌──────────────────────────────────────────────────────┐
+  │ L2. Schema mapping  (utils/schema_mapper.py)         │
+  │      auto_detect_schema → suggest_column_mapping     │
+  │      → apply_column_mapping                          │
+  └──────────────────────────────────────────────────────┘
+                           ▲
+                           │   raw DataFrame
+  ┌──────────────────────────────────────────────────────┐
+  │ L1. Connectors  (utils/real_connectors.py,           │
+  │                 utils/connectors.py)                 │
+  │      CSV, Google Sheets, S3, GCS, Azure Blob,        │
+  │      Snowflake, BigQuery, REST, SQL, Delta           │
+  └──────────────────────────────────────────────────────┘
+```
+
+**Layer 1 – Connectors.** Each adapter implements `fetch(**config) → DataFrame`. SDK imports are lazy, so a missing `boto3` never blocks users who aren't using S3. Upload connectors stream bytes from `st.file_uploader`; cloud connectors accept a folder prefix and auto-discover CSV/JSON/Excel/Parquet.
+
+**Layer 2 – Schema mapping.** Raw columns are matched against seven canonical schemas (`emissions`, `esg_metrics`, `supply_chain`, `energy`, `waste`, `diversity`, `financials`) plus five peer-benchmark schemas. `apply_column_mapping` renames, coerces types, and drops un-mappable columns so every agent downstream sees canonical field names.
+
+**Layer 3 – Orchestration (`ConnectionManager`).** Per-user registry of configured sources, persisted via `utils.source_store`. Drives the ETL with two important properties:
+
+- **Per-source SHA-256 signature cache** (`_signature(connector_type, target_schema, column_mapping, config)`). Unchanged sources skip the remote fetch on subsequent Runs. A config edit flips the signature and forces re-fetch.
+- **Schema-level concatenation** (`fetch_all_by_schema`). Multiple sources targeting the same schema (e.g. two S3 folders of emissions data) are concatenated so agents see a single unified DataFrame.
+
+**Layer 4 – Publication.** Mapped DataFrames are published to the in-memory `state_manager` pub/sub bus under `dataset_<schema>` channels. Every agent reads via `core.data_access.get_dataset(schema, fallback_loader)` which transparently falls back to the bundled sample files when the channel is empty — useful for first-time sign-in and for running an agent in isolation during development.
+
+### Run trigger & freshness
+
+Every page button that reads data calls `utils.pipeline_refresh.refresh_real_data()` before invoking the agent. The refresher:
+
+1. Loads the signed-in user's `ConnectionManager` via `utils.session.get_session_connection_manager()`.
+2. Calls `fetch_all_by_schema(use_cache=True)` — so unchanged sources are free, changed sources re-fetch.
+3. Publishes results to shared state and records a `last_fetch` timestamp per source.
+4. Exposes `data_freshness_caption()` which each page renders under its title so users can see "Fetched 42 seconds ago from 3 sources."
+
+`core.orchestrator.Orchestrator` sequences agent execution respecting the dependency graph (Data → Regulatory/Carbon/Risk → Audit → Report/Action → Stakeholder) so published datasets are available before any dependent agent executes.
+
+### Concurrency model
+
+All persistence writes (`user_store.save`, `source_store.save`, `profile_store.save`) go through the same pattern:
+
+1. In-process `threading.RLock` around every read-modify-write.
+2. Retry loop (3 attempts with exponential backoff 0.25 → 0.5 → 1 s) on HF Dataset 409/412/503 responses so a racing commit from another process doesn't silently drop a write.
+3. On terminal failure, fall back to ephemeral local JSON and surface the full exception chain via `store.diagnostic()` in the sidebar.
+4. `user_store.create_user` additionally re-reads the user list inside each retry attempt so two concurrent signups can't both think the username is free.
+
+Per-user files (`sources/{username}.json`, `profiles/{username}.json`) only collide when the same user has multiple tabs racing — the last write wins by design, and both the source store and profile store invalidate their process-wide cache on save so the "losing" tab sees the winning state on its next rerun.
+
+### Size guardrails
+
+`utils.source_store.MAX_PAYLOAD_BYTES` (default 4 MB, override via `ESG_SOURCE_MAX_BYTES`) caps a single user's serialised source registry. Inline-upload bytes are base64-encoded inside the JSON, so we reject saves that would balloon the profile file and ask the user to switch to an external connector (S3, Snowflake, Google Sheets) instead. This keeps session-state and HF commits well under HF's 100 MB-per-file limit and avoids the "why is sign-in taking 30 seconds" failure mode caused by multi-megabyte profile loads.
+
+### Error surfacing
+
+Every store exposes `diagnostic()` returning `{backend, label, has_token, dataset, last_error, last_error_at}`. The sidebar auth widget reads these and shows a coloured indicator (green = HF persistent, amber = local ephemeral, red = no token / write failure) with an expandable error panel that walks the exception chain (`__cause__` → `__context__`) — this is how we caught the `ValueError` wrapping issue in `hf_hub_download` when first-time users appeared to fall back to local storage.
+
+---
+
 ## Agent 1: Data Collector
 
 **Class:** `DataCollectorAgent` (`agents/data_collector.py`)
@@ -153,13 +302,61 @@ Wraps HuggingFace Inference API with automatic fallback:
 | Phase | Description |
 |-------|-------------|
 | 0 | Fetch from real data sources via ConnectionManager (if configured) |
-| 1 | Load 6 local sample datasets (emissions, esg_metrics, supply_chain, energy, waste, diversity) |
+| 1 | Load 7 local sample datasets (emissions, esg_metrics, supply_chain, energy, waste, diversity, financials) |
 | 2 | Auto-discover from enterprise connectors (SAP ERP, Workday HR, IoT, EcoVadis, PostgreSQL, CDP/MSCI) |
-| 3 | Process user-uploaded files (CSV/JSON) |
+| 3 | Process user-uploaded files — CSV, Excel (.xlsx/.xls), JSON — with auto-schema detection and canonical dataset routing |
 | 4 | Detect missing data — proactive gap alerts |
 | 5 | Compute overall quality |
 | 6 | AI-powered quality issue classification |
 | 7 | Assign verifiable confidence scores |
+
+### Upload Data Flow
+
+This subsection describes exactly what happens from the moment a user uploads a file through to that data driving pipeline calculations.
+
+**Trigger: Test & Preview**
+
+When the user clicks "Test & Preview" in Data Collector → Connect Data Sources → File Upload:
+
+1. The uploaded bytes are read into a `pd.DataFrame` (CSV via `pd.read_csv`, Excel via `pd.read_excel`, JSON via `pd.read_json`).
+2. `auto_detect_schema(df)` scans the column names against indicator columns for each of the 7 schemas and returns the best match (see [Schema Mapping & Validation](#schema-mapping--validation)).
+3. The detected schema and the raw DataFrame are written into:
+   - `st.session_state.preview_df` — the raw preview frame (RAM, session-scoped)
+   - `st.session_state.preview_config` — the detected schema name and suggested column mapping (RAM, session-scoped)
+4. The source is immediately auto-registered in `st.session_state.conn_manager._sources` under the key `real_{schema}` (e.g. `real_emissions`). This canonical key is what the pipeline looks for when preferring real data over sample data.
+5. A confirmation message is displayed on screen. No additional "Save Data Source" click is needed.
+
+**What "canonical routing" means**
+
+The Data Collector resolves datasets at runtime via `_resolve_canonical_datasets()`. It checks for `real_{schema}` keys first. If a `real_emissions` source is registered, it takes priority over the bundled `sample_emissions.csv`. Sources stored under arbitrary filenames (e.g. `my_data.xlsx`) do not match a canonical slot and are therefore ignored by downstream agents — this was the root cause of Bug 3 (fixed).
+
+**Pipeline run**
+
+When the user clicks "Run Full Pipeline" in Mission Control:
+
+1. `st.session_state.conn_manager` (the session `ConnectionManager` with registered sources) is read from session state.
+2. It is passed to `Orchestrator.run_full_pipeline()` via the `data_collector_kwargs` parameter:
+   ```python
+   orchestrator.run_full_pipeline(
+       progress_callback=cb,
+       data_collector_kwargs={"connection_manager": conn_mgr}
+   )
+   ```
+3. The orchestrator forwards the kwargs into `DataCollectorAgent.run(connection_manager=conn_mgr)`.
+4. Phase 0 fetches the real sources via the `connection_manager`. Real data is published to `state_manager` under `dataset_{schema}` channels.
+5. All downstream agents consume the published real data through `core/data_access.py` before falling back to sample data.
+
+**Data storage summary**
+
+| Stage | Storage location | Scope |
+|-------|-----------------|-------|
+| After Test & Preview | `st.session_state.preview_df`, `st.session_state.preview_config` | RAM, session |
+| After auto-registration | `st.session_state.conn_manager._sources[real_{schema}]` | RAM, session |
+| After pipeline run | `state_manager` pub/sub channels | RAM, process-wide |
+
+All storage is RAM-only. Data is lost on browser refresh or process restart.
+
+---
 
 ### Data Quality Formula
 
@@ -216,6 +413,7 @@ Expected datasets and their regulatory mappings:
 | energy | BRSR, GRI 302, SASB |
 | waste | BRSR, GRI 306 |
 | diversity | BRSR, CSRD S1, GRI 405 |
+| financials | ROI, KPI Engine, cost-of-capital and ESG capex analysis |
 
 Alerts generated:
 - **Critical:** Dataset completely missing
@@ -236,6 +434,9 @@ state_manager.publish("data_collection_results", {
     "missing_data_alerts": [{severity, dataset, message, action}],
     "confidence_scores": {dataset: {score, level, audit_ready}},
 })
+
+state_manager.publish("dataset_financials", financials_df, "Data Collector")
+state_manager.publish("dataset_emissions", emissions_df, "Data Collector")
 ```
 
 ---
@@ -288,6 +489,16 @@ Maps raw data field names to ESG metric IDs. Examples:
 ### Gap Narrative Generation
 
 Uses HuggingFace text generation with critical gaps as context. Generates 2-3 recommendations.
+
+### Reporter Classification
+
+The regulatory layer also derives a reporter profile from framework mix and compliance posture:
+
+- Mandatory-led
+- Voluntary-maturing
+- Mixed / transitional
+
+This profile is reused downstream in reporting and stakeholder messaging.
 
 ### Published State
 
@@ -345,6 +556,38 @@ Fields extracted per hotspot:
   supplier, country, sector, emissions, esg_score, risk_factors
 ```
 
+### Emissions → Cost Linkage (H2: Profitability)
+
+Directly maps emission changes to financial impact:
+
+```
+cost_saving_from_reduction = max(0, prev_emissions - curr_emissions) × 0.0015
+                              # INR crores; proxy INR 1,500/tCO2e avoided
+energy_cost_saving         = max(0, prev_energy_cost - curr_energy_cost) / 100
+                              # lakhs → crores
+scope2_additional_opportunity = (100 - renewable_pct) × 0.3
+```
+
+Published under `cost_linkage` for consumption by ROI / Action agents.
+
+### Carbon Tax Risk Assessment
+
+Estimates carbon tax exposure under current + future regimes:
+
+```
+taxable_emissions        = scope1 + scope2  (tCO2e)
+current_domestic_exposure = taxable × INR 400 / 100,000   (INR crores)
+cbam_equivalent_exposure  = taxable × INR 7,200 / 100,000 (EU CBAM proxy)
+projected_3yr_exposure    = current × (1.10 ^ 3)          (10% annual escalation)
+
+Risk level:
+  > INR 5 Cr  → "High"
+  > INR 2 Cr  → "Medium"
+  otherwise   → "Low"
+```
+
+Published under `carbon_tax_risk`.
+
 ### Published State
 
 ```python
@@ -360,6 +603,8 @@ state_manager.publish("carbon_results", {
     "carbon_intensity": float,
     "carbon_intensity_prev": float,
     "energy_analysis": {total_mwh, renewable_pct, by_source: {}},
+    "cost_linkage": {...},
+    "carbon_tax_risk": {...},
     "narrative": str,
 })
 ```
@@ -377,18 +622,20 @@ Subscribes to:
 - `carbon_results` → emissions highlights
 - `regulatory_results` → framework compliance
 - `audit_results` → audit trail data
+- `roi_results` → value-creation channels and ROI summary
 - `data_collection_results` → data quality info
 
 ### Report Sections Generated
 
-1. **Executive Summary** — AI-generated 3-4 sentences using company profile + carbon + compliance data
+1. **Executive Summary** — AI-generated 3-4 sentences using company profile + carbon + compliance + ROI data
 2. **Environmental Performance** — narrative + metrics table (pillar == "Environmental")
 3. **Social Performance** — narrative + metrics table (pillar == "Social")
 4. **Governance Performance** — narrative + metrics table (pillar == "Governance")
 5. **Framework Sections** — per-framework compliance percentages and gap counts
 6. **Carbon Highlights** — total emissions, YoY change, carbon intensity
 7. **Compliance Summary** — overall + per-framework percentages
-8. **Audit Trail** — timestamped steps (data collection, validation, report generation)
+8. **ROI Snapshot** — financial ROI, net benefit, and investment quality summary
+9. **Audit Trail** — timestamped steps (data collection, validation, report generation)
 
 ### Metrics Tables Compilation
 
@@ -478,9 +725,144 @@ overdue_audits  = count(supply_chain_df[audit_status == "Overdue"])
 avg_esg_score   = mean(supply_chain_df.esg_score)
 ```
 
+### Multi-Agency Rating Predictions (H3)
+
+In addition to the internal letter rating, the agent emits translations
+across three well-known scales:
+
+| Agency | Output | Basis |
+|--------|--------|-------|
+| MSCI-style | `AA` / `A` / `BBB` / `BB` / `B` | Overall met-target %  |
+| Sustainalytics | Risk score (lower = better) + Negligible/Low/Medium/High/Severe | Unmanaged ESG risk exposure |
+| CDP-style | `A` / `A-` / `B` / `B-` / `C` | Environmental pillar score |
+
+Published under `rating_prediction.multi_agency_ratings`.
+
+### Market Regime Detection (H3 — cyclical ESG outperformance)
+
+Uses the most recent 4 quarters of financial data to classify the current
+operating regime:
+
+```
+revenue_trend   = mean(quarterly pct change) last 4 q
+margin_trend    = mean(bps change) last 4 q
+
+Regime:
+  Bull      → revenue_trend > 0.01 AND margin_trend > 0
+  Stress    → revenue_trend < -0.005 OR margin_trend < -0.5
+  Transition → otherwise
+```
+
+Each regime carries an ESG context interpretation used by the ROI,
+Report, and Stakeholder agents to tune narrative emphasis.
+
+### Downside Protection Score (H4)
+
+Composite 0-100 measuring ESG-driven resilience to negative shocks:
+
+```
+DPS = governance_strength × 0.30
+    + financial_resilience × 0.25
+    + esg_momentum × 0.25
+    + climate_risk_shield × 0.20
+
+Levels:
+  >= 70 → "Strong"
+  >= 50 → "Moderate"
+  <  50 → "Weak"
+```
+
+Published under `downside_protection` for consumption by the ROI and
+Action agents.
+
 ---
 
-## Agent 6: Audit Agent
+## Agent 6: ESG ROI Agent
+
+**Class:** `ROIAgent` (`agents/roi_agent.py`)
+**Purpose:** Quantifies ESG-linked financial return, strategic value, J-curve payoff, and investment quality.
+
+### Data Dependencies
+
+Reads canonical datasets and analytical outputs from:
+- `dataset_financials`
+- `dataset_emissions`
+- `dataset_esg_metrics`
+- `dataset_energy`
+- `dataset_supply_chain`
+- `dataset_diversity`
+- `risk_results`
+- `carbon_results`
+
+### KPI Backbone
+
+The ROI agent runs the KPI Engine across five value-creation channels:
+
+1. Growth
+2. Cost
+3. Risk
+4. Human Capital
+5. Capital Efficiency
+
+### Financial ROI
+
+```
+Financial ROI = (total_savings / total_esg_capex) × 100
+
+where:
+  total_savings = emission_reduction_savings
+                + energy_efficiency_savings
+                + carbon_tax_avoided
+```
+
+Additional uplift is estimated through ESG-linked revenue contribution.
+
+### Strategic ROI
+
+Strategic ROI estimates:
+- Cost-of-capital reduction in basis points
+- Risk reduction value
+- Talent retention savings
+- Brand premium score
+- ESG rating trajectory
+
+### J-Curve
+
+The J-curve models cumulative ESG cost vs cumulative benefit by quarter:
+
+```
+net_position = cumulative_benefit - cumulative_cost
+breakeven_quarter = first quarter where net_position >= 0
+```
+
+### Investment Quality Score (IQS)
+
+Weighted composite:
+
+```
+IQS = financial_roi_score × 0.25
+    + value_channel_average × 0.25
+    + strategic_value_score × 0.20
+    + momentum_score × 0.15
+    + risk_reduction_score × 0.15
+```
+
+Published state:
+
+```python
+state_manager.publish("roi_results", {
+    "kpi_engine": {...},
+    "financial_roi": {...},
+    "strategic_roi": {...},
+    "j_curve": {...},
+    "investment_quality_score": {...},
+    "narrative": str,
+})
+```
+
+---
+
+## Agent 7: Audit Agent
 
 **Class:** `AuditAgent` (`agents/audit_agent.py`)
 **Purpose:** Compliance verification, audit readiness scoring, evidence mapping.
@@ -507,7 +889,7 @@ Grade:
 
 ### Data Completeness Audit
 
-For each of 6 expected datasets:
+For each of 7 expected datasets:
 
 | Dataset | Label | Priority |
 |---------|-------|----------|
@@ -517,6 +899,7 @@ For each of 6 expected datasets:
 | energy | Energy Consumption Data | high |
 | waste | Waste Management Data | medium |
 | diversity | Workforce Diversity Data | medium |
+| financials | Financial KPI & ESG CapEx Data | high |
 
 Status thresholds:
 ```
@@ -550,9 +933,34 @@ General audit checks (hardcoded scores):
 
 For each ESG metric: checks if `confidence >= 0.8` → marks as `verifiable: true`.
 
+### ESG Integrity Gap Detector
+
+Cross-references self-reported ESG metrics against operational data to flag
+inconsistencies (the "greenwashing gap"):
+
+```
+For each metric:
+  - carbon_intensity → verify against emissions_df / revenue
+  - renewable_%      → verify against energy_df (renewable_mwh / total_mwh)
+  - target "Met"     → flag if reported < 90% of target
+
+Mismatch score = mismatches_found / total_checked × 100
+
+Risk levels:
+  > 30%  → "Critical"
+  > 15%  → "High"
+  >  5%  → "Medium"
+  <= 5%  → "Low"
+```
+
+Published under `integrity_gaps` with every flagged metric, the derived
+value, the reported value, and a severity classification. Used by the
+Action Agent to raise remediation tasks when the mismatch rate exceeds
+thresholds.
+
 ---
 
-## Agent 7: Action Agent
+## Agent 8: Action Agent
 
 **Class:** `ActionAgent` (`agents/action_agent.py`)
 **Purpose:** Generates prioritized, actionable ESG recommendations with timelines and costs.
@@ -593,9 +1001,60 @@ summary = {
 }
 ```
 
+### Investment Friction & Target Setting Enhancements
+
+The action layer adjusts recommendations for execution realism and computes
+Net ROI per action.
+
+**Implementation Friction Score (0-100):**
+
+```
+friction_pct = 6
+             + duration_weeks × 0.35
+             + category_adj         # 2-6 points by category
+             + regime_adj           # 0 (Bull), 2 (Transition), 5 (Stress)
+
+transaction_cost = base_cost × friction_pct / 100
+adjusted_cost    = base_cost + transaction_cost
+```
+
+**Benefit & Net ROI:**
+
+```
+benefit_multiplier: 1.10 – 1.35 by category
+gross_benefit = max(base_cost × multiplier, base_cost + anchor_share)
+  where anchor_share = max(0, roi_anchor × 0.08)
+net_value   = gross_benefit - adjusted_cost
+net_roi_pct = net_value / adjusted_cost × 100
+```
+
+**Liquidity Risk:**
+
+```
+spend_ratio = adjusted_cost / current_revenue × 100
+
+liquidity_risk:
+  > 4% → "High"
+  > 2% → "Medium"
+  <= 2% → "Low"
+```
+
+**Execution mode:** `"Phased rollout"` when friction ≥ 60 or liquidity
+risk ≠ Low, otherwise `"Accelerated rollout"`.
+
+**Target Recommendations:** The agent also emits explicit targets derived
+from risk, audit, carbon, regulatory, and ROI outputs — each with metric,
+current value, target, unit, deadline, owner, and linked action IDs:
+
+- Renewable Energy Share
+- Overall Regulatory Compliance
+- Evidence Verifiability
+- High-Risk Suppliers
+- ESG Investment Quality Score
+
 ---
 
-## Agent 8: Stakeholder Agent
+## Agent 9: Stakeholder Agent
 
 **Class:** `StakeholderAgent` (`agents/stakeholder_agent.py`)
 **Purpose:** Generates audience-tailored ESG communications.
@@ -616,6 +1075,11 @@ For each audience:
 2. Run sentiment analysis on generated message → `tone_analysis`
 3. Generate audience-specific subject line
 4. Select relevant metrics subset
+
+Stakeholder context now also includes:
+- Reporter profile from the regulatory layer
+- Financial ROI and investment quality summaries
+- J-curve framing for expectation-setting
 
 ### Metrics Selection by Audience
 
@@ -757,7 +1221,7 @@ df = connector.fetch(bucket="my-bucket", key="data.csv", ...)
 
 ### Connection Manager
 
-The `ConnectionManager` class (`utils/connection_manager.py`) manages multiple registered data sources in a session-scoped registry:
+The `ConnectionManager` class (`utils/connection_manager.py`) manages multiple registered data sources in a session-scoped registry, with per-source config-signature caching so unchanged sources don't re-execute remotely on every pipeline Run.
 
 ```python
 from utils.connection_manager import ConnectionManager
@@ -777,49 +1241,213 @@ mgr.add_source(source_id="delta_emissions", connector_type="delta_lake",
 # Fetch all sources, grouped by schema
 by_schema = mgr.fetch_all_by_schema()
 # Returns: {"emissions": pd.DataFrame, "esg_metrics": pd.DataFrame, ...}
+
+# Fetch with per-source cache reuse — unchanged sources skip the remote round-trip
+by_schema = mgr.fetch_all_by_schema(use_cache=True)
+
+# Stable hashes (SHA-256) for change detection
+sig_one = mgr.source_signature("my_s3_data")   # per source
+sig_all = mgr.sources_signature()              # every registered source
+
+# Inspect / recover from failures
+errors = mgr.source_errors()                   # {source_id: "error message", ...}
+mgr.invalidate_cache("my_s3_data")             # force next fetch to hit the remote
+mgr.invalidate_cache()                         # clear cache for every source
 ```
+
+**Caching contract.** Each source keeps an internal `(_cached_signature, _cached_df)` pair. Signatures are full SHA-256 digests over the connector type, target schema, column mapping, and config (file bytes included). When `use_cache=True` and the signature matches, `fetch_source()` returns a **copy** of the cached DataFrame without calling the connector. Any change to the config — a new Snowflake query, a different S3 key, a re-uploaded file — invalidates the signature automatically.
+
+**Error semantics.** `fetch_all*()` never raises for a single source; failures are recorded on the source (`status = "error"`, `error = "..."`) and returned as an empty DataFrame so the pipeline can proceed on sample data for that schema. Call `source_errors()` afterward to surface them to the user.
 
 ---
 
 ## Schema Mapping & Validation
 
-### ESG Schemas
+7 target schemas are defined in `utils/schema_mapper.py`. The sections below document every column for each schema, the auto-detection logic, and the column-mapping strategy.
 
-6 target schemas defined in `utils/schema_mapper.py`:
+---
 
-| Schema | Key Columns | Use Case |
-|--------|------------|----------|
-| `emissions` | scope, category, emissions_tco2e, year, quarter | Scope 1/2/3 carbon accounting |
-| `esg_metrics` | metric_id, metric_name, pillar, unit, value_2024, target_2024, status | KPI tracking |
-| `supply_chain` | supplier_name, country, sector, esg_score, risk_rating, emission_contribution_tco2e | Supplier risk |
-| `energy` | facility, energy_source, consumption_mwh, renewable, year | Energy mix |
-| `waste` | waste_type, quantity_tonnes, disposal_method, year | Waste management |
-| `diversity` | department, gender, count, percentage, year | Workforce diversity |
+### Schema: `emissions`
+
+Scope 1/2/3 carbon accounting data.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year (e.g. 2024) |
+| `quarter` | str | Required | Quarter (Q1, Q2, Q3, Q4) |
+| `scope` | str | Required | Emission scope (Scope 1, Scope 2, Scope 3) |
+| `category` | str | Required | Emission category (e.g. Fleet Vehicles, Electricity) |
+| `emissions_tco2e` | float | Required | Emissions in tonnes CO2 equivalent |
+| `unit` | str | Optional | Unit of measurement (default: tCO2e) |
+| `source` | str | Optional | Data source (e.g. Fuel logs, Utility bills) |
+| `confidence` | float | Optional | Confidence score 0–1 |
+
+---
+
+### Schema: `esg_metrics`
+
+ESG KPI tracking across Environmental, Social, and Governance pillars.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `metric_id` | str | Required | Unique metric identifier (e.g. E01, S03) |
+| `pillar` | str | Required | ESG pillar (Environmental, Social, Governance) |
+| `category` | str | Required | Metric category (e.g. Climate, Workforce) |
+| `metric_name` | str | Required | Human-readable metric name |
+| `unit` | str | Optional | Unit of measurement |
+| `value_2023` | float | Optional | Value for 2023 |
+| `value_2024` | float | Optional | Value for 2024 |
+| `target_2024` | float | Optional | Target value for 2024 |
+| `status` | str | Optional | Status (Met, Not Met, On Track) |
+| `data_source` | str | Optional | Data source description |
+| `confidence` | float | Optional | Confidence score 0–1 |
+
+---
+
+### Schema: `supply_chain`
+
+Supplier ESG scores, risk ratings, and emission contributions.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `supplier_id` | str | Required | Unique supplier identifier |
+| `supplier_name` | str | Required | Supplier company name |
+| `country` | str | Required | Country of operation |
+| `sector` | str | Optional | Industry sector |
+| `tier` | str | Optional | Supply chain tier (Tier 1, Tier 2, Tier 3) |
+| `esg_score` | float | Optional | ESG score (0–100) |
+| `risk_rating` | str | Optional | Risk rating (Low, Medium, High, Critical) |
+| `emission_contribution_tco2e` | float | Optional | Emission contribution in tCO2e |
+| `audit_status` | str | Optional | Audit status |
+| `last_audit_date` | str | Optional | Last audit date (YYYY-MM-DD) |
+| `key_risk_factors` | str | Optional | Key risk factors (comma-separated) |
+
+---
+
+### Schema: `energy`
+
+Energy consumption by source, facility, and period.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year |
+| `quarter` | str | Required | Quarter (Q1–Q4) |
+| `energy_source` | str | Required | Energy source (Grid Electricity, Solar, etc.) |
+| `consumption_mwh` | float | Required | Energy consumption in MWh |
+| `cost_inr_lakhs` | float | Optional | Cost in INR lakhs |
+| `location` | str | Optional | Facility location |
+| `renewable` | str | Optional | Is renewable? (Yes/No) |
+
+---
+
+### Schema: `waste`
+
+Waste generation, type, and disposal methods.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year |
+| `quarter` | str | Required | Quarter (Q1–Q4) |
+| `waste_type` | str | Required | Waste type (Hazardous, Non-Hazardous) |
+| `category` | str | Required | Waste category (e.g. Paper, Plastic, E-waste) |
+| `quantity_mt` | float | Required | Quantity in metric tonnes |
+| `disposal_method` | str | Optional | Disposal method (Recycling, Landfill, etc.) |
+| `recycled_pct` | float | Optional | Recycled percentage (0–100) |
+| `location` | str | Optional | Facility location |
+
+---
+
+### Schema: `diversity`
+
+Workforce diversity and representation metrics.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year |
+| `category` | str | Required | Diversity category (Gender, Age, etc.) |
+| `subcategory` | str | Required | Subcategory (Overall, Leadership, etc.) |
+| `metric` | str | Required | Metric name |
+
+---
+
+### Schema: `financials`
+
+Financial performance and ESG-linked investment data.
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `year` | int | Required | Reporting year |
+| `quarter` | str | Required | Quarter (Q1–Q4) |
+| `revenue_inr_crores` | float | Required | Revenue in INR crores |
+| `ebitda_inr_crores` | float | Optional | EBITDA in INR crores |
+| `ebitda_margin_pct` | float | Optional | EBITDA margin percentage |
+| `pat_inr_crores` | float | Optional | Profit after tax in INR crores |
+| `roa_pct` | float | Optional | Return on assets percentage |
+| `roe_pct` | float | Optional | Return on equity percentage |
+| `debt_equity_ratio` | float | Optional | Debt to equity ratio |
+| `cost_of_capital_pct` | float | Optional | Cost of capital percentage |
+| `pe_ratio` | float | Optional | Price to earnings ratio |
+| `carbon_tax_exposure_lakhs` | float | Optional | Carbon tax exposure in INR lakhs |
+| `energy_cost_inr_crores` | float | Optional | Energy cost in INR crores |
+| `employee_turnover_pct` | float | Optional | Employee turnover percentage |
+| `brand_value_index` | float | Optional | Brand value index |
+| `talent_retention_score` | float | Optional | Talent retention score |
+| `esg_linked_capex_inr_crores` | float | Optional | ESG-linked CapEx in INR crores |
+
+---
 
 ### Auto-Detection
 
-`auto_detect_schema(df)` uses a scoring heuristic:
-1. Check for indicator columns (e.g., "emissions_tco2e" → emissions, "metric_id" → esg_metrics)
-2. Score each schema by counting how many of its column names appear in the DataFrame
-3. Return the highest-scoring schema (or None if no match)
+`auto_detect_schema(df)` identifies the schema from indicator columns present in the uploaded DataFrame:
 
-### Column Mapping
+| Indicator Column(s) | Detected Schema |
+|--------------------|----------------|
+| `emissions_tco2e` | `emissions` |
+| `metric_id` | `esg_metrics` |
+| `supplier_name` or `esg_score` | `supply_chain` |
+| `consumption_mwh` or `energy_source` | `energy` |
+| `quantity_mt` or `waste_type` | `waste` |
+| `subcategory` + a diversity category value | `diversity` |
+| `revenue_inr_crores` or `esg_linked_capex` | `financials` |
 
-`suggest_column_mapping(df, target_schema)` matches source columns to ESG schema columns:
-1. Exact name match
-2. Normalized match (lowercase, strip whitespace/underscores)
-3. Synonym matching via `_SYNONYMS` dict (e.g., "co2" → "emissions_tco2e")
+Detection is done by scanning column names for these indicators. The schema with the highest indicator score wins. If no indicator matches, returns `None`.
 
-### Validation
+---
 
-`validate_mapped_data(df, target_schema)` returns:
+### Column Mapping Strategy
+
+`suggest_column_mapping(df, target_schema)` maps source columns in the uploaded file to ESG schema columns in three steps, tried in order:
+
+1. **Exact match** — source column name matches schema column name character-for-character.
+2. **Normalized match** — both names are lowercased and underscores/whitespace stripped before comparing (e.g. `Emissions tCO2e` → `emissionstco2e` matches `emissionstco2e`).
+3. **Synonym match** — source column name is looked up in the `_SYNONYMS` dictionary. Common synonym mappings include:
+   - `"co2"`, `"co2_emissions"`, `"ghg"` → `emissions_tco2e`
+   - `"scope1"`, `"scope_1"` → `scope`
+   - `"mwh"`, `"energy_mwh"` → `consumption_mwh`
+   - `"revenue"`, `"total_revenue"` → `revenue_inr_crores`
+   - `"capex"`, `"esg_capex"` → `esg_linked_capex_inr_crores`
+   - `"gender"` → `category` (for diversity schema)
+
+---
+
+### Validation Output
+
+`validate_mapped_data(df, target_schema)` returns a structured result:
+
 ```python
 {
-    "errors": ["Missing required column: ..."],
-    "warnings": ["Optional column not mapped: ..."],
-    "stats": {"rows": int, "columns_mapped": int, "columns_total": int, "completeness": float}
+    "errors":   ["Missing required column: emissions_tco2e", ...],
+    "warnings": ["Optional column not mapped: confidence", ...],
+    "stats": {
+        "rows":             int,    # total rows in DataFrame
+        "columns_mapped":   int,    # schema columns successfully mapped
+        "columns_total":    int,    # total schema columns for this schema
+        "completeness":     float,  # mapped / total as a fraction
+    }
 }
 ```
+
+Errors are raised for missing required columns. Warnings are raised for unmapped optional columns. A DataFrame with no errors is accepted for pipeline use even if optional columns are absent.
 
 ---
 
@@ -847,6 +1475,102 @@ The fallback ensures the platform always works without an API token — ideal fo
 
 ---
 
+## Data Freshness & Pipeline Refresh
+
+Every agent is a pure function of what the Data Collector last published to `state_manager`. Because `state_manager` is a module-level singleton, a cached dataset from an earlier run would otherwise leak into the next page the user visits. This section documents how the platform guarantees that **any change to any registered data source is picked up on the next Run**, and how it behaves when sources fail.
+
+### Guarantees
+
+- **Edit any source → next Run sees it.** Every single-agent page (Regulatory, Carbon, Report, Risk, Audit, Action, Stakeholder, ESG ROI) calls `refresh_real_data()` *before* its agent runs. Mission Control's full-pipeline run does the equivalent by forwarding the `ConnectionManager` into the Data Collector and stamping the same session-state keys afterwards.
+- **Removed sources leave no residue.** Stale `dataset_*` / `validated_*` channels in `state_manager` are cleared before the Data Collector republishes.
+- **Unchanged sources are free.** With `only_changed=True`, sources whose config signature matches the last successful fetch reuse a cached DataFrame; the remote system is not hit.
+- **Errors are visible.** A failed fetch (bad Snowflake credential, revoked S3 key, 404 on a Sheet) is surfaced as `st.warning()` plus a second line on the freshness caption — no silent fallback to sample data.
+
+### Component map
+
+| Component | File | Role |
+|---|---|---|
+| `refresh_real_data()` | `utils/pipeline_refresh.py` | Public helper every page's Run button calls. Re-invokes the Data Collector, clears stale state, surfaces errors, stamps session keys. |
+| `data_freshness_caption()` | `utils/pipeline_refresh.py` | Renders "Real data refreshed N sec ago from M source(s). Click Run to pull the latest." plus a warning line when the last refresh had errors. |
+| `stamp_refresh_from_pipeline()` | `utils/pipeline_refresh.py` | Called by Mission Control after `run_full_pipeline` to keep every page's freshness caption honest when the Data Collector ran outside the helper. |
+| `ConnectionManager.sources_signature()` | `utils/connection_manager.py` | Full SHA-256 digest over every registered source's connector type, schema, mapping, and config. |
+| `ConnectionManager.source_errors()` | `utils/connection_manager.py` | Returns `{source_id: message}` for every source currently in error state. |
+| `ConnectionManager.fetch_all_by_schema(use_cache=True)` | `utils/connection_manager.py` | Selective re-fetch: unchanged sources return cached DataFrames; changed sources hit the connector. |
+
+### `refresh_real_data()` API
+
+```python
+from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
+
+# Every single-agent page does this:
+if st.button("Run …", type="primary"):
+    with st.spinner("Refreshing data from registered sources..."):
+        refresh_real_data()
+    with st.spinner("Running the agent..."):
+        results = agent.run()
+```
+
+**Signature**
+
+```python
+refresh_real_data(
+    only_changed: bool = False,   # reuse cache for sources whose signature is unchanged
+    show_toast:   bool = False,   # render a ✅ toast on success
+    show_errors:  bool = True,    # render st.warning() per failed source
+) -> dict
+```
+
+**Return payload**
+
+```python
+{
+    "refreshed": True,                  # False only when no sources are registered
+    "reason":    "full" | "only_changed" | "no_sources",
+    "sources":   3,
+    "records":   12_450,
+    "timestamp": "2026-04-18T12:34:56.789",
+    "signature": "a1b2c3…",             # 64-char SHA-256 of all source configs
+    "errors":    {"snow_fin": "Authentication failed"},
+}
+```
+
+**Session-state keys it writes** (also written by `stamp_refresh_from_pipeline`):
+
+| Key | Purpose |
+|---|---|
+| `_last_data_refresh` | ISO-8601 timestamp of the most recent refresh — drives the "N sec ago" caption. |
+| `_last_data_refresh_signature` | SHA-256 hash of source configs at refresh time. |
+| `_last_data_refresh_records` | Total rows ingested across all real sources. |
+| `_last_data_refresh_errors` | `{source_id: message}` so every page can display outstanding errors. |
+
+### Stale-channel clearing
+
+Before the Data Collector re-publishes, `refresh_real_data()` drops every key in `state_manager._channels` whose name starts with `dataset_` or `validated_`. This is how the platform handles the "user removed a source" case: the Data Collector only re-publishes what's *currently* registered, so a previously-published `dataset_supply_chain` no longer leaks through if the Snowflake source that produced it was deleted.
+
+### DataCollector integration
+
+`DataCollectorAgent.execute()` accepts `use_cache: bool = False`. When the helper passes `only_changed=True` through, the agent forwards it to `ConnectionManager.fetch_all_by_schema(use_cache=True)`. The agent is backward-compatible: if it encounters an older manager without the kwarg, it catches `TypeError` and falls back to the cacheless call.
+
+### Behaviour matrix
+
+| User action | Next Run behaviour |
+|---|---|
+| Edits a Snowflake query and clicks Run on any agent page | Helper fires → signature changes → connector re-executes → fresh DataFrame → agent runs on fresh data. |
+| Clicks Run a second time without touching anything | Default: full re-fetch (safest). With `only_changed=True`: cache hit, no remote traffic. |
+| Removes a registered source, clicks Run | Stale `dataset_{schema}` channel cleared → Data Collector re-publishes without it → downstream agents read via `core.data_access.get_dataset(...)` which falls back to sample data for that schema. |
+| Re-uploads a CSV with identical bytes | Signature stable (full SHA-256 over the bytes) → cache hit when `only_changed=True`. |
+| Re-uploads a CSV with different bytes | Signature changes (length differs, or hash differs) → connector re-parses. |
+| Runs the full pipeline from Mission Control | `Orchestrator.run_full_pipeline()` calls the Data Collector with the active `ConnectionManager`; Mission Control then calls `stamp_refresh_from_pipeline()` so every agent page's "N sec ago" caption is accurate. |
+| Snowflake credential expires mid-session | `source_errors()` contains the failure → `st.warning()` on the page → caption grows a "Last refresh had errors on `snow_fin` — sample data used for affected schemas." line. |
+| Opens a second browser tab | `st.session_state` is per-tab. Each tab has its own `conn_manager` and its own freshness timestamps. By design. |
+
+### Caveats that still apply
+
+- The signature does **not** hash remote data content — only config. With the default `only_changed=False`, this doesn't matter because we always re-fetch. With `only_changed=True`, a Snowflake table whose rows change while the query string stays identical will return cached data until the user edits the query or calls `invalidate_cache()`.
+- `state_manager` is still a module-level singleton. All current agents re-read on `.run()`, so the clearing step is sufficient; future agents that cache a reference at `__init__` would bypass it.
+
+---
+
 ## Deployment
 
 ### Local Development
@@ -865,6 +1589,11 @@ streamlit run app.py --server.port 8501
 # Run Gradio (port 7860)
 python gradio_app.py
 ```
+
+Local runtime notes:
+- `pyarrow` is required for Streamlit's native dataframe component.
+- If `pyarrow` is unavailable, the app falls back to HTML tables via `utils/streamlit_compat.py`.
+- If `plotly` is unavailable, chart components render informational placeholders instead of crashing.
 
 ### Optional: AI Narratives
 
@@ -929,12 +1658,25 @@ The deployed HuggingFace Spaces already include all cloud dependencies in their 
 | `ValueError: Could not find a server` | Gradio localhost health check fails in Docker | Patch `gradio.networking.url_ok = lambda url: True` (already applied) |
 | `TypeError: text_area() got an unexpected keyword argument 'type'` | Streamlit `st.text_area()` doesn't support `type="password"` | Use `st.text_input(type="password")` for credential fields |
 | Agents return empty/N/A data | Dependencies not run first | Run full pipeline or run prerequisite agents first |
+| `ModuleNotFoundError: No module named 'pyarrow'` | Streamlit dataframe dependency missing | Install `pyarrow` or rely on the built-in HTML table fallback |
+| Chart areas show placeholder messages | `plotly` missing in local env | Install `plotly` for full charts, or continue with fallback mode |
 | No AI narratives generated | HF_API_TOKEN not set | Set token in sidebar or env var (fallback mode still works) |
 | Cloud connector "not installed" | Optional dependency missing | Install with pip (see Connectors section) |
 | Delta Lake "deltalake not installed" | `deltalake` package not installed | `pip install deltalake` |
 | Delta Lake cloud table fails | Missing storage credentials | Provide `storage_options_json` with cloud credentials (see Delta Lake Connector section) |
 | Folder mode returns empty DataFrame | No supported files under prefix | Ensure files have extensions: `.csv`, `.json`, `.xlsx`, `.xls`, `.parquet` |
 | S3/GCS/Azure "No supported files found" | Path doesn't end with `/` | Append `/` to enable folder mode (e.g., `data/esg/` not `data/esg`) |
+| Uploaded Excel file ignored by pipeline | `.xlsx`/`.xls` not handled in Phase 3 (now fixed — use latest version) | Update to latest version; use `.csv` if issue persists on older builds |
+| Data not reflected in calculations after upload | "Save Data Source" step was skipped | Now auto-registered on Test & Preview; check that the green banner appears in Mission Control before running |
+| Pipeline uses sample data despite upload | `connection_manager` not passed to orchestrator (now fixed) | Update to latest version; verify the green banner in Mission Control shows registered sources before clicking Run |
+| Icon text shows instead of icon symbol (e.g. "arrow_forward" as text) | Material Symbols font overridden by body font CSS rule | Now fixed; hard-refresh the browser (Cmd+Shift+R on Mac, Ctrl+Shift+R on Windows/Linux) to clear the cached stylesheet |
+| Raw HTML tags visible on Sign In page or other pages | `st.markdown()` HTML string had 8+ spaces of leading indentation, triggering CommonMark indented-code-block rule | Now fixed; if running locally, delete `__pycache__` directories and restart Streamlit |
+| Agent page shows stale data after editing a Snowflake query / S3 key / Sheet ID | Page was built before the refresh helper was added, or `refresh_real_data()` was removed from the Run handler | Re-add `from utils.pipeline_refresh import refresh_real_data, data_freshness_caption` and call `refresh_real_data()` in a spinner before the agent's `.run()` (pattern used on pages 3–9, 11). |
+| "Refreshed 2 hr ago" caption on an agent page right after a full-pipeline run | Mission Control forgot to stamp the session-state keys | Verify `stamp_refresh_from_pipeline(...)` is called inside the `run_pipeline` block in `pages/1_Mission_Control.py` after `orch.run_full_pipeline(...)` completes. |
+| Source silently returns empty DataFrame, agents fall back to sample data with no warning | Connector errored but the page isn't calling `refresh_real_data()` (which surfaces `source_errors()` as `st.warning()`) | Wire the helper in; or call `conn_mgr.source_errors()` manually and render warnings in the page. |
+| Removed a source but old data still appears in carbon / risk / audit totals | Stale `dataset_{schema}` channel in `state_manager` from a previous run | Click Run on any agent page once — the helper clears `dataset_*` / `validated_*` channels before the Data Collector republishes. For a full wipe: `state_manager.clear()`. |
+| Unchanged Snowflake query re-executes on every Run (slow / costly) | Default `refresh_real_data()` call re-fetches all sources | Call `refresh_real_data(only_changed=True)` in the Run handler to reuse per-source cached DataFrames when config signatures match. |
+| Changed Snowflake table rows aren't visible even though the query is the same | With `only_changed=True`, cache is keyed on config signature, not on remote row counts | Edit the query (anything triggers a new signature), click "Test" on the Data Collector page, or call `conn_mgr.invalidate_cache(source_id)` to force the next fetch. |
 
 ### Checking Agent State
 

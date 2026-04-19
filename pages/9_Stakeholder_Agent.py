@@ -1,10 +1,18 @@
 """Streamlit page for the Stakeholder Agent."""
 import streamlit as st
 from agents.stakeholder_agent import StakeholderAgent
+from utils.auth import require_login, sidebar_auth_widget
+from utils.ui import inject_global_css, pwc_header
+from utils.pipeline_refresh import data_freshness_caption
 
 st.set_page_config(page_title="Stakeholder Agent | ESG CoPilot", page_icon="👥", layout="wide")
+inject_global_css()
+pwc_header()
+sidebar_auth_widget()
+require_login("Sign in to access the Stakeholder Agent.")
 st.title("👥 Stakeholder Agent")
 st.markdown("*Generates audience-tailored ESG communications*")
+data_freshness_caption(can_refresh=False)
 st.markdown("---")
 
 if "stakeholder_agent" not in st.session_state:

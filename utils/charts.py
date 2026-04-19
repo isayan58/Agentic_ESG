@@ -1,6 +1,14 @@
 """Chart generation utilities using Plotly."""
-import plotly.graph_objects as go
-import plotly.express as px
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    from plotly.subplots import make_subplots
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    go = None
+    px = None
+    make_subplots = None
+    PLOTLY_AVAILABLE = False
 
 
 COLORS = {
@@ -26,8 +34,20 @@ LAYOUT_DEFAULTS = dict(
 )
 
 
+def charts_available():
+    """Return whether Plotly-backed charts can be rendered."""
+    return PLOTLY_AVAILABLE
+
+
+def chart_unavailable_message():
+    """Short UI message for environments without Plotly installed."""
+    return "Charts are unavailable in this local environment because `plotly` is not installed."
+
+
 def emissions_donut(scope_totals):
     """Donut chart for Scope 1/2/3 breakdown."""
+    if not PLOTLY_AVAILABLE:
+        return None
     labels = list(scope_totals.keys())
     values = list(scope_totals.values())
     colors = [COLORS.get(l.lower().replace(" ", ""), COLORS["primary"]) for l in labels]
@@ -56,6 +76,8 @@ def emissions_donut(scope_totals):
 
 def emissions_trend(df):
     """Line chart for emissions trend over time."""
+    if not PLOTLY_AVAILABLE:
+        return None
     fig = px.line(
         df,
         x="period",
@@ -79,6 +101,8 @@ def emissions_trend(df):
 
 def compliance_radar(framework_scores):
     """Radar chart for compliance across frameworks."""
+    if not PLOTLY_AVAILABLE:
+        return None
     categories = list(framework_scores.keys())
     values = list(framework_scores.values())
     values.append(values[0])  # close the polygon
@@ -104,6 +128,8 @@ def compliance_radar(framework_scores):
 
 def risk_gauge(score, title="Risk Score"):
     """Gauge chart for risk scores (0-100)."""
+    if not PLOTLY_AVAILABLE:
+        return None
     if score < 30:
         color = COLORS["success"]
     elif score < 60:
@@ -131,6 +157,8 @@ def risk_gauge(score, title="Risk Score"):
 
 def quality_bar(quality_scores):
     """Horizontal bar chart for data quality scores."""
+    if not PLOTLY_AVAILABLE:
+        return None
     categories = list(quality_scores.keys())
     scores = list(quality_scores.values())
     colors = [
@@ -158,6 +186,8 @@ def quality_bar(quality_scores):
 
 def supplier_risk_heatmap(suppliers_df):
     """Heatmap for supplier ESG risk."""
+    if not PLOTLY_AVAILABLE:
+        return None
     import numpy as np
 
     risk_map = {"Low": 1, "Medium": 2, "High": 3}
@@ -199,6 +229,8 @@ def kpi_card_data(label, value, delta=None, delta_color="normal"):
 
 def action_timeline(actions_df):
     """Gantt-like chart for action items."""
+    if not PLOTLY_AVAILABLE:
+        return None
     colors_map = {
         "Critical": COLORS["danger"],
         "High": COLORS["warning"],
@@ -235,6 +267,8 @@ def action_timeline(actions_df):
 
 def scope3_xray_map(supply_chain_df):
     """Geographic scatter-map showing Scope 3 supply chain hotspots worldwide."""
+    if not PLOTLY_AVAILABLE:
+        return None
     country_coords = {
         "China": (35.86, 104.19), "Taiwan": (23.69, 120.96), "India": (20.59, 78.96),
         "South Korea": (35.90, 127.76), "Germany": (51.16, 10.45), "Singapore": (1.35, 103.82),
@@ -293,6 +327,8 @@ def scope3_xray_map(supply_chain_df):
 
 def pipeline_flow_diagram():
     """Sankey diagram showing data flow between the 8 agents."""
+    if not PLOTLY_AVAILABLE:
+        return None
     labels = [
         "Data Collector",          # 0
         "Regulatory Tracker",      # 1
@@ -340,7 +376,8 @@ def pipeline_flow_diagram():
 
 def business_impact_gauges():
     """Four large KPI gauges matching Slide 12 — 80%, 5000+, 95%, 24/7."""
-    from plotly.subplots import make_subplots
+    if not PLOTLY_AVAILABLE:
+        return None
 
     fig = make_subplots(
         rows=1, cols=4,
@@ -368,6 +405,8 @@ def business_impact_gauges():
 
 def before_after_comparison():
     """Before/After transformation bar comparison (Slide 13)."""
+    if not PLOTLY_AVAILABLE:
+        return None
     categories = ["Reporting Cycle", "Scope 3 Coverage", "Data Accuracy", "ESG Rating", "Audit Readiness"]
     before = [100, 60, 72, 65, 55]  # percentages (reporting = weeks mapped to %)
     after = [20, 90, 95, 88, 92]
@@ -396,6 +435,8 @@ def before_after_comparison():
 
 def enterprise_stack_layers():
     """Horizontal stacked bar representing the 7-layer Enterprise Stack Architecture (Slide 10)."""
+    if not PLOTLY_AVAILABLE:
+        return None
     layers = [
         ("Layer 7", "Command Center UI", "Streamlit + Gradio dashboards", COLORS["accent"]),
         ("Layer 6", "8 Orchestrated Agents", "Autonomous AI agents", "#E91E63"),
@@ -433,6 +474,8 @@ def enterprise_stack_layers():
 
 def connector_status_chart(statuses):
     """Horizontal bar chart showing connector sync status."""
+    if not PLOTLY_AVAILABLE:
+        return None
     names = [s["name"] for s in statuses.values()]
     status_map = {"synced": 100, "streaming": 100, "connected": 75, "error": 20, "disconnected": 0}
     values = [status_map.get(s["status"], 0) for s in statuses.values()]
@@ -458,8 +501,10 @@ def connector_status_chart(statuses):
 
 def monitoring_timeline(alerts):
     """Timeline scatter plot of monitoring alerts by severity."""
+    if not PLOTLY_AVAILABLE:
+        return None
     if not alerts:
-        return go.Figure()
+        return None
 
     severity_y = {"critical": 3, "warning": 2, "info": 1}
     severity_colors = {"critical": COLORS["danger"], "warning": COLORS["warning"], "info": COLORS["info"]}
@@ -493,6 +538,8 @@ def monitoring_timeline(alerts):
 
 def tier_comparison_chart():
     """Grouped bar chart comparing Starter / Professional / Enterprise tiers (Slide 14)."""
+    if not PLOTLY_AVAILABLE:
+        return None
     features = ["Agents Active", "Frameworks", "Data Sources", "Refresh Rate", "Support", "Custom Reports"]
     starter = [3, 1, 2, 10, 30, 20]
     professional = [6, 3, 4, 60, 70, 60]

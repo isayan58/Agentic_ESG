@@ -2,12 +2,21 @@
 import streamlit as st
 import pandas as pd
 from agents.report_generator import ReportGeneratorAgent
-from utils.charts import emissions_donut, compliance_radar
+from utils.charts import emissions_donut, compliance_radar, chart_unavailable_message
 from core.state_manager import state_manager
+from utils.streamlit_compat import safe_dataframe
+from utils.auth import require_login, sidebar_auth_widget
+from utils.ui import inject_global_css, pwc_header
+from utils.pipeline_refresh import data_freshness_caption
 
 st.set_page_config(page_title="Report Generator | ESG CoPilot", page_icon="📄", layout="wide")
+inject_global_css()
+pwc_header()
+sidebar_auth_widget()
+require_login("Sign in to access the Report Generator agent.")
 st.title("📄 Report Generator Agent")
 st.markdown("*Multi-framework audit-ready reports with AI narratives and embedded visual charts*")
+data_freshness_caption(can_refresh=False)
 st.markdown("---")
 
 if "report_agent" not in st.session_state:
@@ -15,6 +24,13 @@ if "report_agent" not in st.session_state:
     st.session_state.report_results = None
 
 agent = st.session_state.report_agent
+
+
+def render_chart(fig):
+    if fig is None:
+        st.info(chart_unavailable_message())
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
 st.info("For best results, run Data Collector, Regulatory Tracker, Carbon Accountant, and Audit Agent first.")
 
@@ -52,7 +68,7 @@ if results and "error" not in results:
     carbon_data = state_manager.subscribe("carbon_results")
     if carbon_data and "scope_totals_current" in carbon_data:
         fig = emissions_donut(carbon_data["scope_totals_current"])
-        st.plotly_chart(fig, use_container_width=True)
+        render_chart(fig)
 
     st.markdown("---")
 
@@ -65,7 +81,7 @@ if results and "error" not in results:
         col1, col2 = st.columns([1, 1])
         with col1:
             fig = compliance_radar(fw_scores)
-            st.plotly_chart(fig, use_container_width=True)
+            render_chart(fig)
         with col2:
             for fw, pct in fw_scores.items():
                 st.metric(fw, f"{pct}%")
@@ -80,7 +96,7 @@ if results and "error" not in results:
             metrics = section_data.get("metrics", [])
             if metrics:
                 df = pd.DataFrame(metrics)
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                safe_dataframe(df, use_container_width=True, hide_index=True)
 
     # Comprehensive audit trail
     with st.expander("🔍 Comprehensive Audit Trail"):

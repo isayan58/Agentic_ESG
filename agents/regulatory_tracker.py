@@ -1,6 +1,8 @@
 """Agent 2: Regulatory Tracker — Monitors ESG frameworks and performs gap analysis."""
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
+from core.data_access import get_dataset
+from core.company_config import company_cfg
 from utils.data_processing import load_regulatory_frameworks, load_esg_metrics
 
 
@@ -62,7 +64,7 @@ class RegulatoryTrackerAgent(BaseAgent):
     def execute(self, **kwargs):
         self.log("Loading regulatory frameworks")
         frameworks_data = load_regulatory_frameworks()
-        metrics_df = load_esg_metrics()
+        metrics_df = get_dataset("esg_metrics", load_esg_metrics)
 
         if not frameworks_data or "frameworks" not in frameworks_data:
             return {"error": "No regulatory framework data available"}
@@ -78,6 +80,7 @@ class RegulatoryTrackerAgent(BaseAgent):
 
         # Generate AI-powered gap analysis narrative
         gap_narrative = self._generate_gap_narrative(framework_results)
+        reporter_profile = self._classify_reporter_profile(framework_results)
 
         # Compute overall compliance
         all_pcts = [r["compliance_pct"] for r in framework_results.values()]
@@ -87,6 +90,7 @@ class RegulatoryTrackerAgent(BaseAgent):
             "framework_results": framework_results,
             "overall_compliance": overall_compliance,
             "gap_narrative": gap_narrative,
+            "reporter_profile": reporter_profile,
             "frameworks_analyzed": len(framework_results),
         }
 
@@ -101,21 +105,41 @@ class RegulatoryTrackerAgent(BaseAgent):
 
         for req in requirements:
             data_fields = req.get("data_fields", [])
-            mapped_metrics = set()
+            # Split fields by whether they're satisfied by at least one of
+            # the currently-available metric IDs. ``missing_fields`` is
+            # what the Regulatory Tracker UI surfaces as "add this data to
+            # close the gap" — it's the list the gap-fill helper pages
+            # read from ``utils.gap_suggestions``.
+            missing_fields = []
+            covered_fields = []
+            all_required_metrics = set()
             for field in data_fields:
-                mapped_metrics.update(DATA_FIELD_MAPPING.get(field, []))
+                mapped_for_field = set(DATA_FIELD_MAPPING.get(field, []))
+                all_required_metrics.update(mapped_for_field)
+                if not mapped_for_field:
+                    # Field has no mapping → we can't verify coverage, so
+                    # treat it as missing for the purpose of user-facing
+                    # suggestions.
+                    missing_fields.append(field)
+                elif mapped_for_field & available_metrics:
+                    covered_fields.append(field)
+                else:
+                    missing_fields.append(field)
 
-            if not mapped_metrics:
+            if not all_required_metrics:
                 gaps.append({
                     "requirement_id": req["id"],
                     "requirement": req["requirement"],
                     "status": "missing",
                     "priority": req.get("priority", "medium"),
                     "reason": "No data mapping available",
+                    "data_fields": list(data_fields),
+                    "missing_fields": list(data_fields),
+                    "covered_fields": [],
                 })
-            elif mapped_metrics & available_metrics:
-                overlap = len(mapped_metrics & available_metrics)
-                if overlap == len(mapped_metrics):
+            elif all_required_metrics & available_metrics:
+                overlap = len(all_required_metrics & available_metrics)
+                if overlap == len(all_required_metrics):
                     covered += 1
                 else:
                     partial += 1
@@ -124,7 +148,10 @@ class RegulatoryTrackerAgent(BaseAgent):
                         "requirement": req["requirement"],
                         "status": "partial",
                         "priority": req.get("priority", "medium"),
-                        "reason": f"Only {overlap}/{len(mapped_metrics)} data fields available",
+                        "reason": f"Only {overlap}/{len(all_required_metrics)} data fields available",
+                        "data_fields": list(data_fields),
+                        "missing_fields": missing_fields,
+                        "covered_fields": covered_fields,
                     })
             else:
                 gaps.append({
@@ -133,6 +160,9 @@ class RegulatoryTrackerAgent(BaseAgent):
                     "status": "missing",
                     "priority": req.get("priority", "medium"),
                     "reason": "Required data not found in available metrics",
+                    "data_fields": list(data_fields),
+                    "missing_fields": missing_fields or list(data_fields),
+                    "covered_fields": covered_fields,
                 })
 
         total = len(requirements)
@@ -163,3 +193,37 @@ class RegulatoryTrackerAgent(BaseAgent):
             f"Provide 2-3 key recommendations for improving compliance."
         )
         return self.hf.generate_text(prompt)
+
+    def _classify_reporter_profile(self, framework_results):
+        """Classify the company's reporting posture for regulatory context."""
+        mandatory_frameworks = [
+            name for name, result in framework_results.items()
+            if result.get("mandatory")
+        ]
+        adopted = set(company_cfg.frameworks_adopted)
+
+        is_listed_india = any(ex in {"BSE", "NSE"} for ex in company_cfg.listed_exchanges)
+        mandatory_due_to_listing = is_listed_india and "BRSR" in adopted
+
+        if mandatory_due_to_listing or mandatory_frameworks:
+            reporter_type = "Mandatory Reporter"
+            rationale = (
+                "Listed-entity posture and adopted mandatory frameworks indicate "
+                "a mandatory ESG reporting baseline."
+            )
+        else:
+            reporter_type = "Voluntary Reporter"
+            rationale = (
+                "Current framework posture looks primarily voluntary, with optional "
+                "alignment used for market positioning and readiness."
+            )
+
+        return {
+            "classification": reporter_type,
+            "mandatory_frameworks": mandatory_frameworks,
+            "voluntary_frameworks": [
+                name for name in framework_results if name not in mandatory_frameworks
+            ],
+            "listed_entity": is_listed_india,
+            "rationale": rationale,
+        }

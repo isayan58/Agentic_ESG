@@ -2,12 +2,22 @@
 import streamlit as st
 import pandas as pd
 from agents.regulatory_tracker import RegulatoryTrackerAgent
-from utils.charts import compliance_radar
+from utils.charts import compliance_radar, chart_unavailable_message
 from utils.monitoring import regulatory_updater
+from utils.streamlit_compat import safe_dataframe
+from utils.auth import require_login, sidebar_auth_widget
+from utils.ui import inject_global_css, pwc_header
+from utils.pipeline_refresh import data_freshness_caption
+from utils.gap_suggestions import suggestions_for_gap, render_suggestion_block
 
 st.set_page_config(page_title="Regulatory Tracker | ESG CoPilot", page_icon="📋", layout="wide")
+inject_global_css()
+pwc_header()
+sidebar_auth_widget()
+require_login("Sign in to access the Regulatory Tracker agent.")
 st.title("📋 Regulatory Tracker Agent")
 st.markdown("*Monitors global ESG frameworks — auto-updates within 24 hours of any mandate shift*")
+data_freshness_caption(can_refresh=False)
 st.markdown("---")
 
 if "reg_tracker" not in st.session_state:
@@ -15,6 +25,13 @@ if "reg_tracker" not in st.session_state:
     st.session_state.reg_tracker_results = None
 
 agent = st.session_state.reg_tracker
+
+
+def render_chart(fig):
+    if fig is None:
+        st.info(chart_unavailable_message())
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
 # Framework selection
 frameworks_display = st.multiselect(
@@ -57,7 +74,7 @@ if results and "error" not in results:
         scores = {fw: data["compliance_pct"] for fw, data in fw_results.items() if fw in frameworks_display}
         if scores:
             fig = compliance_radar(scores)
-            st.plotly_chart(fig, use_container_width=True)
+            render_chart(fig)
 
         # Framework details table
         rows = []
@@ -74,26 +91,75 @@ if results and "error" not in results:
                     "Total": data["total"],
                 })
         if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            safe_dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tab2:
+        st.caption(
+            "Each gap below is paired with a **Fix this gap** expander that "
+            "tells you exactly which ESG schema to upload and what columns it "
+            "should contain. Head to the **Data Collector** page to add the "
+            "suggested dataset."
+        )
+        _priority_icons = {
+            "critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢",
+        }
         for fw, data in fw_results.items():
             if fw not in frameworks_display:
                 continue
             gaps = data.get("gaps", [])
-            if gaps:
-                st.markdown(f"#### {fw} Gaps ({len(gaps)})")
-                gap_rows = []
-                for gap in gaps:
-                    priority_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(gap["priority"], "⚪")
-                    gap_rows.append({
-                        "ID": gap["requirement_id"],
-                        "Requirement": gap["requirement"],
-                        "Status": gap["status"].capitalize(),
-                        "Priority": f"{priority_icon} {gap['priority'].capitalize()}",
-                        "Reason": gap["reason"],
-                    })
-                st.dataframe(pd.DataFrame(gap_rows), use_container_width=True, hide_index=True)
+            if not gaps:
+                continue
+            st.markdown(f"#### {fw} Gaps ({len(gaps)})")
+            gap_rows = []
+            for gap in gaps:
+                icon = _priority_icons.get(gap["priority"], "⚪")
+                gap_rows.append({
+                    "ID": gap["requirement_id"],
+                    "Requirement": gap["requirement"],
+                    "Status": gap["status"].capitalize(),
+                    "Priority": f"{icon} {gap['priority'].capitalize()}",
+                    "Reason": gap["reason"],
+                })
+            safe_dataframe(
+                pd.DataFrame(gap_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            # Per-gap actionable fix hints. Critical/high first so
+            # skimming the page surfaces the urgent ones up top.
+            st.markdown("##### How to close these gaps")
+            sorted_gaps = sorted(
+                gaps,
+                key=lambda g: {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(
+                    g.get("priority", "medium"), 9
+                ),
+            )
+            for gap in sorted_gaps:
+                suggestions = suggestions_for_gap(gap)
+                icon = _priority_icons.get(gap["priority"], "⚪")
+                with st.expander(
+                    f"{icon} Fix **{gap['requirement_id']}** — {gap['requirement']}"
+                ):
+                    missing = gap.get("missing_fields") or []
+                    if missing:
+                        st.markdown(
+                            "**Missing data fields:** "
+                            + ", ".join(f"`{f}`" for f in missing)
+                        )
+                    if not suggestions:
+                        st.info(
+                            "No tailored dataset suggestion available for "
+                            "this gap yet. Consider uploading a custom "
+                            "`esg_metrics` CSV with a `data_source` column "
+                            "that cites the governance document or policy "
+                            "that satisfies this requirement."
+                        )
+                        continue
+                    for i, sugg in enumerate(suggestions):
+                        if i:
+                            st.markdown("---")
+                        render_suggestion_block(st, sugg)
 
     with tab3:
         update_data = regulatory_updater.check_for_updates()
