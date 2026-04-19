@@ -331,14 +331,12 @@ The platform ships with demo-ready sample data for **GreenTech Solutions Pvt. Lt
 
 ## Documentation
 
-See **[RUNBOOK.md](RUNBOOK.md)** for the complete technical reference including:
-
-- Architecture diagrams and agent dependency graph
-- Every calculation formula and scoring threshold
-- State manager pub/sub channels
-- Connector interfaces and usage examples
-- AI model assignments and fallback behavior
-- Deployment and troubleshooting guide
+| Doc | Audience | What's in it |
+| --- | --- | --- |
+| **[RUNBOOK.md](RUNBOOK.md)** | Operators, on-call | Architecture, every agent's behaviour, ETL internals, deployment + troubleshooting (incl. HF Space deploy + recovery flows) |
+| **[CALCULATIONS.md](CALCULATIONS.md)** | Analysts, auditors, anyone defending a number on screen | Every formula, weight, threshold, magic constant — pulled directly from the agent code with `file:line` citations. The "show your working" doc. |
+| **[SCHEMA.md](SCHEMA.md)** | Data engineers preparing uploads | Canonical column names + expected types per schema (emissions, esg_metrics, supply_chain, energy, waste, diversity, financials) |
+| **[TESTS.md](TESTS.md)** | Contributors | Test-suite layout, what each test pins, how to add a regression test |
 
 ---
 
@@ -365,7 +363,17 @@ See **[RUNBOOK.md](RUNBOOK.md)** for the complete technical reference including:
 
 ## Platform Changes
 
-This section documents verified changes introduced in recent development cycles.
+This section documents verified functional and operational changes introduced in recent development cycles. Each entry names the user-visible behaviour, the affected modules, and (where relevant) the bug or production incident it closed.
+
+**Quick index**
+
+| Area | Entry |
+| --- | --- |
+| Identity & isolation | [Authentication](#authentication--access-control) · [Per-user state isolation](#per-user-state-isolation) · [Per-user persistence](#per-user-persistence-profile--source-store) |
+| Data flow | [Pipeline refresh & data freshness](#pipeline-refresh--data-freshness) · [Snowflake connector](#snowflake-connector-promoted-to-first-class) · [Data Upload → Pipeline wiring](#data-upload--pipeline-wiring) |
+| UI / theming | [Home page & design system](#home-page--design-system) · [PwC orange theming](#pwc-orange-theming--tagline) · [Material Symbols icon ligatures](#material-symbols-icon-ligatures-fixed) |
+| Deploy / CI | [HF Space push guard (pre-push hook)](#hf-space-push-guard-pre-push-hook) · [CI matrix (Python 3.12 + 3.13)](#ci-matrix-python-312--313) · [`.pptx` history scrub](#pptx-history-scrub) |
+| Reliability | [Data Collector init guard split (`AttributeError` fix)](#data-collector-init-guard-split-attributeerror-fix) · [HF persistence error surfacing](#hf-persistence-errors-now-surfaced-not-swallowed) |
 
 ---
 
@@ -459,6 +467,158 @@ All data in ESG CoPilot is stored exclusively in process RAM. There is no databa
 - If you need to re-run the pipeline after a refresh, re-upload your file and click "Test & Preview" again before running.
 
 There is currently no option to persist data to a database or download session state. This is a planned improvement.
+
+---
+
+### Per-user state isolation
+
+`core/state_manager.py` was refactored from a process-global pub/sub bus to a per-user partitioned bus keyed on the signed-in user's ID. **Why it shipped:** under the previous design, two concurrent users on the same Streamlit replica saw each other's pipeline output — User B's "Run" would publish onto a shared channel that User A's page would then read.
+
+**What changed operationally:**
+
+- Every `state_manager.publish(channel, value, ...)` call now writes to `<user_id>:<channel>` under the hood. Reads are similarly scoped.
+- A thread-local proxy resolves the active user from `st.session_state` on each call, so existing agent code did not need to be touched.
+- Anonymous (signed-out) sessions get a synthetic per-session ID, so demo flows still work.
+- Test pinning lives in `tests/test_state_manager_isolation.py` using a `FakeStreamlit` fixture in `tests/conftest.py`.
+
+**Failure mode this prevents.** Two analysts at two desks loading their own `.xlsx` files no longer see each other's emission totals.
+
+---
+
+### Per-user persistence (profile + source store)
+
+`utils/profile_store.py` (company profile) and `utils/source_store.py` (registered data sources) persist per-user state to a private HuggingFace Dataset when `HF_TOKEN` is set, with a local-JSON fallback otherwise. This replaces the earlier session-only behaviour for these two surfaces.
+
+**Operational notes:**
+
+- Backend resolution order: `hf_dataset` (preferred) → `local_json` (ephemeral) → in-memory.
+- The active backend and the last persistence error surface in the sidebar via `_render_storage_diagnostic()`. **If you see "Local JSON (ephemeral)" on the deployed Space, the HF token is misset** — data will vanish on Space rebuild.
+- HF errors (e.g. `EntryNotFoundError` wrapped as `ValueError` by `huggingface_hub`) are caught explicitly and surfaced in the diagnostic instead of silently degrading. See `RUNBOOK.md` → *Data ETL & freshness → Error surfacing*.
+
+---
+
+### Pipeline refresh & data freshness
+
+`utils/pipeline_refresh.py` now centralises the "re-fetch every registered source on every Run" behaviour. Earlier, individual agent pages had drifted into different patterns — some called the connection manager directly, some never refreshed at all.
+
+**What changed operationally:**
+
+- Mission Control (`pages/1_Mission_Control.py`) calls `refresh_real_data()` inside the Run handler, then `stamp_refresh_from_pipeline(...)` after `orchestrator.run_full_pipeline(...)` completes, so the per-page "Refreshed N min ago" caption is accurate.
+- Agent pages 3–9 and 11 each call `refresh_real_data()` in a spinner before invoking their `.run()`, then render `data_freshness_caption()` so the user can see when the data was last fetched.
+- `refresh_real_data(only_changed=True)` reuses the per-source SHA-256 config-signature cache (in `utils/connection_manager.py`) to skip the remote round-trip when nothing changed — useful for slow Snowflake / BigQuery sources.
+- Stale `dataset_*` / `validated_*` channels in `state_manager` are cleared before the Data Collector republishes, so removing a source actually removes its contribution from downstream totals.
+- `conn_mgr.source_errors()` is rendered as `st.warning()` by the helper, so a connector that silently returns an empty DataFrame is now visible to the user.
+
+See `RUNBOOK.md` → *Data Freshness & Pipeline Refresh* for the full API and behaviour matrix.
+
+---
+
+### Snowflake connector promoted to first-class
+
+The Data Collector's connector list now includes Snowflake alongside the existing 9 (file, Sheets, REST, SQL, S3, BigQuery, GCS, Azure Blob, Delta Lake). Snowflake configuration covers account/warehouse/database/schema + a free-form SQL query, and integrates with the same per-source caching as the other connectors.
+
+---
+
+### PwC orange theming + tagline
+
+The full UI now follows the PwC brand palette via `utils/ui.py:TOKENS`:
+
+| Token | Hex | Usage |
+| --- | --- | --- |
+| `brand_primary` | `#D04A02` | Primary orange |
+| `brand_primary_dark` | `#A23A02` | Hover / depth |
+| `brand_accent` | `#E0301E` | Tomato accent |
+| `brand_warn` | `#FFB600` | Amber warnings |
+
+Two surfaces previously rendered in green were re-skinned to match: the "Authentication required" hero block on protected pages and the sidebar user-avatar gradient (`utils/auth.py`). The page header tagline is now `"Powered by PwC India"` (was `"Powered by PwC"`).
+
+---
+
+### Material Symbols icon ligatures (fixed)
+
+Streamlit's icon spans were rendering as raw text — `"upload"`, `"keyboard_double_arrow_left"`, etc. — instead of the corresponding glyphs. Two compounding root causes:
+
+1. The earlier global CSS used `[class*="st-"]` to set body typography, which matched Streamlit's `st-emotion-cache-*` icon spans and overrode the icon font.
+2. `font-feature-settings` was set without `'liga' 1`, which the OpenType spec interprets as **disable all unlisted features** — including the ligature feature that converts `"upload"` → 📤.
+
+**Fix in `utils/ui.py`:** body typography is now scoped narrowly to specific Streamlit containers (`stMarkdown`, `stText`, `stCaption`, app shell), and the `font-feature-settings` rule explicitly enables `'liga' 1`. Icon font links (Rounded, Outlined, Sharp, legacy Material Icons) are injected via `st.markdown` instead of a sandboxed `components.html` iframe so they reach the document head on HuggingFace Spaces.
+
+---
+
+### Data Collector init guard split (`AttributeError` fix)
+
+**Production incident (2026-04-20):** users hitting Mission Control or the ESG ROI page first caused `utils/pipeline_refresh.py` to seed `st.session_state["data_collector"]`. When the user later navigated to the Data Collector page, this combined guard short-circuited:
+
+```python
+if "data_collector" not in st.session_state:
+    st.session_state.data_collector = DataCollectorAgent()
+    st.session_state.data_collector_results = None  # ← never ran
+```
+
+Line 626 of the page then exploded with `AttributeError: st.session_state has no attribute "data_collector_results"`.
+
+**Fix in `pages/2_Data_Collector.py`:** split into two independent guards. **Regression coverage:** `tests/test_data_collector_page_init.py` pins both the behavioural fix (replays the production page-navigation order) and the structural fix (AST-walks the page file to assert the two guards remain separate, so a future refactor that re-merges them fails CI before the bug reaches production).
+
+---
+
+### HF persistence errors now surfaced, not swallowed
+
+Earlier, `utils/user_store.py` and `utils/source_store.py` would silently fall back to local-JSON storage on any HF API error — including `huggingface_hub` wrapping `EntryNotFoundError` as a generic `ValueError`. The user saw "everything works" but their data quietly lived in an ephemeral container path.
+
+**Fix:** specific exceptions are now matched and re-raised as the original error type, captured into `last_error`, and rendered in the sidebar storage diagnostic. The fallback to local-JSON still happens, but it's loud now.
+
+---
+
+### HF Space push guard (pre-push hook)
+
+The HuggingFace Space's `main` branch has no native branch protection. On 2026-04-20 a stray push reverted `main` to a state ~7,300 lines behind. To prevent a recurrence, `scripts/git-hooks/pre-push` blocks any push to the `hf-streamlit` remote whose tip doesn't match `origin/dev`.
+
+**Activate (once per clone):**
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
+**Bypass for an emergency hotfix:**
+
+```bash
+git push --no-verify hf-streamlit <sha>:main
+```
+
+The hook's diagnostic prints the offending SHA, the expected `origin/dev` tip, and the remediation steps. See `scripts/git-hooks/README.md`.
+
+---
+
+### CI matrix (Python 3.12 + 3.13)
+
+`.github/workflows/test.yml` runs `pytest` on every push to `main`, `dev`, and `claude/**` branches plus every PR targeting `main` or `dev`. The matrix covers both Python 3.12 (local dev) and Python 3.13 (the HF Space runtime, per the production traceback). Both must stay green to merge.
+
+- `concurrency.cancel-in-progress: true` cancels superseded runs on rapid pushes.
+- `pip` cache keyed on `requirements.txt` keeps the second-onwards run under ~10s.
+- On failure, the `.pytest_cache/` directory uploads as an artifact for triage.
+
+---
+
+### `.pptx` history scrub
+
+A one-pager `.pptx` deck added to the repo earlier had since been deleted, but HuggingFace's xet/LFS pre-receive hook scans the **full history** of every pushed branch, not just the diff. That meant every standard deploy to the Space was rejected with `pre-receive hook declined`, forcing the use of the `git commit-tree` recovery flow.
+
+**Permanent fix:** `git filter-repo --invert-paths --path <file>` scrubbed the binary from history. Standard deploys (`git push hf-streamlit dev:main`) now work without the recovery dance. The recovery flow is still documented in the RUNBOOK as a fallback for future similar incidents.
+
+---
+
+### Code architecture additions
+
+| Module | Role | Why it was added |
+| --- | --- | --- |
+| `core/data_access.py` | Canonical dataset retrieval (`get_dataset(schema)`) | Single source of truth for "real data first, samples as fallback" — replaces ad-hoc lookups scattered across agents |
+| `core/kpi_engine.py` | Cross-channel ESG-to-financial KPI engine | Powers the ROI Agent's value-creation channels (Growth, Cost, Risk, Human Capital, Capital Efficiency) |
+| `core/company_config.py` | Per-user `CompanyConfig` proxy | Resolves the active user's company profile from `profile_store` on every access — supports concurrent users on one replica |
+| `utils/streamlit_compat.py` | HTML table fallback when `pyarrow` is missing | Lets the app run in constrained local environments without crashing |
+| `utils/profile_validator.py` | Profile schema validation | Catches malformed profile JSON before it reaches the orchestrator |
+| `utils/gap_suggestions.py` | Remediation suggestions for regulatory gaps | Used by the Regulatory Tracker's gap narrative |
+| `utils/industry_standards.py` | Industry-specific benchmarks for peer comparisons | Drives the ROI page's peer-benchmarking section |
+| `utils/monitoring.py` | Operational counters / timers | Lightweight in-process telemetry, no external sink required |
 
 ---
 

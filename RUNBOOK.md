@@ -11,20 +11,24 @@ Complete technical reference for all 9 AI agents: architecture, calculations, sc
 3. [Core Infrastructure](#core-infrastructure)
 4. [Data ETL & Freshness](#data-etl--freshness)
 5. [Agent 1: Data Collector](#agent-1-data-collector)
-5. [Agent 2: Regulatory Tracker](#agent-2-regulatory-tracker)
-6. [Agent 3: Carbon Accountant](#agent-3-carbon-accountant)
-7. [Agent 4: Report Generator](#agent-4-report-generator)
-8. [Agent 5: Risk Predictor](#agent-5-risk-predictor)
-9. [Agent 6: ESG ROI Agent](#agent-6-esg-roi-agent)
-10. [Agent 7: Audit Agent](#agent-7-audit-agent)
-11. [Agent 8: Action Agent](#agent-8-action-agent)
-12. [Agent 9: Stakeholder Agent](#agent-9-stakeholder-agent)
-13. [Data Connectors](#data-connectors) (incl. Delta Lake, folder/prefix mode)
-14. [Schema Mapping & Validation](#schema-mapping--validation)
-15. [AI Models & Fallbacks](#ai-models--fallbacks)
-16. [Data Freshness & Pipeline Refresh](#data-freshness--pipeline-refresh)
-17. [Deployment](#deployment)
-18. [Troubleshooting](#troubleshooting)
+6. [Agent 2: Regulatory Tracker](#agent-2-regulatory-tracker)
+7. [Agent 3: Carbon Accountant](#agent-3-carbon-accountant)
+8. [Agent 4: Report Generator](#agent-4-report-generator)
+9. [Agent 5: Risk Predictor](#agent-5-risk-predictor)
+10. [Agent 6: ESG ROI Agent](#agent-6-esg-roi-agent)
+11. [Agent 7: Audit Agent](#agent-7-audit-agent)
+12. [Agent 8: Action Agent](#agent-8-action-agent)
+13. [Agent 9: Stakeholder Agent](#agent-9-stakeholder-agent)
+14. [Data Connectors](#data-connectors) (incl. Delta Lake, folder/prefix mode)
+15. [Schema Mapping & Validation](#schema-mapping--validation)
+16. [AI Models & Fallbacks](#ai-models--fallbacks)
+17. [Data Freshness & Pipeline Refresh](#data-freshness--pipeline-refresh)
+18. [Identity, Persistence & Per-User Isolation](#identity-persistence--per-user-isolation)
+19. [Deployment](#deployment)
+20. [CI & Repository Hygiene](#ci--repository-hygiene)
+21. [Troubleshooting](#troubleshooting)
+
+> **Need a formula?** All numeric calculations, weights, and thresholds live in **[CALCULATIONS.md](CALCULATIONS.md)** — pulled directly from agent code with `file:line` citations.
 
 ---
 
@@ -1571,6 +1575,74 @@ Before the Data Collector re-publishes, `refresh_real_data()` drops every key in
 
 ---
 
+## Identity, Persistence & Per-User Isolation
+
+This section documents how a signed-in user is identified, where their state lives, and how concurrent users on the same Streamlit replica stay isolated. Read this before debugging any "I see someone else's numbers" or "my settings vanished after a Space rebuild" reports.
+
+### Authentication
+
+Implemented in `utils/auth.py`. Public surface is documented at the top of the module; the operationally important pieces are:
+
+| Concern | Implementation | Notes |
+| --- | --- | --- |
+| Password hashing | `bcrypt` | Never plaintext, ever. |
+| Session cookie | `itsdangerous.URLSafeTimedSerializer` with a 14-day TTL | Bridge to the browser via `extra_streamlit_components`. Cookie name configurable via `ESG_AUTH_COOKIE`. |
+| Cookie signing secret | `SESSION_SECRET` env var → `STREAMLIT_SESSION_SECRET` → `.streamlit/.session_secret` file → process-ephemeral random key | On HF Spaces the file path is ephemeral, so **set `SESSION_SECRET` as a Space secret** to keep cookies valid across rebuilds. |
+| Rate limits | In-memory rolling window per identifier | 10 logins / 5 min, 5 signups / 1 hr; tunable via `ESG_AUTH_*` env vars. Resets on process restart, not shared across replicas. |
+| Bucket eviction | `_sweep_idle_keys()` runs every ~500 check calls | Keeps the bucket dict bounded under enumeration attacks. |
+
+**To protect a page**, add at the top of the page script:
+
+```python
+from utils.auth import require_login
+require_login()
+```
+
+`require_login()` calls `st.stop()` on unauthenticated visitors after rendering an "Authentication required" hero block + Sign In / Home buttons. The Sign In page is hidden from the sidebar nav once the user is authenticated.
+
+### Per-user state partitioning
+
+`core/state_manager.py` partitions every pub/sub channel by the active user's ID:
+
+```
+publish("carbon_results", value)   →  writes to "<user_id>:carbon_results"
+subscribe("carbon_results")        →  reads from "<user_id>:carbon_results"
+```
+
+The active user ID is resolved on each call from `st.session_state` via a thread-local proxy. Anonymous sessions get a synthetic ID derived from the Streamlit session ID. **No agent code had to change** — all calls go through the existing `state_manager.publish` / `subscribe` API.
+
+**Pinning test:** `tests/test_state_manager_isolation.py` uses the `FakeStreamlit` fixture in `tests/conftest.py` to simulate two users on one replica and asserts that User B's publish does not leak into User A's read.
+
+### Per-user persistence
+
+| Store | Module | Backend order |
+| --- | --- | --- |
+| Auth (users) | `utils/user_store.py` | `hf_dataset` → `local_json` (ephemeral) |
+| Source registry | `utils/source_store.py` | `hf_dataset` → `local_json` (ephemeral) |
+| Company profile | `utils/profile_store.py` | `hf_dataset` → `local_json` (ephemeral) |
+
+**HF Dataset format.** Each store writes JSON files into a private dataset (configured via `ESG_USERS_DATASET`, `ESG_SOURCES_DATASET`, `ESG_PROFILES_DATASET` env vars or the defaults baked into each module). One file per user, namespaced by user ID.
+
+**Failure semantics.** On any HF API error (including `huggingface_hub` wrapping `EntryNotFoundError` as `ValueError`), the store:
+1. Captures the exception into `last_error`.
+2. Falls back to local-JSON storage so the app keeps working.
+3. Surfaces both the active backend and the captured error in the sidebar via `_render_storage_diagnostic()`.
+
+**Operator action: if the sidebar shows "Local JSON (ephemeral)" on the deployed Space, set `HF_TOKEN` as a Space secret.** Otherwise every Space rebuild loses all user-scoped data (accounts, sources, profiles).
+
+### Concurrent-user invariants
+
+| Invariant | Where it's enforced |
+| --- | --- |
+| User A's pipeline run never overwrites User B's `state_manager` channels | `core/state_manager.py` per-user partitioning |
+| User A's company profile never resolves for User B | `core/company_config.py` thread-local proxy that re-reads `profile_store` per call |
+| User A's registered sources never appear in User B's Data Collector | `utils/connection_manager.py` is constructed per-session and stored under `st.session_state.conn_manager` |
+| Logout actually clears user-scoped session_state | `utils/auth.py:logout()` pops `*_agent`, `*_results`, `data_collector`, `conn_manager`, profile keys |
+
+**Known gap:** `logout()` does not currently clear `preview_df` / `preview_config` / `preview_source_type`. On a shared browser, the next user could see the previous user's uploaded file preview. Tracked as a follow-up.
+
+---
+
 ## Deployment
 
 ### Local Development
@@ -1631,6 +1703,200 @@ These monkey-patches resolve known issues when running Gradio inside Docker/Hugg
 2. `gradio.networking.url_ok` — bypasses localhost health check that fails in containerized environments
 3. `gradio_client.utils._json_schema_to_python_type` — handles bool `additionalProperties` that causes `TypeError: argument of type 'bool' is not iterable`
 
+### Deploying from GitHub to the Streamlit Space
+
+The Streamlit Space (`isayan58/ESG-CoPilot-Dashboard`) is hosted by HuggingFace as a separate git remote. Deploys are explicit pushes from a green `dev` branch on GitHub into the Space's `main` branch. The Space rebuilds automatically once `main` advances.
+
+**One-time remote setup** (already configured in this worktree, do once on a fresh clone):
+
+```bash
+git remote add hf-streamlit https://huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard
+# Authenticate either via the macOS keychain helper or a HF write token in the URL:
+#   https://USER:hf_TOKEN@huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard
+git fetch hf-streamlit
+```
+
+**Standard deploy (clean dev history, no LFS-eligible binaries in any commit):**
+
+```bash
+# 1. Make sure your local dev mirrors GitHub.
+git fetch origin
+git fetch hf-streamlit
+
+# 2. Sanity-check what will change on the Space.
+git log hf-streamlit/main..origin/dev --oneline
+git diff --stat hf-streamlit/main origin/dev
+
+# 3. Push origin/dev to the Space's main branch.
+git push hf-streamlit origin/dev:main
+```
+
+That's the happy path — a fast-forward push that the Space picks up within ~30 seconds.
+
+**Recovery deploy (HF Space was reverted, or a binary blocks a normal push):**
+
+HuggingFace's pre-receive hook scans the *full history* of every pushed branch and rejects any commit that contains a file LFS would track (binaries, large blobs). Even a commit that *adds* and *immediately removes* the file (e.g. a one-pager `.pptx` that we deleted) is enough to break a normal push.
+
+The fix: build a single commit whose **tree** is your target state and whose **parent** is the current Space tip. HF only scans that one new commit, so deleted-but-historically-present binaries are invisible.
+
+```bash
+# 1. Confirm the Space tip and the gap to dev.
+git fetch hf-streamlit
+git diff --stat hf-streamlit/main origin/dev
+
+# 2. Build a one-shot commit on top of the Space tip whose tree == origin/dev's tree.
+TREE=$(git rev-parse origin/dev^{tree})
+COMMIT=$(git commit-tree "$TREE" -p hf-streamlit/main \
+  -m "deploy: sync to dev — <reason for the deploy>")
+echo "Built deploy commit: $COMMIT"
+
+# 3. Push that loose commit straight to main.
+git push hf-streamlit "$COMMIT:main" --force
+
+# 4. Verify the trees now match (output should be empty).
+git fetch hf-streamlit
+git diff --stat origin/dev hf-streamlit/main
+```
+
+The commit is loose (not on any local branch) — it lives only in the Space's history. Your working tree, local branches, and GitHub remote are untouched.
+
+**Troubleshooting deploy push rejections:**
+
+Each row below quotes the literal error you'll see in the terminal so you can grep for it. The "Fix" column is the *minimum* command sequence — drop in for drop in.
+
+#### 1. Binary file rejected by xet/LFS hook
+
+```
+remote: Your push was rejected because it contains binary files.
+remote: Please use https://huggingface.co/docs/hub/xet to store binary files.
+remote: Offending files:
+remote:   - ESG_CoPilot_OnePager.pptx (ref: refs/heads/main)
+ ! [remote rejected] origin/dev -> main (pre-receive hook declined)
+```
+
+**Cause.** HF scans the *full history* of every pushed branch. Even if the file was added in commit `A` and removed in commit `B`, both `A` and `B` are in the pushed history, so HF sees the binary and rejects.
+
+**Fix.** Use the recovery-deploy flow — `git commit-tree` produces exactly one commit on top of `hf-streamlit/main`, and HF only scans that single commit's tree:
+
+```bash
+TREE=$(git rev-parse origin/dev^{tree})
+COMMIT=$(git commit-tree "$TREE" -p hf-streamlit/main \
+  -m "deploy: bypass historical binary <filename>")
+git push hf-streamlit "$COMMIT:main" --force
+```
+
+**Permanent fix** (so the next normal deploy works): keep large binaries out of the repo entirely. Move presentation decks, screenshots, generated PDFs, etc. to an out-of-tree `~/Drive/esg-copilot/` folder and reference them in `.gitignore`. If a binary already snuck in, either accept the recovery-deploy workflow forever or scrub history with `git filter-repo --invert-paths --path <file>` (destructive — coordinate with the team first).
+
+#### 2. Non-fast-forward push
+
+```
+ ! [remote rejected] origin/dev -> main (non-fast-forward)
+error: failed to push some refs to '…ESG-CoPilot-Dashboard'
+hint: Updates were rejected because the remote contains work that you do
+hint: not have locally. This is usually caused by another repository pushing
+```
+
+**Cause.** Someone (or some web edit on the Space's "Files" tab) added a commit to `hf-streamlit/main` that isn't in your local history.
+
+**Fix — preserve the remote commit:**
+```bash
+git fetch hf-streamlit
+git log hf-streamlit/main --oneline -5     # inspect what landed
+git checkout -B deploy/sync hf-streamlit/main
+git merge origin/dev --no-edit
+git push hf-streamlit deploy/sync:main
+```
+
+**Fix — discard the remote commit (when it's a known-bad revert, as happened on 2026-04-20):**
+```bash
+TREE=$(git rev-parse origin/dev^{tree})
+COMMIT=$(git commit-tree "$TREE" -p hf-streamlit/main \
+  -m "deploy: restore reverted state")
+git push hf-streamlit "$COMMIT:main" --force
+```
+
+#### 3. Authentication / authorization failure
+
+```
+remote: Invalid username or password.
+fatal: Authentication failed for 'https://huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard/'
+```
+
+or
+
+```
+remote: Authorization error.
+remote: Sorry, you don't have write access to this repository.
+```
+
+**Cause.** Token missing, expired, or read-only.
+
+**Fix.**
+1. Generate a **write** token at <https://huggingface.co/settings/tokens> (role: `Write`, scope: this Space or all repos).
+2. Update the remote URL with the token embedded:
+   ```bash
+   git remote set-url hf-streamlit \
+     https://isayan58:hf_xxxYourTokenxxx@huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard
+   ```
+3. Or store it in the macOS keychain once:
+   ```bash
+   git config --global credential.helper osxkeychain
+   git push hf-streamlit …    # prompts once, caches forever
+   ```
+
+#### 4. Space stuck on "Building" / build failed
+
+```
+ERROR: Could not find a version that satisfies the requirement <pkg>
+ModuleNotFoundError: No module named '<pkg>'
+```
+
+**Cause.** `requirements.txt` references a package name HF's pip mirror can't resolve, or a transitive dep pinned in `pip freeze` style is unavailable.
+
+**Fix.**
+1. Open the Space → **Logs** tab → **Build logs** to see the failing pip line.
+2. If the package is genuinely needed: pin a known-good version (`pkg>=1.0,<2`) and re-deploy.
+3. If it's a stale transitive (`pkg-only-on-mac`): drop it from `requirements.txt` — we keep that file curated, not generated by `pip freeze`.
+4. After fixing, redeploy via the standard or recovery flow.
+
+#### 5. Space runs but renders the wrong commit
+
+**Cause.** Browser cache, or HF's CDN held a stale build manifest for ~1 minute.
+
+**Fix.**
+1. Confirm the deploy actually advanced `main`:
+   ```bash
+   git fetch hf-streamlit
+   git log hf-streamlit/main --oneline -1
+   ```
+2. Open the Space's **Logs → App logs** and look for the build banner timestamp.
+3. Hard-reload the browser tab: `Cmd+Shift+R` (macOS) / `Ctrl+Shift+F5` (Windows/Linux).
+4. If still stale after 2 minutes, click **Settings → Restart this Space** to force a rebuild.
+
+#### 6. App logs show "ImportError" or per-user data leaks after deploy
+
+**Cause.** A new module or per-user invariant (e.g. the `state_manager` per-user partitioning shipped on 2026-04-20) was introduced in `dev` but not exercised in tests, so a regression slipped through.
+
+**Fix.**
+1. Roll back the Space to the previous good commit while you investigate:
+   ```bash
+   git push hf-streamlit <previous-good-sha>:main --force
+   ```
+2. Reproduce locally: `streamlit run Home.py`, sign in as two distinct users in two browser profiles, and confirm the failure mode.
+3. Add a regression test (see `tests/test_state_manager_isolation.py` for the fake-Streamlit fixture pattern), fix on `claude/<branch>`, merge to `dev`, redeploy.
+
+**Post-deploy verification:**
+
+```bash
+# Should print the deploy commit you just pushed.
+git log hf-streamlit/main --oneline -1
+
+# Tree-level diff should be empty if the deploy is in sync with dev.
+git diff --stat origin/dev hf-streamlit/main
+```
+
+Then open [the Space](https://huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard) and watch the "Building" → "Running" transition in the top-right status badge.
+
 ### Cloud Connector Dependencies
 
 All cloud connector imports are optional (`try/except`), so missing packages never crash the app. For cloud data access, install only the packages you need:
@@ -1644,6 +1910,78 @@ deltalake>=0.17.0           # Delta Lake tables (no Spark required)
 ```
 
 The deployed HuggingFace Spaces already include all cloud dependencies in their `requirements.txt`.
+
+---
+
+## CI & Repository Hygiene
+
+### GitHub Actions (`.github/workflows/test.yml`)
+
+Triggers on every push to `main`, `dev`, and any `claude/**` branch, and on every PR targeting `main` or `dev`.
+
+| Job | What it does | Why |
+| --- | --- | --- |
+| `pytest` (matrix: 3.12, 3.13) | `pip install -r requirements.txt && pip install pytest && pytest tests/ -v --tb=short --color=yes` | 3.12 = local dev, 3.13 = HF Space runtime. Both must stay green so a Python-version-specific regression (e.g. an stdlib API that changed between minor versions) is caught before merge. |
+
+**Concurrency:** `cancel-in-progress: true` cancels superseded runs on rapid pushes.
+
+**pip cache:** keyed on `requirements.txt` content. First run takes ~90s; subsequent runs ~10s.
+
+**Failure artifacts:** `.pytest_cache/` and `tests/**/__snapshots__/` are uploaded for 7 days on failure to make remote triage easier.
+
+### Pre-push hook (`scripts/git-hooks/pre-push`)
+
+Blocks any push to the `hf-streamlit` remote whose tip doesn't match `origin/dev`. Documented in detail in `scripts/git-hooks/README.md`.
+
+**Activate (once per clone):**
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
+**The contract.** Deploys to the HF Space `main` branch must originate from `origin/dev` (which gates merges through PR + CI). The hook reads stdin in `<local-ref> <local-sha> <remote-ref> <remote-sha>` format, intervenes only when:
+
+- The remote URL contains `huggingface.co/spaces/`, AND
+- The push targets `refs/heads/main`, AND
+- `local_sha != $(git rev-parse origin/dev)`.
+
+When these match, the hook fails with a diagnostic that prints both SHAs (with their commit messages), the deploy procedure, and the bypass command.
+
+**Bypass for an emergency hotfix:**
+
+```bash
+git push --no-verify hf-streamlit <sha>:main
+```
+
+The `--no-verify` flag is the standard Git escape hatch — use it sparingly and document why in the deploy commit message.
+
+**Verification.** After installing:
+
+```bash
+git config --get core.hooksPath        # → scripts/git-hooks
+```
+
+A push to `origin` (any branch) is unaffected. A push to `hf-streamlit refs/heads/main` of any SHA other than `origin/dev`'s tip is refused.
+
+### Regression test pattern (init-ordering)
+
+`tests/test_data_collector_page_init.py` pins the fix for the 2026-04-20 production `AttributeError`. It has two layers:
+
+1. **Behavioural test** — replays the user's page-navigation order (`utils/pipeline_refresh.py` seeds `st.session_state["data_collector"]`, then the user opens the Data Collector page, then the page top-level reads `data_collector_results`) and asserts both keys are initialised.
+2. **Structural test** — AST-walks `pages/2_Data_Collector.py` and asserts that `data_collector_results` is **not** assigned inside the `if "data_collector" not in st.session_state:` block. A future refactor that re-merges the two guards fails this test before the bug ships.
+
+**This pattern (behavioural + structural AST guard) is reusable** for any other page that has independent session-state keys initialised together. See "Test gaps" in any caveat-audit output for candidates.
+
+### `.gitignore` & binary file policy
+
+The HuggingFace pre-receive hook scans the **full history** of every pushed branch for files xet/LFS would track. A binary added in commit A and removed in commit B is still in the pushed history, so HF rejects the push.
+
+**Policy:** keep large binaries (`.pptx`, `.pdf`, `.png` over a few hundred KB, generated images, etc.) out of the repo entirely. Move them to an out-of-tree folder and reference them in `.gitignore`. If a binary already snuck in:
+
+- **One-off:** use the `git commit-tree` recovery flow (see [Deployment → Recovery deploy](#deploying-from-github-to-the-streamlit-space)).
+- **Permanent:** scrub history with `git filter-repo --invert-paths --path <file>` (destructive — coordinate with the team first; everyone needs to re-clone).
+
+The 2026-04-20 `.pptx` incident was permanently fixed via the latter; standard deploys now work without the recovery dance.
 
 ---
 
@@ -1677,6 +2015,14 @@ The deployed HuggingFace Spaces already include all cloud dependencies in their 
 | Removed a source but old data still appears in carbon / risk / audit totals | Stale `dataset_{schema}` channel in `state_manager` from a previous run | Click Run on any agent page once — the helper clears `dataset_*` / `validated_*` channels before the Data Collector republishes. For a full wipe: `state_manager.clear()`. |
 | Unchanged Snowflake query re-executes on every Run (slow / costly) | Default `refresh_real_data()` call re-fetches all sources | Call `refresh_real_data(only_changed=True)` in the Run handler to reuse per-source cached DataFrames when config signatures match. |
 | Changed Snowflake table rows aren't visible even though the query is the same | With `only_changed=True`, cache is keyed on config signature, not on remote row counts | Edit the query (anything triggers a new signature), click "Test" on the Data Collector page, or call `conn_mgr.invalidate_cache(source_id)` to force the next fetch. |
+| `AttributeError: st.session_state has no attribute "data_collector_results"` on Data Collector page after navigating from Mission Control / ROI | Combined session-state init guard short-circuited because `utils/pipeline_refresh.py` pre-populated `data_collector` | Now fixed by splitting into two independent guards in `pages/2_Data_Collector.py`. Pinned by `tests/test_data_collector_page_init.py` (behavioural + AST structural). |
+| Sidebar shows "Storage: Local JSON (ephemeral)" on the deployed Space | `HF_TOKEN` not set, or the token doesn't have write access to the configured dataset | Set `HF_TOKEN` as a Space secret with **Write** scope. The diagnostic also surfaces the last persistence error in an expander. |
+| User's accounts / sources / profiles vanish after a Space rebuild | Storage backend resolved to `local_json` (ephemeral container FS) instead of `hf_dataset` | Same as above — set `HF_TOKEN`. After fixing, signups will land in the dataset and survive rebuilds. |
+| Cookies invalidated on every Space rebuild → users get logged out | `SESSION_SECRET` not set, falling back to `.streamlit/.session_secret` (ephemeral) or process-random | Set `SESSION_SECRET` as a Space secret to a stable random string. |
+| Two concurrent users see each other's pipeline output | Pre-isolation `state_manager` was process-global | Now fixed — `core/state_manager.py` partitions every channel by user ID. Pinned by `tests/test_state_manager_isolation.py`. |
+| Push to HF Space rejected by `pre-push` hook with "Refusing to deploy" | Local SHA doesn't match `origin/dev` — deploy contract is `git push hf-streamlit dev:main` | Run `git fetch origin && git push hf-streamlit origin/dev:main`. For an emergency hotfix only, `git push --no-verify hf-streamlit <sha>:main`. |
+| Push to HF Space rejected with `pre-receive hook declined` mentioning a binary file no longer in the repo | HF scans full pushed history; the binary is still in old commits | Use the `git commit-tree` recovery flow (RUNBOOK → Deployment → "Recovery deploy"); permanently fix with `git filter-repo --invert-paths --path <file>`. |
+| CI fails on Python 3.13 but passes on 3.12 (or vice versa) | Stdlib API or behaviour changed between versions | Both are required — the HF Space runs 3.13, local dev runs 3.12. Reproduce with `pyenv install 3.13 && pyenv shell 3.13 && pytest tests/`. |
 
 ### Checking Agent State
 

@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 import streamlit as st
-import streamlit.components.v1 as _components
 
 # ---------------------------------------------------------------------------
 # Optional React-backed libraries
@@ -82,35 +81,29 @@ _GRADE_COLORS = {
 # ---------------------------------------------------------------------------
 # Global CSS injection (the design-system layer)
 # ---------------------------------------------------------------------------
+# Font + icon stylesheets injected via st.markdown so they land in the
+# page's main DOM. We previously injected Material Symbols via a 0-height
+# components.html() iframe writing into window.parent.document.head — that
+# fails silently on HuggingFace Spaces because the component iframe is
+# sandboxed cross-origin (the SecurityError on
+# ``window.parent.document.head`` is swallowed by the try/catch), leaving
+# icon ligatures rendering as raw text ("upload",
+# "keyboard_double_arrow_left"). Modern browsers accept ``<link rel="stylesheet">``
+# anywhere in the document and implicitly reparent it to <head>, so the
+# simpler markdown path works both locally and on HF Spaces.
+#
+# We also load every icon-font variant Streamlit's built-in widgets reach
+# for (Material Symbols Rounded for 1.30+, Material Symbols Outlined for
+# some sidebar widgets, and the legacy Material Icons family for
+# pre-1.28 components) so no widget renders its ligature name as raw text.
 _FONT_LINK = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-"""
-
-# Injected via components.html() so it lands in the real <head>,
-# not a sandboxed markdown div that some browsers ignore for font loading.
-_MATERIAL_SYMBOLS_JS = """
-<script>
-(function() {
-    try {
-        var doc = (window.parent || window).document;
-        if (doc.getElementById('esg-mat-sym-font')) return;
-        var pre1 = doc.createElement('link');
-        pre1.rel = 'preconnect'; pre1.href = 'https://fonts.googleapis.com';
-        doc.head.appendChild(pre1);
-        var pre2 = doc.createElement('link');
-        pre2.rel = 'preconnect'; pre2.href = 'https://fonts.gstatic.com';
-        pre2.crossOrigin = 'anonymous';
-        doc.head.appendChild(pre2);
-        var link = doc.createElement('link');
-        link.id  = 'esg-mat-sym-font';
-        link.rel = 'stylesheet';
-        link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200';
-        doc.head.appendChild(link);
-    } catch(e) {}
-})();
-</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 """
 
 _GLOBAL_CSS = f"""
@@ -148,33 +141,76 @@ _GLOBAL_CSS = f"""
         border-right: 1px solid {TOKENS['border']};
     }}
 
-    /* Exclude .material-symbols-rounded so icon spans keep their font,
-       even when they also carry a st-emotion-cache-* class. */
-    html, body, [class*="st-"]:not(.material-symbols-rounded),
-    .stApp, .stMarkdown, .stText, .stCaption, .stButton > button {{
+    /* ---- Body typography ------------------------------------------------
+       SCOPING NOTE — DO NOT add ``[class*="st-"]`` back here. It matches
+       every ``st-emotion-cache-*`` span, which includes Streamlit's
+       built-in icon spans. Two compounding bugs result:
+
+       1. Streamlit sets the icon font via inline ``style=``; class CSS
+          loses to it without !important — *but* the visible icons we
+          care about (file uploader "upload", sidebar
+          "keyboard_double_arrow_left", etc.) instead render as raw
+          text because…
+       2. Setting an explicit ``font-feature-settings`` value disables
+          *every* feature not explicitly listed, including ``'liga'`` —
+          the ligature feature that converts "upload" → 📤. So even
+          when the icon font loads, the text stays visible.
+
+       We therefore scope body typography to specific Streamlit
+       containers (markdown, text, caption, buttons, app shell) and
+       leave icon spans untouched. The ``font-feature-settings`` rule
+       below also explicitly enables ``'liga'`` so the OpenType
+       contextual alternates we want (cv11, ss01, etc.) co-exist with
+       ligatures. */
+    html, body, .stApp,
+    .stMarkdown, .stText, .stCaption,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdown"],
+    .stButton > button,
+    .stTextInput input, .stTextArea textarea,
+    .stSelectbox div[data-baseweb="select"] {{
         font-family: var(--font-body);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv03';
+        font-feature-settings: 'liga' 1, 'cv11' 1, 'ss01' 1, 'ss03' 1, 'cv03' 1;
     }}
 
-    /* ---- Material Symbols — ensure icon ligatures render, not text ---- */
-    .material-symbols-rounded {{
-        font-family: 'Material Symbols Rounded' !important;
-        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-        /* 'liga' is required for text-to-icon ligature substitution */
+    /* ---- Material Symbols / Icons — ensure ligatures render, not text ----
+       Streamlit ships its own Material Symbols font internally and uses
+       ligatures (``<span>upload</span>`` → 📤). Three things must hold
+       for the substitution to happen:
+         (a) the icon font is actually loaded (we link all three variants
+             via ``_FONT_LINK`` for redundancy with Streamlit's bundled copy),
+         (b) the span uses that font (Streamlit sets it inline; our
+             !important rules win on class-matched spans regardless),
+         (c) ligatures are enabled (``font-feature-settings: 'liga' 1``).
+
+       Each rule below uses ``!important`` so no parent typography rule
+       (ours or Streamlit's) can break the substitution. */
+    .material-symbols-rounded,
+    .material-symbols-outlined,
+    .material-symbols-sharp,
+    .material-icons,
+    [class*="material-symbols"],
+    [class*="material-icons"] {{
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
         font-feature-settings: 'liga' 1 !important;
-        font-style: normal;
-        font-size: 24px;
-        line-height: 1;
-        letter-spacing: normal;
+        font-variant-ligatures: common-ligatures contextual !important;
+        font-style: normal !important;
+        font-weight: normal !important;
+        line-height: 1 !important;
+        letter-spacing: normal !important;
         text-transform: none !important;
-        display: inline-block;
-        white-space: nowrap;
-        direction: ltr;
-        word-spacing: normal;
-        -webkit-font-smoothing: antialiased;
+        display: inline-block !important;
+        white-space: nowrap !important;
+        direction: ltr !important;
+        word-spacing: normal !important;
+        -webkit-font-smoothing: antialiased !important;
     }}
+    .material-symbols-rounded   {{ font-family: 'Material Symbols Rounded' !important; }}
+    .material-symbols-outlined  {{ font-family: 'Material Symbols Outlined' !important; }}
+    .material-symbols-sharp     {{ font-family: 'Material Symbols Sharp' !important; }}
+    .material-icons             {{ font-family: 'Material Icons' !important; }}
     h1, h2, h3, h4, h5 {{
         font-family: var(--font-display);
         letter-spacing: -0.018em;
@@ -462,17 +498,15 @@ def inject_global_css() -> None:
     The first render also wires up ``style_metric_cards`` (which mutates
     Streamlit-generated DOM) — that side-effect is one-shot per session.
     """
-    # Typography fonts via <link> (Streamlit tolerates these in markdown).
+    # Typography + icon fonts via <link> tags. Material Symbols variants
+    # (Rounded, Outlined, legacy Material Icons) are now bundled into
+    # ``_FONT_LINK`` so they render via st.markdown and reach the page's
+    # main DOM directly. The previous components.html iframe injection
+    # silently failed on HuggingFace Spaces (cross-origin sandbox blocks
+    # ``window.parent.document.head`` access), causing icon ligature names
+    # like "upload" / "keyboard_double_arrow_left" to render as raw text.
     st.markdown(_FONT_LINK, unsafe_allow_html=True)
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
-
-    # Material Symbols needs to land in the real <head> to be picked up
-    # as a font loader — st.markdown output ends up in a sandboxed div
-    # that some browsers skip for @font-face. Use a 0-height component
-    # iframe whose script writes the <link> into window.parent.document.head.
-    if not st.session_state.get("_esg_mat_sym_injected"):
-        _components.html(_MATERIAL_SYMBOLS_JS, height=0)
-        st.session_state["_esg_mat_sym_injected"] = True
 
     if not st.session_state.get("_esg_metric_cards_styled"):
         if _HAS_EXTRAS and style_metric_cards is not None:
@@ -525,7 +559,7 @@ def _pwc_logo_data_uri() -> str:
 
 def pwc_header(
     product: str = "ESG CoPilot",
-    tagline: str = "Powered by PwC",
+    tagline: str = "Powered by PwC India",
 ) -> None:
     """Render the PwC logo + product wordmark at the top of a page.
 
