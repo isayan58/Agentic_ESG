@@ -1,0 +1,78 @@
+name: Tests
+
+# Goal: catch the AttributeError-on-page-navigation class of bug
+# (and the per-user state-isolation regressions) BEFORE the user hits
+# them in production on the HuggingFace Streamlit Space.
+#
+# Triggered on every push/PR to dev, main, or any claude/* branch — so a
+# broken merge candidate fails CI before it can be merged + deployed.
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - "claude/**"
+  pull_request:
+    branches:
+      - main
+      - dev
+
+# Cancel in-flight runs when a new commit lands on the same ref. Saves
+# minutes on rapid-fire pushes during active development.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Run all matrix entries even if one fails — easier to triage.
+      fail-fast: false
+      matrix:
+        # 3.12 = local dev; 3.13 = HF Space runtime (per the prod traceback).
+        # Both must stay green so a Python-version-specific regression
+        # (e.g. an stdlib API that changed between 3.12 and 3.13) is caught.
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          # Cache pip's wheel directory keyed on requirements.txt so the
+          # second-onwards run installs from cache in ~5s instead of ~90s.
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install the app's runtime requirements so production code
+          # paths import without ModuleNotFoundError. Cloud-connector
+          # imports (boto3, google-cloud-bigquery, etc.) are
+          # try/except'd at the import site, so missing optionals don't
+          # break tests.
+          pip install -r requirements.txt
+          # Pytest is dev-only — keep it out of requirements.txt so the
+          # HF Space build doesn't pull it in for nothing.
+          pip install pytest
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v --tb=short --color=yes
+
+      - name: Upload pytest log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log-py${{ matrix.python-version }}
+          path: |
+            .pytest_cache/
+            tests/**/__snapshots__/
+          retention-days: 7
