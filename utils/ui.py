@@ -559,7 +559,7 @@ def _pwc_logo_data_uri() -> str:
 
 def pwc_header(
     product: str = "ESG CoPilot",
-    tagline: str = "Powered by PwC",
+    tagline: str = "Powered by PwC India",
 ) -> None:
     """Render the PwC logo + product wordmark at the top of a page.
 
