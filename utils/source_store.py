@@ -167,6 +167,10 @@ class SourceStore:
         # username -> (records, loaded_at)
         self._cache: dict[str, tuple[list[dict], float]] = {}
         self._resolved_backend: Optional[str] = None
+        # Last-error capture so the UI can surface why HF writes silently
+        # fell back to local JSON (bad token, no write scope, etc.).
+        self._last_error: Optional[str] = None
+        self._last_error_at: Optional[str] = None
 
     # -- Public API --------------------------------------------------------
     @property
@@ -179,6 +183,23 @@ class SourceStore:
         if self._resolved_backend == "local_json":
             return f"Local JSON ({LOCAL_FALLBACK_DIR}) — ephemeral"
         return "Unresolved — will pick backend on first read"
+
+    def diagnostic(self) -> dict:
+        return {
+            "backend": self._resolved_backend,
+            "label": self.backend_label(),
+            "has_token": bool(self._token),
+            "dataset": self._dataset,
+            "last_error": self._last_error,
+            "last_error_at": self._last_error_at,
+        }
+
+    def _record_error(self, exc: BaseException) -> None:
+        from datetime import datetime, timezone
+        self._last_error = f"{type(exc).__name__}: {exc}"
+        self._last_error_at = (
+            datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        )
 
     def load(self, username: str) -> list[dict]:
         """Return the list of source records for ``username``. Empty list if none."""
@@ -219,9 +240,11 @@ class SourceStore:
             try:
                 records = self._load_from_hf(username)
                 self._resolved_backend = "hf_dataset"
+                self._last_error = None
+                self._last_error_at = None
                 return records
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_error(exc)
         records = self._load_from_local(username)
         self._resolved_backend = "local_json"
         return records
@@ -231,9 +254,11 @@ class SourceStore:
             try:
                 self._save_to_hf(username, records)
                 self._resolved_backend = "hf_dataset"
+                self._last_error = None
+                self._last_error_at = None
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_error(exc)
         self._save_to_local(username, records)
         self._resolved_backend = "local_json"
 
