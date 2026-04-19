@@ -349,6 +349,7 @@ def logout() -> None:
     # Same idea for the per-user company profile / CompanyConfig.
     st.session_state.pop("company_profile", None)
     st.session_state.pop("_company_profile_owner", None)
+    st.session_state.pop("_company_profile_token", None)
     st.session_state.pop("_company_cfg", None)
     try:
         from core.company_config import set_active_company_config

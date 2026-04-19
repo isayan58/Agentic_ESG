@@ -42,6 +42,7 @@ _SESSION_KEY = "conn_manager"
 _OWNER_KEY = "_conn_manager_owner"
 _PROFILE_KEY = "company_profile"
 _PROFILE_OWNER_KEY = "_company_profile_owner"
+_PROFILE_TOKEN_KEY = "_company_profile_token"
 _CONFIG_KEY = "_company_cfg"
 
 
@@ -133,6 +134,12 @@ def get_session_company_profile() -> dict:
     falls back to the bundled default profile for guests. Always returns
     a fresh deep copy so the caller can mutate without affecting other
     sessions.
+
+    Side effect: records the load token under ``_PROFILE_TOKEN_KEY`` in
+    session_state. :func:`save_session_company_profile` reads this token
+    back out to give optimistic-concurrency protection — two tabs of
+    the same user editing simultaneously will no longer silently clobber
+    each other.
     """
     username = _current_username()
     existing = st.session_state.get(_PROFILE_KEY)
@@ -145,16 +152,19 @@ def get_session_company_profile() -> dict:
         return _json.loads(_json.dumps(existing))
 
     store = get_profile_store()
+    token: str | None = None
     if username:
         try:
-            profile = store.load(username)
+            profile, token = store.load_with_token(username)
         except Exception:
             profile = store.default_profile()
+            token = None
     else:
         profile = store.default_profile()
 
     st.session_state[_PROFILE_KEY] = profile
     st.session_state[_PROFILE_OWNER_KEY] = username
+    st.session_state[_PROFILE_TOKEN_KEY] = token
     # Force the company-config helper to rebuild on next call.
     st.session_state.pop(_CONFIG_KEY, None)
 
@@ -162,28 +172,46 @@ def get_session_company_profile() -> dict:
     return _json.loads(_json.dumps(profile))
 
 
-def save_session_company_profile(profile: dict) -> None:
+def save_session_company_profile(profile: dict, *, force: bool = False) -> None:
     """Persist ``profile`` for the signed-in user and refresh the cache.
 
     No-op for guests (they have nowhere durable to save to).
 
+    Concurrency
+    -----------
+    By default we enforce optimistic concurrency using the token captured
+    at :func:`get_session_company_profile` time. If the stored profile
+    has changed since load (another tab / replica), the underlying store
+    raises :class:`utils.profile_store.ProfileConflict` and the caller
+    is expected to surface a "reload or overwrite?" prompt to the user.
+
+    Pass ``force=True`` to bypass the check and clobber the other
+    writer — used when the user explicitly chooses "Save anyway" after
+    being shown the conflict.
+
     After the durable write succeeds we clear the *process-wide* profile
     cache for this user so any other browser tab on the same replica
     sees the new profile on its next rerun rather than waiting out the
-    TTL. This is why cross-tab edits now propagate immediately within a
-    single Space replica; cross-replica propagation still waits up to
-    one TTL window (~30s).
+    TTL.
     """
     username = _current_username()
     if not username:
         return
     store = get_profile_store()
-    store.save(username, profile)
+    expected_token = (
+        None if force else st.session_state.get(_PROFILE_TOKEN_KEY)
+    )
+    if force or expected_token is None:
+        # Legacy / forced path — no concurrency check.
+        new_token = store.save(username, profile)
+    else:
+        new_token = store.save(username, profile, expected_token=expected_token)
     store.clear_cache(username)
     # Update the in-session cache so the page sees its own write back
     # immediately (don't wait for the TTL to expire on the next load).
     st.session_state[_PROFILE_KEY] = profile
     st.session_state[_PROFILE_OWNER_KEY] = username
+    st.session_state[_PROFILE_TOKEN_KEY] = new_token
     st.session_state.pop(_CONFIG_KEY, None)
 
 
@@ -224,6 +252,7 @@ def rebuild_session_company_config() -> CompanyConfig:
     profile loads fresh on the next interaction."""
     st.session_state.pop(_PROFILE_KEY, None)
     st.session_state.pop(_PROFILE_OWNER_KEY, None)
+    st.session_state.pop(_PROFILE_TOKEN_KEY, None)
     st.session_state.pop(_CONFIG_KEY, None)
     set_active_company_config(None)
     return get_session_company_config()

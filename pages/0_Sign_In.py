@@ -92,7 +92,7 @@ with tab_signin:
                 user = login(identifier, password)
             except RateLimitExceeded as exc:
                 user = None
-                st.error(f"🚧 {exc}")
+                st.warning(f"🚧 {exc}", icon="🚧")
             else:
                 if user is None:
                     st.error("Invalid credentials. Please check your username/email and password.")
@@ -160,6 +160,11 @@ with tab_signup:
                     full_name=full_name,
                     role=role,
                 )
+            except RateLimitExceeded as exc:
+                # Render distinctly from validation errors so users see
+                # "try again in ~Xs" rather than a generic red error chrome.
+                user = None
+                st.warning(f"🚧 {exc}", icon="🚧")
             except ValueError as exc:
                 st.error(str(exc))
             except Exception as exc:  # defensive — backend hiccup
