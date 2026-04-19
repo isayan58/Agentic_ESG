@@ -13,6 +13,7 @@ from utils.schema_mapper import (
 )
 from utils.connection_manager import ConnectionManager
 from utils.session import get_session_connection_manager
+from utils.source_store import SourcePayloadTooLarge
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, pwc_header
 
@@ -41,6 +42,34 @@ agent = st.session_state.data_collector
 conn_mgr = st.session_state.conn_manager
 
 
+def _safely_add_source(source_id: str, **kwargs) -> bool:
+    """Call ``conn_mgr.add_source`` with rollback on size-cap failure.
+
+    ``add_source`` mutates the in-memory registry *before* the on-change
+    persistence callback runs, so a ``SourcePayloadTooLarge`` error
+    leaves an orphaned in-memory entry that gets wiped on the next page
+    rerun (losing the user's click with no explanation). This wrapper
+    removes the entry on failure and surfaces a clear error banner
+    naming the offending source.
+    """
+    try:
+        conn_mgr.add_source(source_id=source_id, **kwargs)
+        return True
+    except SourcePayloadTooLarge as exc:
+        # Roll back the in-memory add so the next rerun doesn't show a
+        # ghost entry that's not persisted.
+        conn_mgr.remove_source(source_id)
+        st.error(
+            f"❌ **Can't save this source** — total size would exceed the "
+            f"cap ({exc.cap_bytes:,} bytes).\n\n{exc}"
+        )
+        if exc.per_source:
+            with st.expander("Which sources are using the most space?"):
+                for label, size in exc.per_source[:10]:
+                    st.markdown(f"- **{label}** — {size / 1024:.1f} KB")
+        return False
+
+
 def _auto_register_source(df, connector_type: str, source_id: str,
                            config: dict, display_name: str = "") -> None:
     """Register a previewed source into conn_mgr and show a success banner.
@@ -55,7 +84,7 @@ def _auto_register_source(df, connector_type: str, source_id: str,
     detected = auto_detect_schema(df)
     schema = detected or get_schema_names()[0]
     mapping = suggest_column_mapping(df, schema)
-    conn_mgr.add_source(
+    ok = _safely_add_source(
         source_id=safe_id,
         connector_type=connector_type,
         config=config,
@@ -63,6 +92,8 @@ def _auto_register_source(df, connector_type: str, source_id: str,
         column_mapping=mapping,
         display_name=display_name or f"{connector_type}:{safe_id}",
     )
+    if not ok:
+        return
     st.info(
         f"✅ **Auto-registered** as `{schema}` schema ({len(df):,} rows). "
         f"{'Schema detected from column names.' if detected else 'Schema guessed — adjust below if needed.'} "
@@ -122,20 +153,20 @@ with main_tab1:
                     auto_name = file_name.rsplit(".", 1)[0].replace(" ", "_").lower()
                     auto_schema = detected or get_schema_names()[0]
                     auto_mapping = suggest_column_mapping(df, auto_schema)
-                    conn_mgr.add_source(
+                    if _safely_add_source(
                         source_id=auto_name,
                         connector_type="file_upload",
                         config={"file_bytes": file_bytes, "file_name": file_name},
                         target_schema=auto_schema,
                         column_mapping=auto_mapping,
                         display_name=file_name,
-                    )
-                    st.info(
-                        f"✅ **Auto-registered** as `{auto_schema}` schema "
-                        f"({len(df):,} rows). "
-                        f"{'Schema detected from column names.' if detected else 'Schema guessed — adjust below if needed.'} "
-                        f"Run the pipeline in Mission Control to use this data."
-                    )
+                    ):
+                        st.info(
+                            f"✅ **Auto-registered** as `{auto_schema}` schema "
+                            f"({len(df):,} rows). "
+                            f"{'Schema detected from column names.' if detected else 'Schema guessed — adjust below if needed.'} "
+                            f"Run the pipeline in Mission Control to use this data."
+                        )
                 else:
                     st.error(result["message"])
             except Exception as e:
@@ -465,19 +496,69 @@ with main_tab1:
         st.markdown("#### ✅ Registered Data Sources")
         st.caption(
             "These sources are auto-registered and will flow into the full pipeline. "
-            "Use **Save Data Source** below to rename or change the target schema."
+            "Use **Save Data Source** below to rename or change the target schema, "
+            "or click 🗑️ to remove a source. Deletions sync to every other agent page."
         )
         _icon_map = {
             "file_upload": "📁", "google_sheets": "📊", "rest_api": "🌐",
             "aws_s3": "☁️", "gcp_bigquery": "🔷", "gcp_storage": "🔷",
             "azure_blob": "🔵", "delta_lake": "🔺", "snowflake": "❄️",
         }
+        # Two-click arm/confirm delete: first click flips the flag in
+        # session_state so the button relabels to "Confirm"; second
+        # click actually invokes ConnectionManager.remove_source(). This
+        # avoids an accidental destructive click without needing a modal.
+        _pending_key = "_source_delete_pending"
+        pending = st.session_state.get(_pending_key)
         for src in sources:
+            src_id = src["id"]
             _ci = _icon_map.get(src["connector_type"], "🔌")
-            st.markdown(
-                f"{_ci} **{src['display_name']}** → `{src['target_schema']}` "
-                f"· {src['connector_type']} · {src.get('last_row_count', '?')} rows"
-            )
+            _info_col, _btn_col = st.columns([5, 1])
+            with _info_col:
+                st.markdown(
+                    f"{_ci} **{src['display_name']}** → `{src['target_schema']}` "
+                    f"· {src['connector_type']} · {src.get('last_row_count', '?')} rows"
+                )
+            with _btn_col:
+                armed = pending == src_id
+                btn_label = "✅ Confirm" if armed else "🗑️ Delete"
+                btn_help = (
+                    "Click again to permanently remove this source."
+                    if armed
+                    else "Remove this source. Stale data is cleared on the next run."
+                )
+                if st.button(btn_label, key=f"del_src_{src_id}", help=btn_help,
+                             type="secondary"):
+                    if armed:
+                        try:
+                            removed = conn_mgr.remove_source(src_id)
+                        except Exception as exc:  # noqa: BLE001 — surface,
+                            # don't crash the page.
+                            st.error(f"Could not remove source: {exc}")
+                            removed = False
+                        st.session_state.pop(_pending_key, None)
+                        if removed:
+                            # Drop stale state-manager channels so downstream
+                            # agents don't keep serving the deleted source's
+                            # data until the next Data Collector run.
+                            try:
+                                from utils.pipeline_refresh import (
+                                    _clear_stale_state_datasets,
+                                )
+                                _clear_stale_state_datasets()
+                            except Exception:
+                                pass
+                            st.success(
+                                f"Removed **{src['display_name']}**. "
+                                "Re-run the collector to republish datasets."
+                            )
+                            st.rerun()
+                    else:
+                        st.session_state[_pending_key] = src_id
+                        st.rerun()
+        if pending and pending not in {s["id"] for s in sources}:
+            # Clean up a stale "pending" for a source that's already gone.
+            st.session_state.pop(_pending_key, None)
         st.markdown("")
 
     st.markdown("### Override Schema / Rename Source")
@@ -490,14 +571,15 @@ with main_tab1:
         if st.button("💾 Save / Override Data Source", type="primary") and source_name and target_schema:
             mapping = suggest_column_mapping(st.session_state.preview_df, target_schema)
             source_id = source_name.lower().replace(" ", "_")
-            conn_mgr.add_source(
+            if not _safely_add_source(
                 source_id=source_id,
                 connector_type=st.session_state.preview_source_type,
                 config=st.session_state.preview_config,
                 target_schema=target_schema,
                 column_mapping=mapping,
                 display_name=source_name,
-            )
+            ):
+                st.stop()
             mapped_df = apply_column_mapping(st.session_state.preview_df, mapping, target_schema)
             validation = validate_mapped_data(mapped_df, target_schema)
             st.success(f"Saved **{source_name}** → `{target_schema}` "

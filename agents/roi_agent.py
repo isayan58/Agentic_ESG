@@ -425,19 +425,33 @@ class ROIAgent(BaseAgent):
 
             best = p_max if mdef["higher_is_better"] else p_min
 
+            # Industry-standard comparison: attaches a fixed, source-
+            # cited benchmark (SBTi, CRISIL median, etc.) alongside the
+            # peer-derived median so users aren't solely anchored to
+            # whatever peer set they happened to upload.
+            try:
+                from utils.industry_standards import compute_gap_vs_standard
+                _overrides = getattr(company_cfg, "industry_benchmarks", None)
+                industry_standard = compute_gap_vs_standard(
+                    k, cv, _overrides,
+                )
+            except Exception:
+                industry_standard = None
+
             benchmarks[k] = {
-                "label":            mdef["label"],
-                "unit":             mdef["unit"],
-                "company_value":    cv,
-                "peer_median":      p_median,
-                "peer_mean":        p_mean,
-                "peer_min":         p_min,
-                "peer_max":         p_max,
-                "sector_best":      best,
-                "percentile":       percentile,
-                "gap_vs_median":    gap,
-                "position":         pos_label,
-                "higher_is_better": mdef["higher_is_better"],
+                "label":             mdef["label"],
+                "unit":              mdef["unit"],
+                "company_value":     cv,
+                "peer_median":       p_median,
+                "peer_mean":         p_mean,
+                "peer_min":          p_min,
+                "peer_max":          p_max,
+                "sector_best":       best,
+                "percentile":        percentile,
+                "gap_vs_median":     gap,
+                "position":          pos_label,
+                "higher_is_better":  mdef["higher_is_better"],
+                "industry_standard": industry_standard,
             }
 
             unit = mdef["unit"]

@@ -8,17 +8,26 @@ Usage:
     company_cfg.thresholds            # ThresholdConfig(...)
     company_cfg.risk_weights          # RiskWeightConfig(...)
 
-The config loads from data/company_profile.json at import time. Every
-value has a sensible default so the platform works out of the box even
-with an empty profile.  Clients customise by editing company_profile.json
-— no code changes required.
+Per-user personalisation
+------------------------
+``company_cfg`` is exposed as a thread-local proxy. Streamlit pages call
+:func:`set_active_company_config` (via :func:`utils.session.get_session_company_config`)
+at the top of each rerun to swap the proxy to the signed-in user's
+profile *for the current thread only*. Other concurrent sessions on the
+same Space replica continue to see their own user's config.
+
+Guests (and any code path that doesn't set an active config) fall back
+to the bundled ``data/company_profile.json``.
 """
 from __future__ import annotations
 
+import contextvars
 import json
+import logging
 import os
-from dataclasses import dataclass, field
-from typing import Any
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Any, Iterator, Optional
 
 
 # ── Nested config dataclasses ───────────────────────────────────────────────
@@ -166,15 +175,24 @@ class CompanyConfig:
     the platform works out of the box.
     """
 
-    def __init__(self, profile_path: str | None = None):
-        if profile_path is None:
-            profile_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), "data", "company_profile.json"
-            )
-        self._raw: dict[str, Any] = {}
-        if os.path.exists(profile_path):
-            with open(profile_path, "r") as f:
-                self._raw = json.load(f)
+    def __init__(self, profile_path: str | None = None,
+                 profile_data: dict[str, Any] | None = None):
+        """Build a config from either a JSON file path or an in-memory dict.
+
+        ``profile_data`` takes precedence — used by the per-user profile
+        store to instantiate a config from JSON loaded out of HF Dataset.
+        """
+        if profile_data is not None:
+            self._raw = dict(profile_data)
+        else:
+            if profile_path is None:
+                profile_path = os.path.join(
+                    os.path.dirname(os.path.dirname(__file__)), "data", "company_profile.json"
+                )
+            self._raw = {}
+            if os.path.exists(profile_path):
+                with open(profile_path, "r") as f:
+                    self._raw = json.load(f)
 
         # ── Company identity ────────────────────────────────────────────
         self.company_name: str = self._raw.get("company_name", "Your Company")
@@ -259,6 +277,121 @@ class CompanyConfig:
                       if k in cls.__dataclass_fields__})
 
 
-# ── Singleton ───────────────────────────────────────────────────────────────
+# ── Context-var proxy + helpers ─────────────────────────────────────────────
 
-company_cfg = CompanyConfig()
+_default_cfg = CompanyConfig()
+_log = logging.getLogger(__name__)
+
+# ContextVar is preferred over threading.local because:
+#   (1) It propagates automatically across asyncio tasks spawned via
+#       ``asyncio.create_task`` / ``asyncio.gather``.
+#   (2) It can be explicitly propagated into worker threads via
+#       ``contextvars.copy_context().run(fn, *args)`` — which
+#       ``ThreadPoolExecutor.submit`` does for each submitted task.
+#   (3) Nested ``set()`` returns a token that ``reset(token)`` restores,
+#       giving clean scoped overrides that threading.local can't express.
+_active_cfg: contextvars.ContextVar[Optional[CompanyConfig]] = contextvars.ContextVar(
+    "company_cfg_active", default=None,
+)
+
+# Set to True in tests / dev to get a log line whenever a thread or
+# async task accesses ``company_cfg`` without a binding and falls back
+# to the bundled default. Helps catch the "signed-in user silently sees
+# default profile" class of regression.
+_WARN_ON_DEFAULT_FALLTHROUGH = os.getenv("ESG_COMPANY_CFG_WARN", "").lower() in (
+    "1", "true", "yes", "on",
+)
+
+
+class _CompanyConfigProxy:
+    """Attribute-forwarding proxy backed by a :class:`contextvars.ContextVar`.
+
+    Every attribute access on ``company_cfg`` resolves to the active
+    ``CompanyConfig`` for *this logical execution context* (Streamlit
+    script run, asyncio task, thread with an explicitly-copied context).
+    Two concurrently-signed-in users on the same Space replica each see
+    their own profile without stomping on each other.
+
+    Falls back to the bundled default profile when no active config has
+    been set (guests, background jobs, scripts that import an agent
+    directly without going through a page). Set ``ESG_COMPANY_CFG_WARN=1``
+    to log every fallthrough so regressions that spawn unbound threads
+    surface immediately.
+    """
+
+    @staticmethod
+    def _resolve() -> "CompanyConfig":
+        cfg = _active_cfg.get()
+        if cfg is None:
+            if _WARN_ON_DEFAULT_FALLTHROUGH:
+                _log.warning(
+                    "company_cfg accessed without an active binding — "
+                    "falling back to bundled default profile. If this is a "
+                    "signed-in user's code path, the per-user profile will "
+                    "NOT be applied."
+                )
+            return _default_cfg
+        return cfg
+
+    def __getattr__(self, name: str) -> Any:
+        # __getattr__ is only consulted when the attribute is NOT on the
+        # proxy itself, so this safely forwards everything to the active
+        # CompanyConfig instance.
+        return getattr(self._resolve(), name)
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        cfg = self._resolve()
+        return f"<CompanyConfigProxy active={cfg.company_name!r}>"
+
+
+company_cfg = _CompanyConfigProxy()
+
+
+def set_active_company_config(cfg: "CompanyConfig | None") -> None:
+    """Bind ``cfg`` as the active config for the current context.
+
+    Pass ``None`` to clear the override and revert to the bundled default.
+    Safe to call on every Streamlit rerun — cheap, idempotent.
+
+    Under the hood this calls :meth:`ContextVar.set`. Because Streamlit's
+    script runner executes each browser-session rerun inside its own
+    ``Context``, one user's ``set`` cannot leak into another user's
+    rerun even when both run concurrently on the same replica.
+    """
+    _active_cfg.set(cfg)
+
+
+@contextmanager
+def company_config_context(cfg: "CompanyConfig | None") -> Iterator[None]:
+    """Scoped binding for ``cfg`` — restores the previous value on exit.
+
+    Preferred over a bare :func:`set_active_company_config` when you
+    need a short-lived override (e.g. rendering one user's view inside
+    a background job). Pair with :func:`contextvars.copy_context` when
+    spawning worker threads so the binding propagates::
+
+        ctx = contextvars.copy_context()
+        executor.submit(ctx.run, worker_fn, *args)
+
+    Without copy_context the submitted thread sees the default config.
+    """
+    token = _active_cfg.set(cfg)
+    try:
+        yield
+    finally:
+        _active_cfg.reset(token)
+
+
+def get_active_company_config() -> "CompanyConfig":
+    """Return the currently-bound config, or the bundled default.
+
+    Useful when code explicitly wants to inspect what ``company_cfg``
+    would resolve to without triggering the proxy (e.g. in tests that
+    assert on binding state).
+    """
+    return _active_cfg.get() or _default_cfg
+
+
+def get_default_company_config() -> "CompanyConfig":
+    """Return the bundled default config (read-only — used as a template)."""
+    return _default_cfg

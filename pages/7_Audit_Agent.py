@@ -5,7 +5,11 @@ from agents.audit_agent import AuditAgent
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, pwc_header
-from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
+from utils.pipeline_refresh import data_freshness_caption
+from utils.gap_suggestions import (
+    suggestion_for_audit_dataset,
+    render_suggestion_block,
+)
 
 st.set_page_config(page_title="Audit Agent | ESG CoPilot", page_icon="🔍", layout="wide")
 inject_global_css()
@@ -14,7 +18,7 @@ sidebar_auth_widget()
 require_login("Sign in to access the Audit Agent.")
 st.title("🔍 Audit Agent")
 st.markdown("*Compliance verification, data auditing, and audit trail management*")
-data_freshness_caption()
+data_freshness_caption(can_refresh=False)
 st.markdown("---")
 
 if "audit_agent" not in st.session_state:
@@ -26,8 +30,6 @@ agent = st.session_state.audit_agent
 st.info("For best results, run Data Collector, Regulatory Tracker, and Carbon Accountant first.")
 
 if st.button("🔄 Run Audit Verification", type="primary"):
-    with st.spinner("Refreshing data from registered sources..."):
-        refresh_real_data()
     with st.spinner("Running compliance audit..."):
         results = agent.run()
         st.session_state.audit_results = results
@@ -88,6 +90,17 @@ if results and "error" not in results:
     with tab3:
         completeness = results.get("completeness_audit", [])
         if completeness:
+            # Status summary first so skimmers see the counts immediately.
+            _weak = [
+                item for item in completeness
+                if item["status"] in {"Warning", "Fail", "Missing"}
+            ]
+            if _weak:
+                st.caption(
+                    f"{len(_weak)} dataset(s) need attention. Each row below "
+                    "with a ⚠️ / ❌ / 🚫 status has a **Fix this gap** "
+                    "expander pointing at the Data Collector schema to upload."
+                )
             for item in completeness:
                 status_icon = {"Pass": "✅", "Warning": "⚠️", "Fail": "❌", "Missing": "🚫"}.get(item["status"], "⚪")
                 priority_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡"}.get(item["priority"], "⚪")
@@ -97,6 +110,28 @@ if results and "error" not in results:
                     f"Records: {item['records']} | "
                     f"Priority: {priority_icon} {item['priority'].capitalize()}"
                 )
+                # Only show the gap-fix hint for datasets that aren't
+                # already passing — keeps the passing rows compact.
+                if item["status"] in {"Warning", "Fail", "Missing"}:
+                    sugg = suggestion_for_audit_dataset(item["dataset"])
+                    with st.expander(
+                        f"🛠️ Fix this gap — add / improve `{item['dataset']}`"
+                    ):
+                        if sugg is None:
+                            st.info(
+                                "No tailored dataset suggestion — upload a "
+                                "custom CSV via the Data Collector and map "
+                                "it to the closest ESG schema."
+                            )
+                        else:
+                            render_suggestion_block(st, sugg)
+                            if item["status"] != "Missing":
+                                st.caption(
+                                    f"Current completeness is "
+                                    f"{item['completeness']}% ({item['records']} "
+                                    "records). Adding more rows to the "
+                                    "existing source will also lift this score."
+                                )
 
     with tab4:
         trail = results.get("audit_trail", [])

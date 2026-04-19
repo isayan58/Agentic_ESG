@@ -359,6 +359,53 @@ if results:
                                 delta_color = delta_color,
                             )
 
+                            # Industry-standard anchor — shown under the
+                            # peer-comparison card so users see both the
+                            # peer-relative ("am I beating my cohort?")
+                            # and absolute ("is my cohort actually good?")
+                            # signals in one glance.
+                            std = b.get("industry_standard")
+                            if std:
+                                std_val = std.get("value", 0)
+                                std_unit = std.get("unit", unit)
+                                st.caption(
+                                    f"🎯 Industry standard: **{std_val:g}{std_unit}**  \n"
+                                    f"{std.get('position', '')}"
+                                )
+                                source = std.get("source")
+                                if source:
+                                    st.caption(f"_Source: {source}_")
+
+                # Industry-standard details expander — keeps the KPI cards
+                # uncluttered but surfaces interpretation notes for users
+                # who want to understand *why* each benchmark is set where
+                # it is.
+                _std_rows = [
+                    (mk, b) for mk, b in benchmarks.items()
+                    if b.get("industry_standard")
+                ]
+                if _std_rows:
+                    with st.expander("📚 Industry standard context"):
+                        st.caption(
+                            "Industry standards below are fixed benchmarks "
+                            "(SBTi pathways, CRISIL medians, etc.) that "
+                            "stay constant regardless of which peers you "
+                            "uploaded. They complement the peer median by "
+                            "anchoring the comparison to absolute targets."
+                        )
+                        for mk, b in _std_rows:
+                            std = b["industry_standard"]
+                            st.markdown(
+                                f"**{b['label']}** — Standard: "
+                                f"{std['value']:g}{std.get('unit','')} "
+                                f"· Company: {b['company_value']:g}{b.get('unit','')}"
+                            )
+                            if std.get("interpretation"):
+                                st.caption(std["interpretation"])
+                            if std.get("source"):
+                                st.caption(f"Source: {std['source']}")
+                            st.markdown("")
+
                 st.divider()
 
                 if not _PLOTLY:

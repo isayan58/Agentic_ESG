@@ -105,21 +105,41 @@ class RegulatoryTrackerAgent(BaseAgent):
 
         for req in requirements:
             data_fields = req.get("data_fields", [])
-            mapped_metrics = set()
+            # Split fields by whether they're satisfied by at least one of
+            # the currently-available metric IDs. ``missing_fields`` is
+            # what the Regulatory Tracker UI surfaces as "add this data to
+            # close the gap" — it's the list the gap-fill helper pages
+            # read from ``utils.gap_suggestions``.
+            missing_fields = []
+            covered_fields = []
+            all_required_metrics = set()
             for field in data_fields:
-                mapped_metrics.update(DATA_FIELD_MAPPING.get(field, []))
+                mapped_for_field = set(DATA_FIELD_MAPPING.get(field, []))
+                all_required_metrics.update(mapped_for_field)
+                if not mapped_for_field:
+                    # Field has no mapping → we can't verify coverage, so
+                    # treat it as missing for the purpose of user-facing
+                    # suggestions.
+                    missing_fields.append(field)
+                elif mapped_for_field & available_metrics:
+                    covered_fields.append(field)
+                else:
+                    missing_fields.append(field)
 
-            if not mapped_metrics:
+            if not all_required_metrics:
                 gaps.append({
                     "requirement_id": req["id"],
                     "requirement": req["requirement"],
                     "status": "missing",
                     "priority": req.get("priority", "medium"),
                     "reason": "No data mapping available",
+                    "data_fields": list(data_fields),
+                    "missing_fields": list(data_fields),
+                    "covered_fields": [],
                 })
-            elif mapped_metrics & available_metrics:
-                overlap = len(mapped_metrics & available_metrics)
-                if overlap == len(mapped_metrics):
+            elif all_required_metrics & available_metrics:
+                overlap = len(all_required_metrics & available_metrics)
+                if overlap == len(all_required_metrics):
                     covered += 1
                 else:
                     partial += 1
@@ -128,7 +148,10 @@ class RegulatoryTrackerAgent(BaseAgent):
                         "requirement": req["requirement"],
                         "status": "partial",
                         "priority": req.get("priority", "medium"),
-                        "reason": f"Only {overlap}/{len(mapped_metrics)} data fields available",
+                        "reason": f"Only {overlap}/{len(all_required_metrics)} data fields available",
+                        "data_fields": list(data_fields),
+                        "missing_fields": missing_fields,
+                        "covered_fields": covered_fields,
                     })
             else:
                 gaps.append({
@@ -137,6 +160,9 @@ class RegulatoryTrackerAgent(BaseAgent):
                     "status": "missing",
                     "priority": req.get("priority", "medium"),
                     "reason": "Required data not found in available metrics",
+                    "data_fields": list(data_fields),
+                    "missing_fields": missing_fields or list(data_fields),
+                    "covered_fields": covered_fields,
                 })
 
         total = len(requirements)
