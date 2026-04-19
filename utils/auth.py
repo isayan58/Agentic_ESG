@@ -382,6 +382,11 @@ def login(identifier: str, password: str) -> Optional[dict]:
 
 
 def logout() -> None:
+    # Capture the username *before* we clear it from session_state so we
+    # can drop the corresponding state_manager bucket too.
+    _user = st.session_state.get("user") or {}
+    _username = (_user.get("username") or "").strip()
+
     st.session_state.pop("user", None)
     st.session_state.pop("_auth_token", None)
     # Drop the per-user ConnectionManager so the next signed-in user
@@ -393,6 +398,25 @@ def logout() -> None:
     st.session_state.pop("_company_profile_owner", None)
     st.session_state.pop("_company_profile_token", None)
     st.session_state.pop("_company_cfg", None)
+    # Drop any pipeline / agent results for this user from the
+    # process-wide state_manager bucket. Without this the next sign-in
+    # of the *same* username on the same process would briefly see
+    # stale carbon / regulatory / audit / report payloads from this
+    # session before they re-ran the pipeline.
+    try:
+        from core.state_manager import state_manager
+        if _username:
+            state_manager.clear_user(_username)
+        # Also clear the guest bucket so a logged-out user doesn't see
+        # their own pre-login state on a fresh visit.
+        state_manager.clear_user("_anonymous")
+    except Exception:
+        pass
+    # Drop any cached agent instances that might hold references to
+    # the previous user's results in attributes (defensive).
+    for k in list(st.session_state.keys()):
+        if k.endswith("_agent") or k.endswith("_results") or k == "data_collector":
+            st.session_state.pop(k, None)
     try:
         from core.company_config import set_active_company_config
         set_active_company_config(None)
