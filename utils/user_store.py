@@ -50,6 +50,14 @@ LOCAL_FALLBACK_PATH = Path("data") / "auth_users.json"
 CACHE_TTL_SECONDS = 60
 
 
+class _ConcurrentWriteConflict(Exception):
+    """Raised internally when an HF commit is rejected by a concurrent write.
+
+    Signals ``create_user`` to re-read + retry so a racing signup from
+    another process doesn't lose the account we're trying to create.
+    """
+
+
 def _resolve_token() -> Optional[str]:
     """Best-effort HF token lookup across the conventional locations."""
     for name in ("HF_TOKEN", "HF_API_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
@@ -183,22 +191,45 @@ class UserStore:
         return None
 
     def create_user(self, user: User) -> User:
-        """Persist a new user. Raises ValueError on duplicate username/email."""
+        """Persist a new user. Raises ValueError on duplicate username/email.
+
+        Concurrency: we hold the in-process ``RLock`` around the whole
+        read-modify-write, and :meth:`_save_users` retries transient HF
+        commit conflicts so two signups racing from different Space
+        replicas (or the same process via different threads) both settle
+        without losing one of the new accounts. Within a single replica,
+        the lock is enough — the retry loop is insurance for the
+        multi-replica case.
+        """
         with self._lock:
-            users = list(self._load_users(force_refresh=True))
             lower_username = user.username.lower()
             lower_email = user.email.lower()
-            for existing in users:
-                if existing.get("username", "").lower() == lower_username:
-                    raise ValueError("Username already exists.")
-                if existing.get("email", "").lower() == lower_email:
-                    raise ValueError("Email is already registered.")
             if not user.created_at:
                 user.created_at = _utcnow_iso()
-            users.append(user.to_record())
-            self._save_users(users)
-            self._cache = users
-            self._cache_loaded_at = time.time()
+
+            # Retry the read-modify-write on HF commit conflict so a
+            # concurrent signup from another process can't clobber this one.
+            attempts = 3
+            last_exc: BaseException | None = None
+            for attempt in range(attempts):
+                users = list(self._load_users(force_refresh=True))
+                for existing in users:
+                    if existing.get("username", "").lower() == lower_username:
+                        raise ValueError("Username already exists.")
+                    if existing.get("email", "").lower() == lower_email:
+                        raise ValueError("Email is already registered.")
+                candidate = list(users) + [user.to_record()]
+                try:
+                    self._save_users(candidate)
+                    self._cache = candidate
+                    self._cache_loaded_at = time.time()
+                    return user
+                except _ConcurrentWriteConflict as exc:
+                    last_exc = exc
+                    time.sleep(0.2 * (2 ** attempt))
+                    continue
+            if last_exc is not None:
+                raise last_exc
         return user
 
     def touch_last_login(self, username: str) -> None:
@@ -249,7 +280,13 @@ class UserStore:
         return users
 
     def _save_users(self, users: list[dict]) -> None:
-        """Persist users via whichever backend last resolved."""
+        """Persist users via whichever backend last resolved.
+
+        Raises :class:`_ConcurrentWriteConflict` when the HF backend
+        rejects the commit with a 409/412 (another writer got there
+        first) so callers in a read-modify-write loop know to retry.
+        Any other error falls back to local JSON as before.
+        """
         # If HF is available and we've been using it (or never resolved), try HF.
         if self._api is not None and self._resolved_backend in (None, "hf_dataset"):
             try:
@@ -258,6 +295,15 @@ class UserStore:
                 self._last_error = None
                 self._last_error_at = None
                 return
+            except HfHubHTTPError as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                if status in (409, 412):
+                    # Concurrent write — caller should re-read and retry.
+                    raise _ConcurrentWriteConflict(
+                        f"HF commit rejected (status {status}); "
+                        "another writer got there first."
+                    ) from exc
+                self._record_error(exc)
             except Exception as exc:
                 # Capture the failure reason before falling back so the
                 # operator can see exactly which HF call failed and why.

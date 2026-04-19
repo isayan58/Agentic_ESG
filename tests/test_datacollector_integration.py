@@ -137,13 +137,19 @@ class TestEndToEnd:
         assert "dataset_energy" in channels, \
             "Still-registered source's dataset should survive"
 
-    def test_removing_source_with_sample_fallback_replaces_not_removes(
+    def test_removing_source_clears_stale_real_data(
         self, fake_st, register_fake_connector, identity_mapping
     ):
-        """``supply_chain`` has a sample loader, so removing a real source
-        targeting that schema should flip the published content from
-        real → sample rather than deleting the channel. This documents
-        the deliberate behaviour: pages keep working on sample data."""
+        """After removing the last real source on a schema, the published
+        channel must no longer contain that source's sentinel values.
+
+        Historical note: when the app shipped bundled sample CSVs this
+        test verified that sample data back-filled the channel after
+        removal. Samples have been retired in favour of per-user sources
+        (each user configures their own data inputs), so the guarantee
+        is narrower now: *stale* real data must not leak. An empty
+        channel for an unconfigured schema is the correct steady state.
+        """
         from agents.data_collector import DataCollectorAgent
         from core.state_manager import state_manager
         from utils.pipeline_refresh import refresh_real_data
@@ -162,11 +168,10 @@ class TestEndToEnd:
 
         refresh_real_data()
         published_before = state_manager.subscribe("dataset_supply_chain")
-        # The real sentinel value must be present before removal
         flat_before = str(published_before)
         assert "__REAL_SENTINEL__" in flat_before
 
-        # Remove the real source — sample data takes over
+        # Remove the real source — stale sentinel must be purged.
         mgr.remove_source("sc")
         refresh_real_data()
 
@@ -174,8 +179,6 @@ class TestEndToEnd:
         flat_after = str(published_after)
         assert "__REAL_SENTINEL__" not in flat_after, \
             "Stale real-source data must not leak after removal"
-        assert published_after is not None, \
-            "Sample data should back-fill the channel"
 
     def test_failed_source_reported_and_warned(
         self, fake_st, register_fake_connector, identity_mapping

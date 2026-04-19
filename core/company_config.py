@@ -8,15 +8,22 @@ Usage:
     company_cfg.thresholds            # ThresholdConfig(...)
     company_cfg.risk_weights          # RiskWeightConfig(...)
 
-The config loads from data/company_profile.json at import time. Every
-value has a sensible default so the platform works out of the box even
-with an empty profile.  Clients customise by editing company_profile.json
-— no code changes required.
+Per-user personalisation
+------------------------
+``company_cfg`` is exposed as a thread-local proxy. Streamlit pages call
+:func:`set_active_company_config` (via :func:`utils.session.get_session_company_config`)
+at the top of each rerun to swap the proxy to the signed-in user's
+profile *for the current thread only*. Other concurrent sessions on the
+same Space replica continue to see their own user's config.
+
+Guests (and any code path that doesn't set an active config) fall back
+to the bundled ``data/company_profile.json``.
 """
 from __future__ import annotations
 
 import json
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -166,15 +173,24 @@ class CompanyConfig:
     the platform works out of the box.
     """
 
-    def __init__(self, profile_path: str | None = None):
-        if profile_path is None:
-            profile_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), "data", "company_profile.json"
-            )
-        self._raw: dict[str, Any] = {}
-        if os.path.exists(profile_path):
-            with open(profile_path, "r") as f:
-                self._raw = json.load(f)
+    def __init__(self, profile_path: str | None = None,
+                 profile_data: dict[str, Any] | None = None):
+        """Build a config from either a JSON file path or an in-memory dict.
+
+        ``profile_data`` takes precedence — used by the per-user profile
+        store to instantiate a config from JSON loaded out of HF Dataset.
+        """
+        if profile_data is not None:
+            self._raw = dict(profile_data)
+        else:
+            if profile_path is None:
+                profile_path = os.path.join(
+                    os.path.dirname(os.path.dirname(__file__)), "data", "company_profile.json"
+                )
+            self._raw = {}
+            if os.path.exists(profile_path):
+                with open(profile_path, "r") as f:
+                    self._raw = json.load(f)
 
         # ── Company identity ────────────────────────────────────────────
         self.company_name: str = self._raw.get("company_name", "Your Company")
@@ -259,6 +275,57 @@ class CompanyConfig:
                       if k in cls.__dataclass_fields__})
 
 
-# ── Singleton ───────────────────────────────────────────────────────────────
+# ── Thread-local proxy + helpers ────────────────────────────────────────────
 
-company_cfg = CompanyConfig()
+_default_cfg = CompanyConfig()
+
+
+class _CompanyConfigProxy:
+    """Attribute-forwarding proxy backed by a thread-local config.
+
+    Every attribute access on ``company_cfg`` resolves to the active
+    ``CompanyConfig`` for *this thread*. Streamlit runs each browser
+    session in its own thread, so two concurrently-signed-in users on
+    the same Space replica each see their own profile without stomping
+    on each other.
+
+    Falls back to the bundled default profile when no per-thread config
+    has been set (guests, background jobs, scripts that import an agent
+    directly without going through a page).
+    """
+
+    _local = threading.local()
+
+    @classmethod
+    def _resolve(cls) -> "CompanyConfig":
+        return getattr(cls._local, "cfg", None) or _default_cfg
+
+    def __getattr__(self, name: str) -> Any:
+        # __getattr__ is only consulted when the attribute is NOT on the
+        # proxy itself, so this safely forwards everything to the active
+        # CompanyConfig instance.
+        return getattr(self._resolve(), name)
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        cfg = self._resolve()
+        return f"<CompanyConfigProxy active={cfg.company_name!r}>"
+
+
+company_cfg = _CompanyConfigProxy()
+
+
+def set_active_company_config(cfg: "CompanyConfig | None") -> None:
+    """Bind ``cfg`` as the active config for the current thread.
+
+    Pass ``None`` to clear the override and revert to the bundled default.
+    Safe to call on every Streamlit rerun — cheap, idempotent.
+    """
+    if cfg is None:
+        _CompanyConfigProxy._local.__dict__.pop("cfg", None)
+    else:
+        _CompanyConfigProxy._local.cfg = cfg
+
+
+def get_default_company_config() -> "CompanyConfig":
+    """Return the bundled default config (read-only — used as a template)."""
+    return _default_cfg

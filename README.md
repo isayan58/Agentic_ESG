@@ -137,6 +137,32 @@ All external imports are optional. Missing packages show install hints instead o
 
 ---
 
+## ETL Engine
+
+ESG CoPilot ships its own lightweight ETL engine rather than depending on Airflow, dbt, Prefect, Dagster, or any external orchestrator. Everything runs in-process on the Streamlit replica — zero scheduler, zero worker pool, zero broker.
+
+The engine has four layers:
+
+| Layer | Module | Responsibility |
+| --- | --- | --- |
+| **Connectors** | `utils/real_connectors.py`, `utils/connectors.py` | Per-source `fetch(**config) → DataFrame` adapters for every data connector listed above. Lazy imports so a missing cloud SDK doesn't block the app. |
+| **Schema mapping** | `utils/schema_mapper.py` | Auto-detects canonical schema (`emissions`, `esg_metrics`, `supply_chain`, `energy`, `waste`, `diversity`, `financials`) from raw columns; suggests a column mapping; applies it so downstream agents see canonical names. |
+| **Orchestration** | `utils/connection_manager.py` | Per-user registry of configured sources. SHA-256 **config signatures** drive a per-source cache so an unchanged query doesn't re-execute on every pipeline Run. `fetch_all_by_schema()` concatenates multiple sources targeting the same schema. |
+| **Publication** | `core/state_manager.py`, `core/data_access.py` | After fetch + map, each DataFrame is published to a pub/sub channel (`dataset_<schema>`). Every downstream agent reads via `get_dataset(schema)` so they transparently consume real data when it's present and fall back to bundled samples otherwise. |
+
+Refresh flow on each Mission Control **Run**:
+
+1. `utils/pipeline_refresh.refresh_real_data()` walks the signed-in user's registered sources.
+2. Each source is fetched through its connector; the column mapping runs; the result is signature-hashed.
+3. Unchanged signatures hit the cache; changed ones repopulate it and publish to shared state.
+4. Agents then execute against canonical datasets — no agent talks to a connector directly.
+
+Personalisation note: both the **source registry** and the **company profile** are per-user and persisted to a private HuggingFace Dataset (`utils.source_store`, `utils.profile_store`). Each signed-in user drives the ETL engine against their own inputs, with their own thresholds, on their own profile — concurrent users on the same Space replica see isolated data via a thread-local `CompanyConfig` proxy.
+
+See `RUNBOOK.md` → *Data ETL & freshness* for deeper internals including cache invalidation, concurrency guarantees, and error surfacing.
+
+---
+
 ## Project Structure
 
 ```

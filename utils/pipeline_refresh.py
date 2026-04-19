@@ -68,6 +68,7 @@ def refresh_real_data(only_changed: bool = False,
            "errors": {source_id: message}}``
     """
     conn_mgr = st.session_state.get("conn_manager")
+    bootstrapped = False
     if conn_mgr is None:
         # Lazy bootstrap: if a user is signed in and has saved sources
         # in the HF Dataset, hydrate them now so the first page they
@@ -77,9 +78,17 @@ def refresh_real_data(only_changed: bool = False,
         try:
             from utils.session import get_session_connection_manager
             conn_mgr = get_session_connection_manager()
+            bootstrapped = True
         except Exception:
             conn_mgr = None
-    if conn_mgr is None:
+
+    # If we had to lazy-bootstrap and the resulting manager has no
+    # sources, preserve the original "nothing to refresh" contract so
+    # guest flows (and the pipeline_refresh test suite) keep seeing
+    # ``refreshed=False``. The non-bootstrap branch below still
+    # falls through to the Data Collector when the *user's* manager
+    # exists with zero sources (to clear stale channels).
+    if conn_mgr is None or (bootstrapped and not conn_mgr.has_sources()):
         return {
             "refreshed": False,
             "reason": "no_sources",

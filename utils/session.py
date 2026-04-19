@@ -1,28 +1,36 @@
 """Session-scoped bootstrap helpers.
 
-The core idea: every Streamlit page that needs ``st.session_state.conn_manager``
-should call :func:`get_session_connection_manager()` *once* at the top of
-the page. That helper:
+The core idea: every Streamlit page that needs per-user state should
+call :func:`get_session_connection_manager` and
+:func:`get_session_company_config` *once* at the top of the page. Those
+helpers:
 
-* reads the currently signed-in user,
-* hydrates a fresh ``ConnectionManager`` from the user's saved sources
-  (via :mod:`utils.source_store`) if the manager isn't already in
-  session state,
-* installs a persistence callback so every subsequent ``add_source`` /
-  ``remove_source`` is synced to the store without the page having to
-  think about it,
-* caches the resulting manager under ``st.session_state.conn_manager``
-  (keyed on the signed-in username so switching accounts in the same
-  tab rebuilds cleanly).
+* read the currently signed-in user,
+* hydrate the user's ``ConnectionManager`` (sources) and
+  ``CompanyConfig`` (profile) from the persistent store on first access,
+* install a write-through persistence callback for sources so every
+  subsequent ``add_source`` / ``remove_source`` syncs back to the store,
+* bind the user's ``CompanyConfig`` to the current thread so every
+  agent that imports ``company_cfg`` automatically sees the right
+  per-user values for this rerun,
+* cache results under ``st.session_state`` (keyed on the signed-in
+  username) so switching accounts in the same tab rebuilds cleanly.
 
-Guests (no signed-in user) still get a working in-memory manager so the
-demo flow keeps working; their sources simply aren't persisted.
+Guests (no signed-in user) still get a working in-memory manager and the
+bundled default profile, so the demo flow keeps working; their state
+simply isn't persisted.
 """
 from __future__ import annotations
 
 import streamlit as st
 
+from core.company_config import (
+    CompanyConfig,
+    get_default_company_config,
+    set_active_company_config,
+)
 from utils.connection_manager import ConnectionManager
+from utils.profile_store import get_profile_store
 from utils.source_store import (
     get_source_store,
     record_to_source,
@@ -32,6 +40,9 @@ from utils.source_store import (
 
 _SESSION_KEY = "conn_manager"
 _OWNER_KEY = "_conn_manager_owner"
+_PROFILE_KEY = "company_profile"
+_PROFILE_OWNER_KEY = "_company_profile_owner"
+_CONFIG_KEY = "_company_cfg"
 
 
 def _current_username() -> str | None:
@@ -46,7 +57,12 @@ def _current_username() -> str | None:
 
 
 def _build_on_change(username: str):
-    """Return a callback that snapshots a ConnectionManager to the store."""
+    """Return a callback that snapshots a ConnectionManager to the store.
+
+    Also drops the process-wide source-store cache entry so a second tab
+    on the same replica picks up the change on its next rerun instead
+    of waiting for the TTL window to elapse.
+    """
     store = get_source_store()
 
     def _callback(mgr: ConnectionManager) -> None:
@@ -55,6 +71,7 @@ def _build_on_change(username: str):
             for sid, meta in mgr._sources.items()  # noqa: SLF001
         ]
         store.save(username, records)
+        store.clear_cache(username)
 
     return _callback
 
@@ -104,3 +121,109 @@ def rebuild_session_connection_manager() -> ConnectionManager:
     st.session_state.pop(_SESSION_KEY, None)
     st.session_state.pop(_OWNER_KEY, None)
     return get_session_connection_manager()
+
+
+# ---------------------------------------------------------------------------
+# Per-user company profile / CompanyConfig
+# ---------------------------------------------------------------------------
+def get_session_company_profile() -> dict:
+    """Return the signed-in user's profile dict (mutable copy).
+
+    Loads from the per-user profile store on first access this session,
+    falls back to the bundled default profile for guests. Always returns
+    a fresh deep copy so the caller can mutate without affecting other
+    sessions.
+    """
+    username = _current_username()
+    existing = st.session_state.get(_PROFILE_KEY)
+    existing_owner = st.session_state.get(_PROFILE_OWNER_KEY)
+
+    if existing is not None and existing_owner == username:
+        # Return a copy so mutations in the page don't leak through the
+        # cached reference (which the Settings page edits in-place).
+        import json as _json
+        return _json.loads(_json.dumps(existing))
+
+    store = get_profile_store()
+    if username:
+        try:
+            profile = store.load(username)
+        except Exception:
+            profile = store.default_profile()
+    else:
+        profile = store.default_profile()
+
+    st.session_state[_PROFILE_KEY] = profile
+    st.session_state[_PROFILE_OWNER_KEY] = username
+    # Force the company-config helper to rebuild on next call.
+    st.session_state.pop(_CONFIG_KEY, None)
+
+    import json as _json
+    return _json.loads(_json.dumps(profile))
+
+
+def save_session_company_profile(profile: dict) -> None:
+    """Persist ``profile`` for the signed-in user and refresh the cache.
+
+    No-op for guests (they have nowhere durable to save to).
+
+    After the durable write succeeds we clear the *process-wide* profile
+    cache for this user so any other browser tab on the same replica
+    sees the new profile on its next rerun rather than waiting out the
+    TTL. This is why cross-tab edits now propagate immediately within a
+    single Space replica; cross-replica propagation still waits up to
+    one TTL window (~30s).
+    """
+    username = _current_username()
+    if not username:
+        return
+    store = get_profile_store()
+    store.save(username, profile)
+    store.clear_cache(username)
+    # Update the in-session cache so the page sees its own write back
+    # immediately (don't wait for the TTL to expire on the next load).
+    st.session_state[_PROFILE_KEY] = profile
+    st.session_state[_PROFILE_OWNER_KEY] = username
+    st.session_state.pop(_CONFIG_KEY, None)
+
+
+def get_session_company_config() -> CompanyConfig:
+    """Return (and bind) the per-user :class:`CompanyConfig` for this rerun.
+
+    Side effect: also calls :func:`set_active_company_config` so every
+    ``from core.company_config import company_cfg`` reference in the
+    rest of the page (and inside agents) resolves to this user's config
+    for the duration of this thread's work.
+
+    Idempotent — safe to call at the top of every page.
+    """
+    username = _current_username()
+    cached = st.session_state.get(_CONFIG_KEY)
+    cached_owner = st.session_state.get(_PROFILE_OWNER_KEY)
+
+    if cached is not None and cached_owner == username:
+        set_active_company_config(cached)
+        return cached
+
+    if username:
+        profile = get_session_company_profile()
+        try:
+            cfg = CompanyConfig(profile_data=profile)
+        except Exception:
+            cfg = get_default_company_config()
+    else:
+        cfg = get_default_company_config()
+
+    st.session_state[_CONFIG_KEY] = cfg
+    set_active_company_config(cfg)
+    return cfg
+
+
+def rebuild_session_company_config() -> CompanyConfig:
+    """Force a rebuild — call on logout so the next signed-in user's
+    profile loads fresh on the next interaction."""
+    st.session_state.pop(_PROFILE_KEY, None)
+    st.session_state.pop(_PROFILE_OWNER_KEY, None)
+    st.session_state.pop(_CONFIG_KEY, None)
+    set_active_company_config(None)
+    return get_session_company_config()
