@@ -59,6 +59,44 @@ DEFAULT_DATASET = os.getenv("ESG_AUTH_DATASET", "isayan58/esg-copilot-auth")
 SOURCES_DIR_IN_REPO = "sources"
 LOCAL_FALLBACK_DIR = Path("data") / "sources"
 CACHE_TTL_SECONDS = 30
+MAX_RETRIES = 3
+
+# Hard cap on the total serialised size of a single user's sources file.
+# Uploaded files are base64-encoded in-place, so a 2 MB raw upload becomes
+# ~2.7 MB JSON — cap at 4 MB to leave headroom without risking HF rate
+# limits or pathological session_state bloat.
+MAX_PAYLOAD_BYTES = int(os.getenv("ESG_SOURCE_MAX_BYTES", str(4 * 1024 * 1024)))
+
+
+class SourcePayloadTooLarge(ValueError):
+    """Raised when a user's saved sources would exceed the size cap.
+
+    The UI catches this and asks the user to switch from an inline
+    upload to an external connector (S3, Snowflake, Google Sheets) so
+    the bytes live in the source-of-truth system, not in the per-user
+    profile file.
+
+    Attributes
+    ----------
+    total_bytes : int
+        Serialised size of the full records list.
+    cap_bytes : int
+        The configured cap (:data:`MAX_PAYLOAD_BYTES`).
+    per_source : list[tuple[str, int]]
+        ``[(source_id, bytes), …]`` sorted largest-first so the UI can
+        point the user at the exact source to trim.
+    largest : tuple[str, int] | None
+        Shortcut to ``per_source[0]`` — the source most worth removing.
+    """
+
+    def __init__(self, message: str, *, total_bytes: int = 0,
+                 cap_bytes: int = 0,
+                 per_source: list[tuple[str, int]] | None = None):
+        super().__init__(message)
+        self.total_bytes = total_bytes
+        self.cap_bytes = cap_bytes
+        self.per_source = list(per_source or [])
+        self.largest = self.per_source[0] if self.per_source else None
 
 
 def _resolve_token() -> Optional[str]:
@@ -141,6 +179,45 @@ def source_to_record(source_id: str, meta: dict) -> dict:
         if k in meta:
             record[k] = _coerce_bytes_for_json(meta[k])
     return record
+
+
+def _record_display_label(record: dict) -> str:
+    """Best human-readable label for a record — for size-cap error messages.
+
+    Prefers: display_name → config.file_name → id → "(unnamed)". Keeps
+    the label short so the UI can interpolate it into a single line.
+    """
+    label = record.get("display_name")
+    if not label:
+        cfg = record.get("config") or {}
+        if isinstance(cfg, dict):
+            label = cfg.get("file_name") or cfg.get("object") or cfg.get("query")
+    if not label:
+        label = record.get("id")
+    if not label:
+        return "(unnamed source)"
+    label = str(label).strip()
+    return label if len(label) <= 60 else label[:57] + "…"
+
+
+def _per_record_sizes(records: list[dict]) -> list[tuple[str, int]]:
+    """Return ``[(label, bytes), …]`` sorted largest-first.
+
+    Sizes are approximate — each record is serialised independently,
+    so the sum differs slightly from the full-payload size (missing the
+    JSON array brackets / comma separators). Good enough for pointing
+    the user at the right source to trim.
+    """
+    sized: list[tuple[str, int]] = []
+    for rec in records or []:
+        try:
+            encoded = json.dumps(rec, ensure_ascii=False).encode("utf-8")
+            size = len(encoded)
+        except (TypeError, ValueError):
+            size = 0
+        sized.append((_record_display_label(rec), size))
+    sized.sort(key=lambda pair: pair[1], reverse=True)
+    return sized
 
 
 def record_to_source(record: dict) -> tuple[str, dict]:
@@ -262,15 +339,56 @@ class SourceStore:
         return records
 
     def _save_raw(self, username: str, records: list[dict]) -> None:
+        # Enforce the size cap up front so the user gets a clean error
+        # rather than a mysterious HF 413 / local disk blowup. We
+        # serialise once and reuse the bytes if the write proceeds.
+        payload = json.dumps(records, indent=2, ensure_ascii=False).encode("utf-8")
+        if len(payload) > MAX_PAYLOAD_BYTES:
+            # Identify the offender(s) so the UI can point the user at
+            # the specific source to trim instead of saying "too large"
+            # and leaving them to guess.
+            per_source = _per_record_sizes(records)
+            if per_source:
+                top = per_source[0]
+                top_label, top_bytes = top
+                hint = (
+                    f" Largest source is **{top_label}** "
+                    f"(~{top_bytes / 1024:.0f} KB). "
+                )
+            else:
+                hint = " "
+            raise SourcePayloadTooLarge(
+                f"Saved sources would be {len(payload):,} bytes "
+                f"(cap {MAX_PAYLOAD_BYTES:,})."
+                f"{hint}"
+                "Remove that source, or switch from inline upload to "
+                "an external connector (S3, Snowflake, Google Sheets) "
+                "so the bytes stay in the source-of-truth system.",
+                total_bytes=len(payload),
+                cap_bytes=MAX_PAYLOAD_BYTES,
+                per_source=per_source,
+            )
+
         if self._api is not None and self._resolved_backend in (None, "hf_dataset"):
-            try:
-                self._save_to_hf(username, records)
-                self._resolved_backend = "hf_dataset"
-                self._last_error = None
-                self._last_error_at = None
-                return
-            except Exception as exc:
-                self._record_error(exc)
+            last_exc: BaseException | None = None
+            for attempt in range(MAX_RETRIES):
+                try:
+                    self._save_to_hf(username, records, payload=payload)
+                    self._resolved_backend = "hf_dataset"
+                    self._last_error = None
+                    self._last_error_at = None
+                    return
+                except HfHubHTTPError as exc:
+                    last_exc = exc
+                    status = getattr(getattr(exc, "response", None), "status_code", None)
+                    if status not in (409, 412, 503):
+                        break
+                    time.sleep(0.25 * (2 ** attempt))
+                except Exception as exc:
+                    last_exc = exc
+                    break
+            if last_exc is not None:
+                self._record_error(last_exc)
         self._save_to_local(username, records)
         self._resolved_backend = "local_json"
 
@@ -303,10 +421,12 @@ class SourceStore:
         except (OSError, json.JSONDecodeError):
             return []
 
-    def _save_to_hf(self, username: str, records: list[dict]) -> None:
+    def _save_to_hf(self, username: str, records: list[dict],
+                    payload: bytes | None = None) -> None:
         assert self._api is not None
         self._ensure_dataset_exists()
-        payload = json.dumps(records, indent=2, ensure_ascii=False).encode("utf-8")
+        if payload is None:
+            payload = json.dumps(records, indent=2, ensure_ascii=False).encode("utf-8")
         self._api.upload_file(
             path_or_fileobj=io.BytesIO(payload),
             path_in_repo=self._path_in_repo(username),
