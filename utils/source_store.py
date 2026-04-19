@@ -195,8 +195,20 @@ class SourceStore:
         }
 
     def _record_error(self, exc: BaseException) -> None:
+        """Capture the full exception chain so wrapped HF errors stay legible.
+
+        Mirrors the helper in :mod:`utils.user_store` — see the docstring
+        there for why we walk ``__cause__`` / ``__context__``.
+        """
         from datetime import datetime, timezone
-        self._last_error = f"{type(exc).__name__}: {exc}"
+        chain = []
+        cur: BaseException | None = exc
+        seen: set[int] = set()
+        while cur is not None and id(cur) not in seen:
+            chain.append(f"{type(cur).__name__}: {cur}")
+            seen.add(id(cur))
+            cur = cur.__cause__ or cur.__context__
+        self._last_error = " ← ".join(chain)
         self._last_error_at = (
             datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         )
@@ -271,10 +283,15 @@ class SourceStore:
                 repo_type="dataset",
                 filename=self._path_in_repo(username),
                 token=self._token,
-                force_download=True,
+                # See user_store._load_from_hf — force_download=True was
+                # wrapping EntryNotFoundError as ValueError, which made
+                # first-time-per-user reads look like hard failures.
             )
-        except (EntryNotFoundError, RepositoryNotFoundError, HfHubHTTPError):
-            self._ensure_dataset_exists()
+        except (EntryNotFoundError, RepositoryNotFoundError, HfHubHTTPError, ValueError):
+            try:
+                self._ensure_dataset_exists()
+            except Exception:
+                pass
             return []
 
         try:

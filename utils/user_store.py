@@ -150,8 +150,21 @@ class UserStore:
         }
 
     def _record_error(self, exc: BaseException) -> None:
-        """Capture exception text + timestamp so the UI can show why HF failed."""
-        self._last_error = f"{type(exc).__name__}: {exc}"
+        """Capture exception text + timestamp so the UI can show why HF failed.
+
+        Walks the exception chain (``__cause__`` then ``__context__``) so a
+        wrapped ``ValueError("Force download failed due to the above error.")``
+        from huggingface_hub still surfaces the real ``EntryNotFoundError`` /
+        ``HfHubHTTPError`` underneath it.
+        """
+        chain = []
+        cur: BaseException | None = exc
+        seen: set[int] = set()
+        while cur is not None and id(cur) not in seen:
+            chain.append(f"{type(cur).__name__}: {cur}")
+            seen.add(id(cur))
+            cur = cur.__cause__ or cur.__context__
+        self._last_error = " ← ".join(chain)
         self._last_error_at = _utcnow_iso()
 
     # -- CRUD --------------------------------------------------------------
@@ -261,11 +274,22 @@ class UserStore:
                 repo_type="dataset",
                 filename=USERS_PATH_IN_REPO,
                 token=self._token,
-                force_download=True,
+                # NOTE: ``force_download=True`` was wrapping
+                # EntryNotFoundError as a generic ValueError on some
+                # huggingface_hub versions, which made first-time
+                # bootstrap (no users.json yet) look like a hard failure.
+                # Our own TTL cache handles freshness — leave this off.
             )
-        except (EntryNotFoundError, RepositoryNotFoundError, HfHubHTTPError):
-            # Either the dataset or the file does not exist yet. Bootstrap.
-            self._ensure_dataset_exists()
+        except (EntryNotFoundError, RepositoryNotFoundError, HfHubHTTPError, ValueError):
+            # Either the dataset or the file does not exist yet — both are
+            # fine on first signup. Make sure the repo exists, then return
+            # an empty user list so create_user() will write the first one.
+            try:
+                self._ensure_dataset_exists()
+            except Exception:
+                # Permissions issue creating the repo will surface on the
+                # subsequent _save_to_hf call where it gets recorded.
+                pass
             return []
 
         try:
