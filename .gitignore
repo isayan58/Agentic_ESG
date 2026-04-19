@@ -13,6 +13,10 @@ credentials.json
 service-account*.json
 .streamlit/.session_secret
 data/auth_users.json
+data/sources/
+secrets.txt
+secrets.*
+.claude/settings.local.json
 .venv
 /tmp
 *.log
@@ -42,4 +46,3 @@ pnpm-debug.log*
 .yarn/
 .eslintcache
 coverage/
-secrets.txt
