@@ -15,6 +15,7 @@ import streamlit as st
 
 from utils.auth import require_login, sidebar_auth_widget
 from utils.profile_store import ProfileConflict
+from utils.profile_validator import validate_profile
 from utils.session import (
     get_session_company_config,
     get_session_company_profile,
@@ -35,6 +36,18 @@ st.markdown(
     f"*Personalises every agent, KPI, and AI narrative for **{user['username']}**. "
     "Changes save to your private profile and apply on the next pipeline run.*"
 )
+
+# If the last CompanyConfig build rejected the stored profile, tell the
+# user loudly — otherwise they'd silently see the bundled default on
+# every other page without knowing why their edits aren't showing up.
+_build_error = st.session_state.get("_company_cfg_build_error")
+if _build_error:
+    st.error(
+        f"⚠️ Your stored profile is not loading — all agents are currently "
+        f"using the bundled default. **{_build_error}** Fix the issues "
+        "below and save again, or use the Reset button to start from the default."
+    )
+
 st.markdown("---")
 
 # Load the current profile (mutable copy).
@@ -154,9 +167,17 @@ with tab_advanced:
     if raw_save:
         try:
             parsed = json.loads(raw_json)
-            if not isinstance(parsed, dict):
-                st.error("Profile must be a JSON object (got "
-                         f"{type(parsed).__name__}).")
+        except json.JSONDecodeError as exc:
+            st.error(f"Invalid JSON: {exc}")
+        else:
+            # Structural check before commit — prevents a malformed
+            # paste from saving successfully and then crashing the
+            # next page load when CompanyConfig tries to read it.
+            validation_errors = validate_profile(parsed)
+            if validation_errors:
+                st.error("Profile failed validation — fix the issues below and retry:")
+                for err in validation_errors:
+                    st.markdown(f"- {err}")
             else:
                 try:
                     save_session_company_profile(parsed)
@@ -171,8 +192,6 @@ with tab_advanced:
                     st.success("Raw profile saved. Reload any agent page to "
                                "see the new values flow through.")
                     st.rerun()
-        except json.JSONDecodeError as exc:
-            st.error(f"Invalid JSON: {exc}")
 
 st.markdown("---")
 col_save, col_reset, _ = st.columns([1, 1, 3])
@@ -305,3 +324,13 @@ with st.expander("Where is my profile stored?"):
         st.warning(
             f"Last persistence error ({diag['last_error_at']}): "
             f"{diag['last_error']}")
+
+    # Operator-visible signal when the bundled default profile file is
+    # missing / corrupt — otherwise every new signup silently starts on
+    # an empty profile and nobody notices the bad deploy.
+    default_status = diag.get("default_profile_status")
+    if default_status and default_status != "ok":
+        st.warning(
+            f"⚠️ **Default profile unavailable** ({default_status}): "
+            f"{diag.get('default_profile_reason') or '(no details)'}"
+        )

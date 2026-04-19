@@ -13,7 +13,7 @@ from utils.data_processing import load_supply_chain
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, pwc_header
-from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
+from utils.pipeline_refresh import data_freshness_caption
 
 st.set_page_config(page_title="Carbon Accountant | ESG CoPilot", page_icon="🌱", layout="wide")
 inject_global_css()
@@ -22,7 +22,7 @@ sidebar_auth_widget()
 require_login("Sign in to access the Carbon Accountant agent.")
 st.title("🌱 Carbon Accountant Agent")
 st.markdown("*Tracks Scope 1/2/3 emissions with AI-driven supply chain hotspot detection*")
-data_freshness_caption()
+data_freshness_caption(can_refresh=False)
 st.markdown("---")
 
 if "carbon_agent" not in st.session_state:
@@ -39,8 +39,6 @@ def render_chart(fig):
         st.plotly_chart(fig, use_container_width=True)
 
 if st.button("🔄 Run Carbon Analysis", type="primary"):
-    with st.spinner("Refreshing data from registered sources..."):
-        refresh_real_data()
     with st.spinner("Analyzing carbon emissions..."):
         results = agent.run()
         st.session_state.carbon_results = results

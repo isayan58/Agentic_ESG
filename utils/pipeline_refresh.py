@@ -191,13 +191,25 @@ def stamp_refresh_from_pipeline(sources: int, records: int,
     st.session_state["_last_data_refresh_errors"] = errors or {}
 
 
-def data_freshness_caption() -> None:
+def data_freshness_caption(can_refresh: bool = True) -> None:
     """Render a subtle "Data refreshed … ago" caption for an agent page.
 
     Safe to call even when no real sources are configured — in that
     case it renders nothing, so it doesn't clutter the sample-data
     experience. Surfaces a warning line when the last refresh recorded
     any source errors so users aren't silently running on sample data.
+
+    Parameters
+    ----------
+    can_refresh : bool
+        When ``True`` (default), the hint message tells the user to
+        click **Run** on this page to pull the latest data — appropriate
+        for pages that actually trigger ``refresh_real_data()`` (Data
+        Collector, Mission Control, ESG ROI). When ``False``, the hint
+        redirects the user to the Data Collector page instead — used by
+        downstream agent pages (Regulatory, Carbon, Report, Risk, Audit,
+        Action, Stakeholder) that read the last-published datasets from
+        ``state_manager`` rather than re-fetching on every click.
     """
     conn_mgr = st.session_state.get("conn_manager")
     if conn_mgr is None or not conn_mgr.has_sources():
@@ -205,10 +217,19 @@ def data_freshness_caption() -> None:
 
     last = st.session_state.get("_last_data_refresh")
     sources = len(conn_mgr.list_sources())
+    refresh_hint = (
+        "Click **Run** to pull the latest."
+        if can_refresh
+        else "Visit the **Data Collector** page to refresh."
+    )
     if not last:
+        never_hint = (
+            "data will be re-fetched from every source the next time you click **Run**."
+            if can_refresh
+            else "head to the **Data Collector** page to ingest them for the first time."
+        )
         st.caption(
-            f"📡 {sources} real source(s) registered — data will be re-fetched "
-            "from every source the next time you click **Run**."
+            f"📡 {sources} real source(s) registered — {never_hint}"
         )
         return
 
@@ -227,7 +248,7 @@ def data_freshness_caption() -> None:
 
     st.caption(
         f"📡 Real data refreshed **{ago}** from {sources} registered source(s). "
-        "Click **Run** to pull the latest."
+        f"{refresh_hint}"
     )
     errors = st.session_state.get("_last_data_refresh_errors") or {}
     if errors:

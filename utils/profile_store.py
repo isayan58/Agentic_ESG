@@ -24,11 +24,14 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 import threading
 import time
 from pathlib import Path
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 try:
     from huggingface_hub import HfApi, hf_hub_download
@@ -115,17 +118,64 @@ def _safe_username(username: str) -> str:
     return cleaned[:64] or "anonymous"
 
 
+# Tracks *why* the default profile came back empty so the diagnostic can
+# explain it to the operator. Values: None (not loaded yet), "ok",
+# "missing" (file doesn't exist), "invalid" (file exists but is broken),
+# "empty" (file parsed to a non-dict).
+_DEFAULT_PROFILE_STATUS: Optional[str] = None
+_DEFAULT_PROFILE_REASON: Optional[str] = None
+
+
 def _load_default_profile() -> dict:
-    """Return the bundled default profile (used when a user has none yet)."""
+    """Return the bundled default profile (used when a user has none yet).
+
+    Side effects: records the load status on module-level globals so
+    :meth:`ProfileStore.diagnostic` can surface a "default profile file
+    missing" warning — otherwise a bad deploy that drops the JSON ships
+    every user the same empty dict with no signal in the logs.
+    """
+    global _DEFAULT_PROFILE_STATUS, _DEFAULT_PROFILE_REASON
     try:
-        if DEFAULT_PROFILE_PATH.is_file():
-            with open(DEFAULT_PROFILE_PATH, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-                if isinstance(data, dict):
-                    return data
-    except (OSError, json.JSONDecodeError):
-        pass
-    return {}
+        if not DEFAULT_PROFILE_PATH.is_file():
+            _DEFAULT_PROFILE_STATUS = "missing"
+            _DEFAULT_PROFILE_REASON = (
+                f"Default profile file not found at {DEFAULT_PROFILE_PATH}. "
+                "Every new signup will start with an empty profile until "
+                "this file is restored."
+            )
+            _log.warning(_DEFAULT_PROFILE_REASON)
+            return {}
+        with open(DEFAULT_PROFILE_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            _DEFAULT_PROFILE_STATUS = "empty"
+            _DEFAULT_PROFILE_REASON = (
+                f"Default profile at {DEFAULT_PROFILE_PATH} parsed to "
+                f"{type(data).__name__}, not a JSON object."
+            )
+            _log.warning(_DEFAULT_PROFILE_REASON)
+            return {}
+        _DEFAULT_PROFILE_STATUS = "ok"
+        _DEFAULT_PROFILE_REASON = None
+        return data
+    except (OSError, json.JSONDecodeError) as exc:
+        _DEFAULT_PROFILE_STATUS = "invalid"
+        _DEFAULT_PROFILE_REASON = (
+            f"Default profile at {DEFAULT_PROFILE_PATH} is unreadable: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        _log.warning(_DEFAULT_PROFILE_REASON)
+        return {}
+
+
+def default_profile_status() -> tuple[Optional[str], Optional[str]]:
+    """Return ``(status, reason)`` for the bundled default profile load.
+
+    Used by the Settings page diagnostic expander to tell the operator
+    that all new users are getting an empty profile because a bad deploy
+    dropped ``data/company_profile.json``.
+    """
+    return _DEFAULT_PROFILE_STATUS, _DEFAULT_PROFILE_REASON
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +209,7 @@ class ProfileStore:
         return "Unresolved — will pick backend on first read"
 
     def diagnostic(self) -> dict:
+        status, reason = default_profile_status()
         return {
             "backend": self._resolved_backend,
             "label": self.backend_label(),
@@ -166,6 +217,13 @@ class ProfileStore:
             "dataset": self._dataset,
             "last_error": self._last_error,
             "last_error_at": self._last_error_at,
+            # New: status of the bundled default profile. The Settings
+            # page surfaces a banner when status != "ok" so operators
+            # notice a missing / corrupt ``data/company_profile.json``
+            # instead of silently shipping empty profiles to every new
+            # signup.
+            "default_profile_status": status,
+            "default_profile_reason": reason,
         }
 
     def default_profile(self) -> dict:
