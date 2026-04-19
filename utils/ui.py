@@ -102,6 +102,7 @@ _FONT_LINK = """
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 """
 
@@ -140,43 +141,76 @@ _GLOBAL_CSS = f"""
         border-right: 1px solid {TOKENS['border']};
     }}
 
-    /* Exclude every Material icon variant so icon spans keep their font,
-       even when they also carry a st-emotion-cache-* class. Streamlit
-       1.30+ uses .material-symbols-rounded; older widgets (and a few
-       sidebar bits even on current versions) still ship as
-       .material-symbols-outlined or the legacy .material-icons class. */
-    html, body,
-    [class*="st-"]:not(.material-symbols-rounded):not(.material-symbols-outlined):not(.material-icons),
-    .stApp, .stMarkdown, .stText, .stCaption, .stButton > button {{
+    /* ---- Body typography ------------------------------------------------
+       SCOPING NOTE — DO NOT add ``[class*="st-"]`` back here. It matches
+       every ``st-emotion-cache-*`` span, which includes Streamlit's
+       built-in icon spans. Two compounding bugs result:
+
+       1. Streamlit sets the icon font via inline ``style=``; class CSS
+          loses to it without !important — *but* the visible icons we
+          care about (file uploader "upload", sidebar
+          "keyboard_double_arrow_left", etc.) instead render as raw
+          text because…
+       2. Setting an explicit ``font-feature-settings`` value disables
+          *every* feature not explicitly listed, including ``'liga'`` —
+          the ligature feature that converts "upload" → 📤. So even
+          when the icon font loads, the text stays visible.
+
+       We therefore scope body typography to specific Streamlit
+       containers (markdown, text, caption, buttons, app shell) and
+       leave icon spans untouched. The ``font-feature-settings`` rule
+       below also explicitly enables ``'liga'`` so the OpenType
+       contextual alternates we want (cv11, ss01, etc.) co-exist with
+       ligatures. */
+    html, body, .stApp,
+    .stMarkdown, .stText, .stCaption,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdown"],
+    .stButton > button,
+    .stTextInput input, .stTextArea textarea,
+    .stSelectbox div[data-baseweb="select"] {{
         font-family: var(--font-body);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv03';
+        font-feature-settings: 'liga' 1, 'cv11' 1, 'ss01' 1, 'ss03' 1, 'cv03' 1;
     }}
 
-    /* ---- Material Symbols / Icons — ensure ligatures render, not text ---- */
-    /* Shared baseline for every Material icon span, regardless of which
-       font family Streamlit picks for the specific widget. */
+    /* ---- Material Symbols / Icons — ensure ligatures render, not text ----
+       Streamlit ships its own Material Symbols font internally and uses
+       ligatures (``<span>upload</span>`` → 📤). Three things must hold
+       for the substitution to happen:
+         (a) the icon font is actually loaded (we link all three variants
+             via ``_FONT_LINK`` for redundancy with Streamlit's bundled copy),
+         (b) the span uses that font (Streamlit sets it inline; our
+             !important rules win on class-matched spans regardless),
+         (c) ligatures are enabled (``font-feature-settings: 'liga' 1``).
+
+       Each rule below uses ``!important`` so no parent typography rule
+       (ours or Streamlit's) can break the substitution. */
     .material-symbols-rounded,
     .material-symbols-outlined,
-    .material-icons {{
-        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-        /* 'liga' is required for text-to-icon ligature substitution */
+    .material-symbols-sharp,
+    .material-icons,
+    [class*="material-symbols"],
+    [class*="material-icons"] {{
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
         font-feature-settings: 'liga' 1 !important;
-        font-style: normal;
-        font-size: 24px;
-        line-height: 1;
-        letter-spacing: normal;
+        font-variant-ligatures: common-ligatures contextual !important;
+        font-style: normal !important;
+        font-weight: normal !important;
+        line-height: 1 !important;
+        letter-spacing: normal !important;
         text-transform: none !important;
-        display: inline-block;
-        white-space: nowrap;
-        direction: ltr;
-        word-spacing: normal;
-        -webkit-font-smoothing: antialiased;
+        display: inline-block !important;
+        white-space: nowrap !important;
+        direction: ltr !important;
+        word-spacing: normal !important;
+        -webkit-font-smoothing: antialiased !important;
     }}
-    .material-symbols-rounded {{ font-family: 'Material Symbols Rounded' !important; }}
-    .material-symbols-outlined {{ font-family: 'Material Symbols Outlined' !important; }}
-    .material-icons {{ font-family: 'Material Icons' !important; }}
+    .material-symbols-rounded   {{ font-family: 'Material Symbols Rounded' !important; }}
+    .material-symbols-outlined  {{ font-family: 'Material Symbols Outlined' !important; }}
+    .material-symbols-sharp     {{ font-family: 'Material Symbols Sharp' !important; }}
+    .material-icons             {{ font-family: 'Material Icons' !important; }}
     h1, h2, h3, h4, h5 {{
         font-family: var(--font-display);
         letter-spacing: -0.018em;
