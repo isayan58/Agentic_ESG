@@ -126,11 +126,20 @@ else:
     )
 
 # ── Run Pipeline ──
+goal = st.text_input(
+    "Mission Goal",
+    value="Prepare for a CSRD filing in Q3 by assessing ESG readiness, gap closure, and ROI.",
+    help=(
+        "Describe the business objective for this pipeline run. "
+        "The planner will decide which agents to execute and when to stop."
+    ),
+    max_chars=240,
+)
 col1, col2 = st.columns([1, 3])
 with col1:
     run_pipeline = st.button("🚀 Run Full Pipeline", type="primary", use_container_width=True)
 with col2:
-    st.caption("Executes all agents in dependency order with shared state and dependency checks.")
+    st.caption("An LLM plans the next agent(s) to execute based on your goal and the available ESG intelligence modules.")
 
 if run_pipeline:
     progress_bar = st.progress(0)
@@ -160,6 +169,7 @@ if run_pipeline:
         results = orch.run_full_pipeline(
             progress_callback=progress_callback,
             data_collector_kwargs=dc_kwargs or None,
+            user_goal=goal,
         )
         st.session_state.pipeline_results = results
 
@@ -207,6 +217,14 @@ if st.session_state.pipeline_results:
     with tab_results:
         section_header("Pipeline Results",
                        "Headline metrics from the latest full-pipeline run.")
+
+        planning_steps = results.get("planning", [])
+        if planning_steps:
+            with st.expander("LLM Planning Audit Trail", expanded=False):
+                for idx, step in enumerate(planning_steps, start=1):
+                    agent_text = step.get("agent", "planner")
+                    reason = step.get("reason", "No reason provided.")
+                    st.markdown(f"**{idx}.** {agent_text} — {reason}")
 
         readiness = audit_res.get("readiness_score", {})
         iqs_card = roi_res.get("investment_quality_score", {})
