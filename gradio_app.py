@@ -612,7 +612,7 @@ def run_full_pipeline():
 
 # --- Build Gradio Interface ---
 
-with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="ESG CoPilot") as demo:
     gr.Markdown("# 🌍 ESG CoPilot — Autonomous ESG Intelligence")
     gr.Markdown("*9 specialized AI agents powered by HuggingFace*")
 
@@ -867,6 +867,7 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
             label="Report Type",
             value="Full ESG Report",
         )
+        report_state = gr.State({})  # State container for report results
         btn = gr.Button("Generate Report", variant="primary")
 
         with gr.Tabs():
@@ -1112,6 +1113,21 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
             outputs=[report_output, metrics_output, framework_output, audit_output, bi_output, insights_output, agent_output, report_state],
         )
 
+        gr.Markdown("---\n### Report Feedback")
+        feedback_rating = gr.Slider(
+            label="How helpful was this report?",
+            minimum=1,
+            maximum=5,
+            step=1,
+            value=3,
+        )
+        feedback_comment = gr.Textbox(
+            label="Additional feedback (optional)",
+            placeholder="Tell us what could be improved...",
+            lines=2,
+        )
+        feedback_status = gr.Markdown()
+
         def submit_feedback(rating, comment, state):
             if not state or "results" not in state:
                 return "Run a report first to submit feedback."
@@ -1261,4 +1277,5 @@ if __name__ == "__main__":
             "Sign in with your ESG CoPilot credentials. "
             "Don't have an account? Create one at the Streamlit dashboard first."
         ),
+        theme=gr.themes.Soft(),
     )
