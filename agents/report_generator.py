@@ -162,7 +162,7 @@ class ReportGeneratorAgent(BaseAgent):
             f"Key commitments: {commitments}. "
             f"Tone: professional, forward-looking."
         )
-        return self.hf.generate_text(prompt)
+        return self.hf.generate_text(prompt, agent="report_generator")
 
     def _generate_section_narrative(self, section, section_data, metrics_df):
         pillar_map = {
@@ -189,7 +189,7 @@ class ReportGeneratorAgent(BaseAgent):
                     f"{row['metric_name']}: {val} {row['unit']} (target: {target})."
                 )
 
-        return self.hf.generate_text(" ".join(context_parts))
+        return self.hf.generate_text(" ".join(context_parts), agent="report_section")
 
     def _compile_metrics_tables(self, metrics_df):
         tables = {}
@@ -295,7 +295,7 @@ class ReportGeneratorAgent(BaseAgent):
             f"Recent user feedback: {feedback_examples}. "
             f"Return the response as a bullet list of report titles and rationales."
         )
-        raw = self.hf.generate_text(prompt)
+        raw = self.hf.generate_text(prompt, agent="report_generator")
         lines = [line.strip('- ').strip() for line in raw.splitlines() if line.strip()]
         return [line for line in lines if len(line) > 10][:6]
 
@@ -313,7 +313,7 @@ class ReportGeneratorAgent(BaseAgent):
             f"Audit grade: {audit_results.get('readiness_score', {}).get('grade', 'N/A')}. "
             f"List the recommended dashboards, key visuals, key measures, and data sources. Separate Power BI and QuickSight sections clearly."
         )
-        raw = self.hf.generate_text(prompt, max_tokens=450)
+        raw = self.hf.generate_text(prompt, max_tokens=450, agent="report_generator")
         return {
             "summary": "Use the sample Power BI and QuickSight report designs to create data-rich dashboards from your ESG pipeline outputs.",
             "power_bi": raw.split('QuickSight')[0].strip() if 'QuickSight' in raw else raw.strip(),
@@ -346,7 +346,7 @@ class ReportGeneratorAgent(BaseAgent):
             f"Stakeholder distribution plan: {stakeholder_results.get('distribution_plan', '')}. "
             f"Recent user feedback: {feedback_examples}."
         )
-        raw = self.hf.generate_text(prompt, max_tokens=260)
+        raw = self.hf.generate_text(prompt, max_tokens=260, agent="report_generator")
         bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return [line for line in bullets if len(line) > 10][:6]
 

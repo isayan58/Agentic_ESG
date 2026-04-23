@@ -1,0 +1,65 @@
+year,quarter,scope,category,emissions_tco2e,unit,source,confidence
+2023,Q1,Scope 1,Fleet Vehicles,320.5,tCO2e,Fuel logs,0.95
+2023,Q1,Scope 1,Refrigerants,45.2,tCO2e,Maintenance records,0.88
+2023,Q1,Scope 2,Purchased Electricity,1850.0,tCO2e,Utility bills,0.97
+2023,Q1,Scope 2,District Heating,210.3,tCO2e,Utility bills,0.95
+2023,Q1,Scope 3,Business Travel,680.4,tCO2e,Travel system,0.82
+2023,Q1,Scope 3,Employee Commuting,420.1,tCO2e,Survey estimates,0.65
+2023,Q1,Scope 3,Supply Chain,4200.0,tCO2e,Supplier reports,0.58
+2023,Q1,Scope 3,Waste Disposal,85.3,tCO2e,Waste records,0.90
+2023,Q2,Scope 1,Fleet Vehicles,305.2,tCO2e,Fuel logs,0.95
+2023,Q2,Scope 1,Refrigerants,52.1,tCO2e,Maintenance records,0.88
+2023,Q2,Scope 2,Purchased Electricity,2100.5,tCO2e,Utility bills,0.97
+2023,Q2,Scope 2,District Heating,95.0,tCO2e,Utility bills,0.95
+2023,Q2,Scope 3,Business Travel,720.8,tCO2e,Travel system,0.82
+2023,Q2,Scope 3,Employee Commuting,435.6,tCO2e,Survey estimates,0.65
+2023,Q2,Scope 3,Supply Chain,4350.2,tCO2e,Supplier reports,0.58
+2023,Q2,Scope 3,Waste Disposal,78.9,tCO2e,Waste records,0.90
+2023,Q3,Scope 1,Fleet Vehicles,298.7,tCO2e,Fuel logs,0.95
+2023,Q3,Scope 1,Refrigerants,48.5,tCO2e,Maintenance records,0.88
+2023,Q3,Scope 2,Purchased Electricity,2250.3,tCO2e,Utility bills,0.97
+2023,Q3,Scope 2,District Heating,55.0,tCO2e,Utility bills,0.95
+2023,Q3,Scope 3,Business Travel,590.2,tCO2e,Travel system,0.82
+2023,Q3,Scope 3,Employee Commuting,410.8,tCO2e,Survey estimates,0.65
+2023,Q3,Scope 3,Supply Chain,4150.6,tCO2e,Supplier reports,0.58
+2023,Q3,Scope 3,Waste Disposal,92.1,tCO2e,Waste records,0.90
+2023,Q4,Scope 1,Fleet Vehicles,310.1,tCO2e,Fuel logs,0.95
+2023,Q4,Scope 1,Refrigerants,42.8,tCO2e,Maintenance records,0.88
+2023,Q4,Scope 2,Purchased Electricity,1950.8,tCO2e,Utility bills,0.97
+2023,Q4,Scope 2,District Heating,180.5,tCO2e,Utility bills,0.95
+2023,Q4,Scope 3,Business Travel,650.3,tCO2e,Travel system,0.82
+2023,Q4,Scope 3,Employee Commuting,425.0,tCO2e,Survey estimates,0.65
+2023,Q4,Scope 3,Supply Chain,4080.5,tCO2e,Supplier reports,0.58
+2023,Q4,Scope 3,Waste Disposal,88.7,tCO2e,Waste records,0.90
+2024,Q1,Scope 1,Fleet Vehicles,285.3,tCO2e,Fuel logs,0.96
+2024,Q1,Scope 1,Refrigerants,40.1,tCO2e,Maintenance records,0.90
+2024,Q1,Scope 2,Purchased Electricity,1720.5,tCO2e,Utility bills,0.97
+2024,Q1,Scope 2,District Heating,195.2,tCO2e,Utility bills,0.95
+2024,Q1,Scope 3,Business Travel,610.5,tCO2e,Travel system,0.85
+2024,Q1,Scope 3,Employee Commuting,395.0,tCO2e,Survey estimates,0.68
+2024,Q1,Scope 3,Supply Chain,3950.8,tCO2e,Supplier reports,0.62
+2024,Q1,Scope 3,Waste Disposal,75.2,tCO2e,Waste records,0.92
+2024,Q2,Scope 1,Fleet Vehicles,270.8,tCO2e,Fuel logs,0.96
+2024,Q2,Scope 1,Refrigerants,38.5,tCO2e,Maintenance records,0.90
+2024,Q2,Scope 2,Purchased Electricity,1950.2,tCO2e,Utility bills,0.97
+2024,Q2,Scope 2,District Heating,80.0,tCO2e,Utility bills,0.95
+2024,Q2,Scope 3,Business Travel,645.2,tCO2e,Travel system,0.85
+2024,Q2,Scope 3,Employee Commuting,380.5,tCO2e,Survey estimates,0.68
+2024,Q2,Scope 3,Supply Chain,3820.1,tCO2e,Supplier reports,0.62
+2024,Q2,Scope 3,Waste Disposal,70.8,tCO2e,Waste records,0.92
+2024,Q3,Scope 1,Fleet Vehicles,260.2,tCO2e,Fuel logs,0.96
+2024,Q3,Scope 1,Refrigerants,35.8,tCO2e,Maintenance records,0.90
+2024,Q3,Scope 2,Purchased Electricity,2080.5,tCO2e,Utility bills,0.97
+2024,Q3,Scope 2,District Heating,45.0,tCO2e,Utility bills,0.95
+2024,Q3,Scope 3,Business Travel,530.8,tCO2e,Travel system,0.85
+2024,Q3,Scope 3,Employee Commuting,370.2,tCO2e,Survey estimates,0.68
+2024,Q3,Scope 3,Supply Chain,3680.5,tCO2e,Supplier reports,0.62
+2024,Q3,Scope 3,Waste Disposal,68.3,tCO2e,Waste records,0.92
+2024,Q4,Scope 1,Fleet Vehicles,255.0,tCO2e,Fuel logs,0.96
+2024,Q4,Scope 1,Refrigerants,33.2,tCO2e,Maintenance records,0.90
+2024,Q4,Scope 2,Purchased Electricity,1820.3,tCO2e,Utility bills,0.97
+2024,Q4,Scope 2,District Heating,165.8,tCO2e,Utility bills,0.95
+2024,Q4,Scope 3,Business Travel,580.5,tCO2e,Travel system,0.85
+2024,Q4,Scope 3,Employee Commuting,365.0,tCO2e,Survey estimates,0.68
+2024,Q4,Scope 3,Supply Chain,3550.2,tCO2e,Supplier reports,0.62
+2024,Q4,Scope 3,Waste Disposal,65.5,tCO2e,Waste records,0.92

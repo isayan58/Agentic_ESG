@@ -354,7 +354,7 @@ class AuditAgent(BaseAgent):
             f"Top issues: {'; '.join(f['requirement'] for f in fails[:3]) if fails else 'None critical'}. "
             f"Provide a 3-4 sentence findings summary with key recommendations."
         )
-        return self.hf.generate_text(prompt)
+        return self.hf.generate_text(prompt, agent="audit_agent")
 
     def _generate_audit_recommendations(self, readiness, completeness_audit, compliance_checklist, integrity_gaps):
         prompt = (
@@ -365,6 +365,6 @@ class AuditAgent(BaseAgent):
             f"Number of data completeness issues: {sum(1 for item in completeness_audit if item['status'] == 'Missing')}. "
             f"Integrity gaps count: {len(integrity_gaps.get('gaps', []))}."
         )
-        raw = self.hf.generate_text(prompt, max_tokens=260)
+        raw = self.hf.generate_text(prompt, max_tokens=260, agent="audit_agent")
         bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return bullets if bullets else [raw.strip()]

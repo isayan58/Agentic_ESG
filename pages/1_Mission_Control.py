@@ -6,13 +6,15 @@ from config import AGENT_CONFIG
 from utils.charts import (
     pipeline_flow_diagram, business_impact_gauges,
     before_after_comparison, enterprise_stack_layers, tier_comparison_chart,
-    chart_unavailable_message,
+    chart_unavailable_message, apply_chart_theme,
 )
 from utils.streamlit_compat import safe_dataframe
 from utils.monitoring import monitoring_engine
 from utils.ui import (
     hero, section_header, kpi_card, agent_card, pipeline_chips,
     badge, grade_pill, inject_global_css, pwc_header,
+    log_panel, retry_button, drilldown, live_badge, collect_audit_trail,
+    format_relative_time,
 )
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
@@ -53,11 +55,12 @@ orch = st.session_state.orchestrator
 
 
 def render_chart(fig):
-    """Render Plotly charts when available, otherwise show a fallback note."""
+    """Render Plotly charts when available, otherwise show a fallback note.
+    Applies the design-system theme so every chart inherits the PwC palette."""
     if fig is None:
         st.info(chart_unavailable_message())
     else:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(apply_chart_theme(fig), use_container_width=True)
 
 
 def signal_label(value, good_threshold, watch_threshold=None):
@@ -93,20 +96,40 @@ render_chart(fig)
 section_header("Agent Fleet Status",
                "Every agent in the orchestrated pipeline with its most recent run.")
 statuses = orch.get_agent_statuses()
-pipeline_chips(statuses, AGENT_CONFIG)
+fleet_head_l, fleet_head_r = st.columns([5, 1])
+with fleet_head_l:
+    pipeline_chips(statuses, AGENT_CONFIG)
+with fleet_head_r:
+    if any((s.get("status") or "idle").lower() == "running" for s in statuses.values()):
+        live_badge("Live")
 
 cols = st.columns(4)
 for i, (key, config) in enumerate(AGENT_CONFIG.items()):
     agent_status = statuses.get(key, {})
-    last_run = agent_status.get("last_run") or "Never"
     with cols[i % 4]:
         agent_card(
             name=config["name"],
             icon=config["icon"],
             status=agent_status.get("status", "idle"),
-            last_run=last_run,
+            last_run=agent_status.get("last_run") or "Never",
             color=config["color"],
+            runtime_seconds=agent_status.get("runtime_seconds"),
+            last_error=agent_status.get("last_error"),
+            description=config.get("description"),
+            run_count=agent_status.get("run_count"),
         )
+        if (agent_status.get("status") or "").lower() == "error":
+            if retry_button("Retry agent", key=f"retry_{key}"):
+                with st.spinner(f"Retrying {config['name']}…"):
+                    orch.run_single_agent(key)
+                st.rerun()
+
+# ── Activity Log (L2: real timestamps, level + agent filters, search) ──
+audit_rows = collect_audit_trail(getattr(orch, "agents", {}), limit=300)
+if audit_rows:
+    section_header("Activity Log",
+                   "Real-time timeline across every agent — filter by level, agent, or keyword.")
+    log_panel(audit_rows, key="mc_log", height=320)
 
 # ── Real-data status banner ──
 _cm = st.session_state.get("conn_manager")

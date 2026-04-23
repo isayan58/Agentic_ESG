@@ -231,7 +231,7 @@ class CarbonAccountantAgent(BaseAgent):
             f"Top supply chain hotspots: {hotspot_names}. "
             f"Provide analysis and key insights."
         )
-        raw = self.hf.generate_text(prompt)
+        raw = self.hf.generate_text(prompt, agent="carbon_accountant")
         bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return bullets if bullets else [raw.strip()]
 
@@ -246,6 +246,6 @@ class CarbonAccountantAgent(BaseAgent):
             f"current exposure INR {carbon_tax_risk.get('current_domestic_exposure_cr', 0)} Cr. "
             f"Provide 3 quick insights and one mitigation recommendation."
         )
-        raw = self.hf.generate_text(prompt, max_tokens=260)
+        raw = self.hf.generate_text(prompt, max_tokens=260, agent="carbon_accountant")
         bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return bullets if bullets else [raw.strip()]

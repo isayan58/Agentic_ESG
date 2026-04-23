@@ -335,7 +335,7 @@ class RegulatoryTrackerAgent(BaseAgent):
             f"Critical gaps found: {'; '.join(critical_gaps[:5]) if critical_gaps else 'None'}. "
             f"Provide 2-3 key recommendations for improving compliance."
         )
-        return self.hf.generate_text(prompt)
+        return self.hf.generate_text(prompt, agent="regulatory_tracker")
 
     def _classify_reporter_profile(self, framework_results):
         """Classify the company's reporting posture for regulatory context."""
@@ -378,6 +378,6 @@ class RegulatoryTrackerAgent(BaseAgent):
             f"Frameworks: {', '.join(framework_results.keys())}. "
             f"Provide each item as a short bullet with the target audience and expected impact."
         )
-        raw = self.hf.generate_text(prompt, max_tokens=260)
+        raw = self.hf.generate_text(prompt, max_tokens=260, agent="regulatory_tracker")
         lines = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return lines if lines else [raw.strip()]

@@ -141,7 +141,7 @@ class StakeholderAgent(BaseAgent):
             f"ESG rating trajectory: {context['esg_rating']}. "
             f"Write 4-5 sentences."
         )
-        message = self.hf.generate_text(prompt)
+        message = self.hf.generate_text(prompt, agent="stakeholder_agent")
 
         # Generate subject line
         subject = self._generate_subject(audience_key, context)
@@ -209,7 +209,7 @@ class StakeholderAgent(BaseAgent):
             f"Include: (1) Investment summary, (2) Financial returns, (3) Strategic value, (4) Recommendation. "
             f"Tone: executive, data-driven."
         )
-        narrative = self.hf.generate_text(prompt, max_tokens=300)
+        narrative = self.hf.generate_text(prompt, max_tokens=300, agent="stakeholder_agent")
 
         return {
             "narrative": narrative,
@@ -254,7 +254,7 @@ class StakeholderAgent(BaseAgent):
             f"Current net position: INR {net} Cr. "
             f"Frame this positively for investors."
         )
-        narrative = self.hf.generate_text(prompt, max_tokens=150)
+        narrative = self.hf.generate_text(prompt, max_tokens=150, agent="stakeholder_agent")
 
         return {
             "available": True,
@@ -278,7 +278,7 @@ class StakeholderAgent(BaseAgent):
             f"Financial ESG ROI: {context['financial_roi_pct']}%. "
             f"ESG rating: {context['esg_rating']}."
         )
-        return self.hf.generate_text(prompt, max_tokens=150)
+        return self.hf.generate_text(prompt, max_tokens=150, agent="stakeholder_agent")
 
     def _generate_distribution_plan(self, communications, context):
         prompt = (
@@ -286,4 +286,4 @@ class StakeholderAgent(BaseAgent):
             f"Use the audience profiles: Investors, Regulators, Employees, and Public. "
             f"Include one outreach tactic for each audience and mention the ideal timing relative to the report release."
         )
-        return self.hf.generate_text(prompt, max_tokens=220)
+        return self.hf.generate_text(prompt, max_tokens=220, agent="stakeholder_agent")
