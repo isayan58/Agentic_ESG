@@ -1,7 +1,7 @@
 """ESG CoPilot Configuration — loads company data from company_profile.json."""
 import os
 
-# HuggingFace API
+# HuggingFace API — narrative polish only (per-agent text generation)
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN", "")
 HF_API_URL = "https://api-inference.huggingface.co/models"
 
@@ -12,6 +12,12 @@ MODELS = {
     "zero_shot_classification": "facebook/bart-large-mnli",
     "sentiment_analysis": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
 }
+
+# Anthropic API — orchestrator agent loop (tool-use, planning, decisions)
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")
+ANTHROPIC_EFFORT = os.environ.get("ANTHROPIC_EFFORT", "high")  # low|medium|high|xhigh|max
+ANTHROPIC_MAX_TOKENS = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "16000"))
 
 # Ports
 STREAMLIT_PORT = int(os.environ.get("STREAMLIT_PORT", 8501))
