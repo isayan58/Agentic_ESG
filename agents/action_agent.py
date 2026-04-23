@@ -396,7 +396,7 @@ class ActionAgent(BaseAgent):
             f"Duration: {action.get('duration_weeks', 4)} weeks. "
             f"Net ROI after friction: {action.get('net_roi_pct', 'N/A')}%."
         )
-        return self.hf.generate_text(prompt, max_tokens=100)
+        return self.hf.generate_text(prompt, max_tokens=100, agent="action_item")
 
     def _generate_roadmap_narrative(self, actions, summary):
         cost_unit = summary.get("cost_unit", company_cfg.currency_unit)
@@ -408,4 +408,4 @@ class ActionAgent(BaseAgent):
             f"Top priorities: {', '.join(a['action'] for a in actions[:3])}. "
             f"Provide a strategic overview in 3-4 sentences."
         )
-        return self.hf.generate_text(prompt)
+        return self.hf.generate_text(prompt, agent="action_agent")

@@ -30,7 +30,7 @@ PIPELINE_ORDER = [
 DEFAULT_AUTONOMOUS_GOAL = (
     "Prepare the company for ESG reporting and investor readiness through a complete ESG analytics pipeline."
 )
-MAX_AUTONOMOUS_PLANNER_STEPS = 8
+MAX_AUTONOMOUS_PLANNER_STEPS = 12
 
 
 class Orchestrator:
@@ -61,7 +61,7 @@ class Orchestrator:
         The LLM observes the goal, the available agents, and intermediate results,
         then decides which agent to run next or whether the pipeline is complete.
         """
-        goal = user_goal or self.DEFAULT_AUTONOMOUS_GOAL
+        goal = user_goal or DEFAULT_AUTONOMOUS_GOAL
         return self.run_autonomous_pipeline(
             goal,
             progress_callback=progress_callback,

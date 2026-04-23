@@ -536,7 +536,7 @@ class ROIAgent(BaseAgent):
             f"Rating trajectory: {strat_roi['esg_rating_trajectory']}. "
             f"Tone: confident, data-driven, suitable for board presentation."
         )
-        raw = self.hf.generate_text(prompt)
+        raw = self.hf.generate_text(prompt, agent="roi_agent")
         bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return bullets if bullets else [raw.strip()]
 
@@ -549,7 +549,7 @@ class ROIAgent(BaseAgent):
             f"Investment Quality Score: {iqs.get('score', 0)}/100. "
             f"Current cost of capital reduction: {strategic_roi.get('cost_of_capital_reduction_bps', 0)} bps."
         )
-        raw = self.hf.generate_text(prompt, max_tokens=260)
+        raw = self.hf.generate_text(prompt, max_tokens=260, agent="roi_agent")
         bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return bullets if bullets else [raw.strip()]
 

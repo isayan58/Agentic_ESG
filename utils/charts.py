@@ -12,26 +12,73 @@ except ImportError:
 
 
 COLORS = {
-    "primary": "#1E2761",
-    "secondary": "#CADCFC",
-    "accent": "#E8453C",
-    "success": "#4CAF50",
-    "warning": "#FF9800",
-    "danger": "#F44336",
-    "info": "#2196F3",
-    "dark": "#212121",
-    "light": "#F5F5F5",
-    "scope1": "#E8453C",
-    "scope2": "#FF9800",
-    "scope3": "#1E2761",
+    "primary": "#D04A02",      # PwC orange — aligned to design system
+    "secondary": "#FFB600",    # PwC amber
+    "accent": "#E0301E",       # PwC tomato
+    "success": "#2E8540",
+    "warning": "#FFB600",
+    "danger": "#C8102E",
+    "info": "#2563eb",
+    "dark": "#0f172a",
+    "light": "#fff6ef",
+    "muted": "#5b6473",
+    "border": "#f1d9c4",
+    "scope1": "#D04A02",
+    "scope2": "#FFB600",
+    "scope3": "#A23A02",
 }
 
+# Categorical palette for multi-series charts (warm PwC family)
+CATEGORICAL = [
+    "#D04A02", "#FFB600", "#E0301E", "#A23A02",
+    "#2E8540", "#2563eb", "#7c3aed", "#0891b2",
+]
+
 LAYOUT_DEFAULTS = dict(
-    font=dict(family="Calibri, sans-serif"),
+    font=dict(
+        family="Inter, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        size=12, color="#0f172a",
+    ),
+    title_font=dict(
+        family="Plus Jakarta Sans, Inter, sans-serif", size=15, color="#0f172a",
+    ),
     plot_bgcolor="rgba(0,0,0,0)",
     paper_bgcolor="rgba(0,0,0,0)",
-    margin=dict(l=40, r=40, t=50, b=40),
+    margin=dict(l=44, r=24, t=56, b=44),
+    colorway=CATEGORICAL,
+    hoverlabel=dict(
+        bgcolor="#0f172a", font=dict(color="#ffffff", family="Inter, sans-serif", size=12),
+        bordercolor="#0f172a",
+    ),
+    legend=dict(
+        bgcolor="rgba(255,255,255,0.6)", bordercolor="#f1d9c4", borderwidth=1,
+        font=dict(size=11),
+    ),
+    xaxis=dict(
+        gridcolor="#f1d9c4", zerolinecolor="#e3bfa1", linecolor="#e3bfa1",
+        tickfont=dict(size=11, color="#5b6473"),
+    ),
+    yaxis=dict(
+        gridcolor="#f1d9c4", zerolinecolor="#e3bfa1", linecolor="#e3bfa1",
+        tickfont=dict(size=11, color="#5b6473"),
+    ),
 )
+
+
+def apply_chart_theme(fig):
+    """Apply the ESG CoPilot design system to any Plotly figure.
+
+    Idempotent — call right before ``st.plotly_chart``. Safe to use on
+    figures that already set their own colors; explicit traces win, the
+    theme only fills in gaps (axis colors, fonts, hover label, margins).
+    """
+    if fig is None or not PLOTLY_AVAILABLE:
+        return fig
+    try:
+        fig.update_layout(**LAYOUT_DEFAULTS)
+    except Exception:
+        pass
+    return fig
 
 
 def charts_available():

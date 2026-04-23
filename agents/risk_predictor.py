@@ -278,7 +278,7 @@ class RiskPredictorAgent(BaseAgent):
             f"High-risk suppliers: {supplier_risks['high_risk_count']}/{supplier_risks.get('total_suppliers', 0)}. "
             f"Provide key insights and recommendations."
         )
-        raw = self.hf.generate_text(prompt)
+        raw = self.hf.generate_text(prompt, agent="risk_predictor")
         bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return bullets if bullets else [raw.strip()]
 
@@ -292,7 +292,7 @@ class RiskPredictorAgent(BaseAgent):
             f"Market regime: {market_regime.get('regime', 'Unknown')}. "
             f"Downside protection score: {downside_protection.get('score', 0)}."
         )
-        raw = self.hf.generate_text(prompt, max_tokens=260)
+        raw = self.hf.generate_text(prompt, max_tokens=260, agent="risk_predictor")
         bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return bullets if bullets else [raw.strip()]
 
