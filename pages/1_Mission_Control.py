@@ -6,13 +6,15 @@ from config import AGENT_CONFIG
 from utils.charts import (
     pipeline_flow_diagram, business_impact_gauges,
     before_after_comparison, enterprise_stack_layers, tier_comparison_chart,
-    chart_unavailable_message,
+    chart_unavailable_message, apply_chart_theme,
 )
 from utils.streamlit_compat import safe_dataframe
 from utils.monitoring import monitoring_engine
 from utils.ui import (
     hero, section_header, kpi_card, agent_card, pipeline_chips,
     badge, grade_pill, inject_global_css, pwc_header,
+    log_panel, retry_button, drilldown, live_badge, collect_audit_trail,
+    format_relative_time,
 )
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
@@ -40,7 +42,7 @@ hero(
         "9 Agents · Orchestrated",
         "Shared-state pub/sub",
         "BRSR · CSRD · GRI · SASB",
-        "Always-on monitoring",
+        "AI-generated reports, dashboards, and insights",
     ],
 )
 
@@ -53,11 +55,12 @@ orch = st.session_state.orchestrator
 
 
 def render_chart(fig):
-    """Render Plotly charts when available, otherwise show a fallback note."""
+    """Render Plotly charts when available, otherwise show a fallback note.
+    Applies the design-system theme so every chart inherits the PwC palette."""
     if fig is None:
         st.info(chart_unavailable_message())
     else:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(apply_chart_theme(fig), use_container_width=True)
 
 
 def signal_label(value, good_threshold, watch_threshold=None):
@@ -93,20 +96,40 @@ render_chart(fig)
 section_header("Agent Fleet Status",
                "Every agent in the orchestrated pipeline with its most recent run.")
 statuses = orch.get_agent_statuses()
-pipeline_chips(statuses, AGENT_CONFIG)
+fleet_head_l, fleet_head_r = st.columns([5, 1])
+with fleet_head_l:
+    pipeline_chips(statuses, AGENT_CONFIG)
+with fleet_head_r:
+    if any((s.get("status") or "idle").lower() == "running" for s in statuses.values()):
+        live_badge("Live")
 
 cols = st.columns(4)
 for i, (key, config) in enumerate(AGENT_CONFIG.items()):
     agent_status = statuses.get(key, {})
-    last_run = agent_status.get("last_run") or "Never"
     with cols[i % 4]:
         agent_card(
             name=config["name"],
             icon=config["icon"],
             status=agent_status.get("status", "idle"),
-            last_run=last_run,
+            last_run=agent_status.get("last_run") or "Never",
             color=config["color"],
+            runtime_seconds=agent_status.get("runtime_seconds"),
+            last_error=agent_status.get("last_error"),
+            description=config.get("description"),
+            run_count=agent_status.get("run_count"),
         )
+        if (agent_status.get("status") or "").lower() == "error":
+            if retry_button("Retry agent", key=f"retry_{key}"):
+                with st.spinner(f"Retrying {config['name']}…"):
+                    orch.run_single_agent(key)
+                st.rerun()
+
+# ── Activity Log (L2: real timestamps, level + agent filters, search) ──
+audit_rows = collect_audit_trail(getattr(orch, "agents", {}), limit=300)
+if audit_rows:
+    section_header("Activity Log",
+                   "Real-time timeline across every agent — filter by level, agent, or keyword.")
+    log_panel(audit_rows, key="mc_log", height=320)
 
 # ── Real-data status banner ──
 _cm = st.session_state.get("conn_manager")
@@ -126,11 +149,20 @@ else:
     )
 
 # ── Run Pipeline ──
+goal = st.text_input(
+    "Mission Goal",
+    value="Prepare for a CSRD filing in Q3 by assessing ESG readiness, gap closure, and ROI.",
+    help=(
+        "Describe the business objective for this pipeline run. "
+        "The planner will decide which agents to execute and when to stop."
+    ),
+    max_chars=240,
+)
 col1, col2 = st.columns([1, 3])
 with col1:
     run_pipeline = st.button("🚀 Run Full Pipeline", type="primary", use_container_width=True)
 with col2:
-    st.caption("Executes all agents in dependency order with shared state and dependency checks.")
+    st.caption("An LLM plans the next agent(s) to execute based on your goal and the available ESG intelligence modules.")
 
 if run_pipeline:
     progress_bar = st.progress(0)
@@ -160,6 +192,7 @@ if run_pipeline:
         results = orch.run_full_pipeline(
             progress_callback=progress_callback,
             data_collector_kwargs=dc_kwargs or None,
+            user_goal=goal,
         )
         st.session_state.pipeline_results = results
 
@@ -199,6 +232,7 @@ if st.session_state.pipeline_results:
     reg_res = results.get("regulatory_tracker", {})
     action_res = results.get("action_agent", {})
     report_res = results.get("report_generator", {})
+    stakeholder_res = results.get("stakeholder_agent", {})
     kpi_res = roi_res.get("kpi_engine", {})
     fin_summary = kpi_res.get("financial_summary", {})
     cagr = kpi_res.get("cagr", {})
@@ -207,6 +241,14 @@ if st.session_state.pipeline_results:
     with tab_results:
         section_header("Pipeline Results",
                        "Headline metrics from the latest full-pipeline run.")
+
+        planning_steps = results.get("planning", [])
+        if planning_steps:
+            with st.expander("LLM Planning Audit Trail", expanded=False):
+                for idx, step in enumerate(planning_steps, start=1):
+                    agent_text = step.get("agent", "planner")
+                    reason = step.get("reason", "No reason provided.")
+                    st.markdown(f"**{idx}.** {agent_text} — {reason}")
 
         readiness = audit_res.get("readiness_score", {})
         iqs_card = roi_res.get("investment_quality_score", {})
@@ -267,6 +309,78 @@ if st.session_state.pipeline_results:
                 scores = {fw: d["compliance_pct"] for fw, d in reg_res["framework_results"].items()}
                 fig = compliance_radar(scores)
                 render_chart(fig)
+
+        report_recommendations = report_res.get("recommended_reports", []) if report_res else []
+        actionable_insights = report_res.get("actionable_insights", []) if report_res else []
+        dashboard_templates = report_res.get("dashboard_templates", {}) if report_res else {}
+
+        if report_recommendations or actionable_insights or dashboard_templates:
+            section_header("AI-Generated Report Intelligence",
+                           "What the Report Generator produced for this pipeline run.")
+            if report_recommendations:
+                st.markdown("**Recommended Report Pack**")
+                for item in report_recommendations[:5]:
+                    st.markdown(f"- {item}")
+            if actionable_insights:
+                st.markdown("**Key Insights from the Report Generator**")
+                for insight in actionable_insights:
+                    st.markdown(f"- {insight}")
+            if dashboard_templates:
+                with st.expander("Sample BI / Dashboard Templates", expanded=False):
+                    st.markdown(dashboard_templates.get("summary", ""))
+                    if dashboard_templates.get("power_bi"):
+                        st.markdown("##### Power BI Template")
+                        st.markdown(dashboard_templates.get("power_bi"))
+                    if dashboard_templates.get("quicksight"):
+                        st.markdown("##### QuickSight Template")
+                        st.markdown(dashboard_templates.get("quicksight"))
+
+        data_quality_summary = data_res.get("data_quality_summary", [])
+        regulatory_action_plan = reg_res.get("regulatory_action_plan", [])
+        carbon_insights = carbon_res.get("carbon_insights", [])
+        risk_recommendations = risk_res.get("risk_recommendations", [])
+        audit_recommendations = audit_res.get("audit_recommendations", [])
+        roi_recommendations = roi_res.get("roi_recommendations", [])
+        distribution_plan = stakeholder_res.get("distribution_plan", "")
+
+        if (
+            data_quality_summary
+            or regulatory_action_plan
+            or carbon_insights
+            or risk_recommendations
+            or audit_recommendations
+            or roi_recommendations
+            or distribution_plan
+        ):
+            section_header("Agentic Intelligence Summaries",
+                           "Cross-agent recommendations, insights, and operational plans.")
+            if data_quality_summary:
+                st.markdown("**Data Quality Summary**")
+                for item in data_quality_summary[:4]:
+                    st.markdown(f"- {item}")
+            if regulatory_action_plan:
+                st.markdown("**Regulatory Action Plan**")
+                for item in regulatory_action_plan[:4]:
+                    st.markdown(f"- {item}")
+            if carbon_insights:
+                st.markdown("**Carbon Accounting Insights**")
+                for item in carbon_insights[:4]:
+                    st.markdown(f"- {item}")
+            if risk_recommendations:
+                st.markdown("**Risk Recommendations**")
+                for item in risk_recommendations[:4]:
+                    st.markdown(f"- {item}")
+            if audit_recommendations:
+                st.markdown("**Audit Recommendations**")
+                for item in audit_recommendations[:4]:
+                    st.markdown(f"- {item}")
+            if roi_recommendations:
+                st.markdown("**ROI Recommendations**")
+                for item in roi_recommendations[:4]:
+                    st.markdown(f"- {item}")
+            if distribution_plan:
+                st.markdown("**Stakeholder Distribution Plan**")
+                st.markdown(distribution_plan)
 
         # Actions summary
         if action_res and "actions" in action_res:

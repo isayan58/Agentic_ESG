@@ -31,7 +31,7 @@ class ROIAgent(BaseAgent):
             description="Quantifies financial and strategic ROI of ESG initiatives.",
         )
 
-    def execute(self, **kwargs):
+    def execute(self, orchestrator=None, **kwargs):
         self.log("Loading financial and ESG datasets")
         fin_df = get_dataset("financials", load_financials)
         esg_df = get_dataset("esg_metrics", load_esg_metrics)
@@ -65,6 +65,8 @@ class ROIAgent(BaseAgent):
         # --- Narrative ---
         narrative = self._generate_narrative(kpi_results, financial_roi, strategic_roi, iqs)
 
+        roi_recommendations = self._generate_roi_recommendations(kpi_results, financial_roi, strategic_roi, iqs)
+
         results = {
             "kpi_engine": kpi_results,
             "financial_roi": financial_roi,
@@ -73,8 +75,13 @@ class ROIAgent(BaseAgent):
             "investment_quality_score": iqs,
             "peer_benchmarking": peer_benchmarking,
             "narrative": narrative,
+            "roi_recommendations": roi_recommendations,
             "generated_at": datetime.now().isoformat(),
         }
+
+        # --- Post suggestions to the orchestrator's message board ---
+        if orchestrator:
+            self._post_suggestions(orchestrator, financial_roi, strategic_roi, iqs, j_curve)
 
         state_manager.publish("roi_results", results, self.name)
         return results
@@ -529,7 +536,47 @@ class ROIAgent(BaseAgent):
             f"Rating trajectory: {strat_roi['esg_rating_trajectory']}. "
             f"Tone: confident, data-driven, suitable for board presentation."
         )
-        return self.hf.generate_text(prompt)
+        raw = self.hf.generate_text(prompt, agent="roi_agent")
+        bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return bullets if bullets else [raw.strip()]
+
+    def _generate_roi_recommendations(self, kpi_results, financial_roi, strategic_roi, iqs):
+        prompt = (
+            f"You are an ESG ROI strategist. Provide 4 priority recommendations for improving ESG financial and strategic returns. "
+            f"Financial ROI: {financial_roi.get('roi_pct', 0)}%. "
+            f"Total ESG capex: {financial_roi.get('total_esg_capex', 0)}. "
+            f"Net financial benefit: {financial_roi.get('net_financial_benefit', 0)}. "
+            f"Investment Quality Score: {iqs.get('score', 0)}/100. "
+            f"Current cost of capital reduction: {strategic_roi.get('cost_of_capital_reduction_bps', 0)} bps."
+        )
+        raw = self.hf.generate_text(prompt, max_tokens=260, agent="roi_agent")
+        bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return bullets if bullets else [raw.strip()]
+
+    def _post_suggestions(self, orchestrator, financial_roi, strategic_roi, iqs, j_curve):
+        """Post strategic suggestions to orchestrator's message board."""
+        suggestions = []
+
+        # High ROI opportunity
+        if financial_roi.get("roi_pct", 0) > 50:
+            suggestions.append(f"High ROI detected ({financial_roi['roi_pct']}%) — Consider scaling ESG initiatives")
+        
+        # Strong investment quality
+        if iqs.get("score", 0) > 75:
+            suggestions.append(f"Strong IQS ({iqs['score']}/100, {iqs['grade']}) — Ready for stakeholder communication")
+        
+        # J-Curve inflection
+        breakeven = j_curve.get("breakeven_quarter")
+        if breakeven and "Q" in str(breakeven):
+            suggestions.append(f"J-Curve breakeven at {breakeven} — Monitor payback trajectory closely")
+        
+        # Cost of capital benefit
+        if strategic_roi.get("cost_of_capital_reduction_bps", 0) > 50:
+            suggestions.append(f"Significant cost of capital reduction ({strategic_roi['cost_of_capital_reduction_bps']} bps) — Refinancing opportunity")
+        
+        if suggestions:
+            message = f"ROI Agent insights: {'; '.join(suggestions)}"
+            orchestrator.post_message("roi_agent", message)
 
 
 def _parse_number(s: str) -> float:

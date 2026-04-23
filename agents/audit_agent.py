@@ -56,6 +56,10 @@ class AuditAgent(BaseAgent):
             readiness_score, completeness_audit, compliance_checklist
         )
 
+        audit_recommendations = self._generate_audit_recommendations(
+            readiness_score, completeness_audit, compliance_checklist, integrity_gaps
+        )
+
         results = {
             "readiness_score": readiness_score,
             "completeness_audit": completeness_audit,
@@ -64,6 +68,7 @@ class AuditAgent(BaseAgent):
             "integrity_gaps": integrity_gaps,
             "audit_trail": audit_trail,
             "findings_summary": findings_summary,
+            "audit_recommendations": audit_recommendations,
             "issues_count": sum(
                 1 for item in compliance_checklist if item["status"] != "Pass"
             ),
@@ -349,4 +354,17 @@ class AuditAgent(BaseAgent):
             f"Top issues: {'; '.join(f['requirement'] for f in fails[:3]) if fails else 'None critical'}. "
             f"Provide a 3-4 sentence findings summary with key recommendations."
         )
-        return self.hf.summarize(prompt)
+        return self.hf.generate_text(prompt, agent="audit_agent")
+
+    def _generate_audit_recommendations(self, readiness, completeness_audit, compliance_checklist, integrity_gaps):
+        prompt = (
+            f"You are an ESG audit advisor. Based on the audit readiness data, "
+            f"provide 4 concrete recommendations to improve audit readiness and close the top compliance issues. "
+            f"Readiness score: {readiness['overall']}/100. "
+            f"Number of failed compliance checks: {sum(1 for item in compliance_checklist if item['status'] == 'Fail')}. "
+            f"Number of data completeness issues: {sum(1 for item in completeness_audit if item['status'] == 'Missing')}. "
+            f"Integrity gaps count: {len(integrity_gaps.get('gaps', []))}."
+        )
+        raw = self.hf.generate_text(prompt, max_tokens=260, agent="audit_agent")
+        bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return bullets if bullets else [raw.strip()]

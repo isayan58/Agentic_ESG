@@ -1,77 +1,96 @@
 """React-backed UI helpers for ESG CoPilot Streamlit pages.
 
-This module wraps community React component libraries (shadcn, elements,
-extras) behind a stable, minimal API so pages don't have to know which
-library rendered a component. Every helper degrades gracefully to native
-Streamlit primitives when the React library is missing, so the app keeps
-running in constrained environments.
+This module is the **single source of truth** for the product's design
+system. Every page imports from here and never touches Streamlit theming,
+shadcn, or raw CSS directly. That gives us five layers of consistency in
+one place:
 
-Design principles
------------------
-* Pages import *only* from ``utils.ui``; they never touch the underlying
-  libraries. That keeps us free to swap shadcn for another component
-  library later without rewriting every page.
-* Every helper is idempotent on re-run and safe to call inside columns,
-  tabs, and expanders.
-* CSS is injected exactly once per Streamlit session via ``inject_global_css``.
+    L5 — Design system: tokens for spacing, radii, shadows, type, motion.
+    L1 — Interaction states: hover, active, focus-visible, disabled,
+                              loading (aria-busy), error, success.
+    L3 — Responsiveness: laptop / large monitor / small screen breakpoints.
+    L4 — Accessibility: WCAG-AA contrast, keyboard focus rings,
+                        prefers-reduced-motion, semantic ARIA on every
+                        custom HTML helper, skip-link.
+    L2 — Operational realism: log_panel(), retry_button(), drilldown(),
+                              format_relative_time(), live_badge().
+
+Backward compatibility: the public surface (``hero``, ``section_header``,
+``kpi_card``, ``agent_card``, ``badge``, ``grade_pill``, ``pipeline_chips``,
+``iqs_gauge``, ``switch``, ``inject_global_css``, ``pwc_header``,
+``react_feature_status``) is preserved. New parameters are keyword-only
+with sensible defaults, so existing callers don't break.
 """
 from __future__ import annotations
 
 import base64
 import html
+import math
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence
 
 import streamlit as st
 
 # ---------------------------------------------------------------------------
 # Optional React-backed libraries
 # ---------------------------------------------------------------------------
-try:  # shadcn cards, metric cards, badges, hover cards
+try:
     import streamlit_shadcn_ui as sui  # type: ignore
 
     _HAS_SHADCN = True
-except Exception:  # pragma: no cover - fallback path
+except Exception:  # pragma: no cover
     sui = None  # type: ignore
     _HAS_SHADCN = False
 
-try:  # streamlit-extras animated counters, grids, metric-card styling
+try:
     from streamlit_extras.metric_cards import style_metric_cards  # type: ignore
 
     _HAS_EXTRAS = True
-except Exception:  # pragma: no cover - fallback path
+except Exception:  # pragma: no cover
     style_metric_cards = None  # type: ignore
     _HAS_EXTRAS = False
 
 
 # ---------------------------------------------------------------------------
-# Design tokens — kept in Python so they appear in both CSS and Python code
+# L5 — Design tokens (Python copy; mirrored into CSS vars below)
 # ---------------------------------------------------------------------------
 TOKENS = {
-    "brand_primary": "#D04A02",   # PwC orange
+    # Brand palette — PwC orange family
+    "brand_primary": "#D04A02",
     "brand_primary_dark": "#A23A02",
-    "brand_accent": "#E0301E",    # PwC tomato red (secondary accent)
-    "brand_warn": "#FFB600",      # PwC amber
+    "brand_accent": "#E0301E",
+    "brand_warn": "#FFB600",
     "brand_danger": "#C8102E",
     "brand_success": "#2E8540",
+    "brand_info": "#2563eb",
+
+    # Surfaces (warm cream → white)
     "surface": "#ffffff",
-    "surface_muted": "#fff6ef",   # warm cream
+    "surface_muted": "#fff6ef",
     "surface_raised": "#ffffff",
-    "border": "#f1d9c4",          # warm border
-    "text": "#1a202c",
-    "text_muted": "#6b7280",
+    "surface_sunken": "#fbf3eb",
+    "border": "#f1d9c4",
+    "border_strong": "#e3bfa1",
+
+    # Text — meets WCAG-AA on white
+    "text": "#0f172a",            # 17.4:1 on white
+    "text_secondary": "#334155",  # 9.8:1
+    "text_muted": "#5b6473",      # 6.7:1 (was 6b7280 / 4.6:1 — lifted for AA)
+    "text_disabled": "#94a3b8",
 }
 
 _STATUS_COLORS = {
-    "idle": "#94a3b8",
+    "idle": "#64748b",
     "running": TOKENS["brand_accent"],
     "completed": TOKENS["brand_success"],
     "error": TOKENS["brand_danger"],
     "skipped": TOKENS["brand_warn"],
+    "warning": TOKENS["brand_warn"],
 }
 
 _GRADE_COLORS = {
-    "A+": "#059669", "A": "#059669", "A-": "#10b981",
+    "A+": "#047857", "A": "#059669", "A-": "#10b981",
     "B+": "#22c55e", "B": "#84cc16", "B-": "#a3e635",
     "C+": "#eab308", "C": "#f59e0b", "C-": "#f97316",
     "D": "#dc2626", "F": "#991b1b",
@@ -79,23 +98,8 @@ _GRADE_COLORS = {
 
 
 # ---------------------------------------------------------------------------
-# Global CSS injection (the design-system layer)
+# CSS payload — token block (f-string) + static rules (plain string)
 # ---------------------------------------------------------------------------
-# Font + icon stylesheets injected via st.markdown so they land in the
-# page's main DOM. We previously injected Material Symbols via a 0-height
-# components.html() iframe writing into window.parent.document.head — that
-# fails silently on HuggingFace Spaces because the component iframe is
-# sandboxed cross-origin (the SecurityError on
-# ``window.parent.document.head`` is swallowed by the try/catch), leaving
-# icon ligatures rendering as raw text ("upload",
-# "keyboard_double_arrow_left"). Modern browsers accept ``<link rel="stylesheet">``
-# anywhere in the document and implicitly reparent it to <head>, so the
-# simpler markdown path works both locally and on HF Spaces.
-#
-# We also load every icon-font variant Streamlit's built-in widgets reach
-# for (Material Symbols Rounded for 1.30+, Material Symbols Outlined for
-# some sidebar widgets, and the legacy Material Icons family for
-# pre-1.28 components) so no widget renders its ligature name as raw text.
 _FONT_LINK = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -106,405 +110,546 @@ _FONT_LINK = """
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 """
 
-_GLOBAL_CSS = f"""
+_TOKEN_CSS = f"""
 <style>
-    /* ---- Product typography system ---------------------------------- */
-    :root {{
-        --font-body: 'Inter', -apple-system, 'SF Pro Text', 'Segoe UI',
-                     Roboto, 'Helvetica Neue', Arial, sans-serif;
-        --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system,
-                        'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-        --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
-        --pwc-orange: {TOKENS['brand_primary']};
-        --pwc-orange-dark: {TOKENS['brand_primary_dark']};
-        --pwc-tomato: {TOKENS['brand_accent']};
-        --pwc-amber: {TOKENS['brand_warn']};
-    }}
+:root {{
+    /* Type ----------------------------------------------------------- */
+    --font-body: 'Inter', -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system, 'SF Pro Display', sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
+    --text-xs: 0.72rem;
+    --text-sm: 0.82rem;
+    --text-base: 0.94rem;
+    --text-md: 1.02rem;
+    --text-lg: 1.18rem;
+    --text-xl: 1.45rem;
+    --text-2xl: 1.85rem;
+    --text-3xl: 2.35rem;
+    --lh-tight: 1.15;
+    --lh-snug: 1.35;
+    --lh-normal: 1.55;
+    --lh-relaxed: 1.7;
 
-    /* ---- PwC-themed body gradient (orange tinge → white) ----------- */
-    .stApp {{
-        background:
-            linear-gradient(180deg,
-                rgba(208, 74, 2, 0.13) 0%,
-                rgba(255, 182, 0, 0.06) 14%,
-                rgba(255, 255, 255, 1) 38%,
-                rgba(255, 255, 255, 1) 100%) !important;
-        background-attachment: fixed !important;
-    }}
-    [data-testid="stAppViewContainer"] {{ background: transparent !important; }}
-    [data-testid="stHeader"] {{
-        background: transparent !important;
-        backdrop-filter: blur(6px);
-    }}
-    [data-testid="stSidebar"] > div:first-child {{
-        background: linear-gradient(180deg, #fff6ef 0%, #ffffff 80%) !important;
-        border-right: 1px solid {TOKENS['border']};
-    }}
+    /* Spacing (4-pt grid) -------------------------------------------- */
+    --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-7: 32px; --space-8: 40px;
+    --space-9: 56px; --space-10: 72px;
 
-    /* ---- Body typography ------------------------------------------------
-       SCOPING NOTE — DO NOT add ``[class*="st-"]`` back here. It matches
-       every ``st-emotion-cache-*`` span, which includes Streamlit's
-       built-in icon spans. Two compounding bugs result:
+    /* Radii ---------------------------------------------------------- */
+    --radius-xs: 4px;  --radius-sm: 6px; --radius-md: 10px;
+    --radius-lg: 14px; --radius-xl: 20px; --radius-pill: 999px;
 
-       1. Streamlit sets the icon font via inline ``style=``; class CSS
-          loses to it without !important — *but* the visible icons we
-          care about (file uploader "upload", sidebar
-          "keyboard_double_arrow_left", etc.) instead render as raw
-          text because…
-       2. Setting an explicit ``font-feature-settings`` value disables
-          *every* feature not explicitly listed, including ``'liga'`` —
-          the ligature feature that converts "upload" → 📤. So even
-          when the icon font loads, the text stays visible.
+    /* Elevation (5 tiers) -------------------------------------------- */
+    --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+    --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.12), 0 4px 10px rgba(15, 23, 42, 0.06);
+    --shadow-xl: 0 24px 48px rgba(15, 23, 42, 0.16), 0 8px 16px rgba(15, 23, 42, 0.08);
+    --shadow-brand: 0 8px 22px rgba(208, 74, 2, 0.20);
+    --ring-focus: 0 0 0 3px rgba(208, 74, 2, 0.35);
+    --ring-focus-info: 0 0 0 3px rgba(37, 99, 235, 0.35);
 
-       We therefore scope body typography to specific Streamlit
-       containers (markdown, text, caption, buttons, app shell) and
-       leave icon spans untouched. The ``font-feature-settings`` rule
-       below also explicitly enables ``'liga'`` so the OpenType
-       contextual alternates we want (cv11, ss01, etc.) co-exist with
-       ligatures. */
-    html, body, .stApp,
-    .stMarkdown, .stText, .stCaption,
-    [data-testid="stMarkdownContainer"],
-    [data-testid="stMarkdown"],
-    .stButton > button,
-    .stTextInput input, .stTextArea textarea,
-    .stSelectbox div[data-baseweb="select"] {{
-        font-family: var(--font-body);
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-        font-feature-settings: 'liga' 1, 'cv11' 1, 'ss01' 1, 'ss03' 1, 'cv03' 1;
-    }}
+    /* Motion --------------------------------------------------------- */
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-slow: 280ms;
+    --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --ease-decel: cubic-bezier(0, 0, 0.2, 1);
+    --ease-accel: cubic-bezier(0.4, 0, 1, 1);
 
-    /* ---- Material Symbols / Icons — ensure ligatures render, not text ----
-       Streamlit ships its own Material Symbols font internally and uses
-       ligatures (``<span>upload</span>`` → 📤). Three things must hold
-       for the substitution to happen:
-         (a) the icon font is actually loaded (we link all three variants
-             via ``_FONT_LINK`` for redundancy with Streamlit's bundled copy),
-         (b) the span uses that font (Streamlit sets it inline; our
-             !important rules win on class-matched spans regardless),
-         (c) ligatures are enabled (``font-feature-settings: 'liga' 1``).
+    /* Z-index -------------------------------------------------------- */
+    --z-base: 1; --z-raised: 10; --z-overlay: 100; --z-popover: 1000;
+    --z-modal: 2000; --z-tooltip: 3000;
 
-       Each rule below uses ``!important`` so no parent typography rule
-       (ours or Streamlit's) can break the substitution. */
-    .material-symbols-rounded,
-    .material-symbols-outlined,
-    .material-symbols-sharp,
-    .material-icons,
-    [class*="material-symbols"],
-    [class*="material-icons"] {{
-        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
-        font-feature-settings: 'liga' 1 !important;
-        font-variant-ligatures: common-ligatures contextual !important;
-        font-style: normal !important;
-        font-weight: normal !important;
-        line-height: 1 !important;
-        letter-spacing: normal !important;
-        text-transform: none !important;
-        display: inline-block !important;
-        white-space: nowrap !important;
-        direction: ltr !important;
-        word-spacing: normal !important;
-        -webkit-font-smoothing: antialiased !important;
-    }}
-    .material-symbols-rounded   {{ font-family: 'Material Symbols Rounded' !important; }}
-    .material-symbols-outlined  {{ font-family: 'Material Symbols Outlined' !important; }}
-    .material-symbols-sharp     {{ font-family: 'Material Symbols Sharp' !important; }}
-    .material-icons             {{ font-family: 'Material Icons' !important; }}
-    h1, h2, h3, h4, h5 {{
-        font-family: var(--font-display);
-        letter-spacing: -0.018em;
-        color: {TOKENS['text']};
-    }}
-    h1 {{ font-weight: 800; line-height: 1.05; }}
-    h2 {{ font-weight: 700; line-height: 1.15; }}
-    h3 {{ font-weight: 700; line-height: 1.2; }}
-    h4 {{ font-weight: 600; line-height: 1.25; }}
-    code, pre, kbd {{ font-family: var(--font-mono); }}
+    /* Brand ---------------------------------------------------------- */
+    --pwc-orange: {TOKENS['brand_primary']};
+    --pwc-orange-dark: {TOKENS['brand_primary_dark']};
+    --pwc-tomato: {TOKENS['brand_accent']};
+    --pwc-amber: {TOKENS['brand_warn']};
+    --pwc-danger: {TOKENS['brand_danger']};
+    --pwc-success: {TOKENS['brand_success']};
+    --pwc-info: {TOKENS['brand_info']};
 
-    p, li, .stMarkdown p {{
-        color: #374151;
-        line-height: 1.62;
-    }}
+    /* Surfaces / text ------------------------------------------------ */
+    --surface: {TOKENS['surface']};
+    --surface-muted: {TOKENS['surface_muted']};
+    --surface-raised: {TOKENS['surface_raised']};
+    --surface-sunken: {TOKENS['surface_sunken']};
+    --border: {TOKENS['border']};
+    --border-strong: {TOKENS['border_strong']};
+    --text: {TOKENS['text']};
+    --text-secondary: {TOKENS['text_secondary']};
+    --text-muted: {TOKENS['text_muted']};
+    --text-disabled: {TOKENS['text_disabled']};
 
-    /* ---- Layout container ------------------------------------------- */
-    section.main > div.block-container {{
-        padding-top: 1.75rem;
-        padding-bottom: 4rem;
-        max-width: 1380px;
-    }}
-    @media (min-width: 1500px) {{
-        section.main > div.block-container {{ max-width: 1440px; }}
-    }}
-
-    /* Native st.metric refinement */
-    [data-testid="stMetric"] {{
-        background: {TOKENS['surface_raised']};
-        border: 1px solid {TOKENS['border']};
-        border-radius: 12px;
-        padding: 1rem 1.25rem;
-        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
-        transition: box-shadow 120ms ease, transform 120ms ease;
-    }}
-    [data-testid="stMetric"]:hover {{
-        box-shadow: 0 6px 16px rgba(16, 24, 40, 0.08);
-        transform: translateY(-1px);
-    }}
-    [data-testid="stMetricLabel"] {{
-        font-weight: 600;
-        color: {TOKENS['text_muted']};
-        text-transform: uppercase;
-        font-size: 0.72rem;
-        letter-spacing: 0.04em;
-    }}
-    [data-testid="stMetricValue"] {{
-        font-weight: 700;
-        color: {TOKENS['text']};
-        font-size: 1.6rem;
-    }}
-
-    /* Primary button — PwC orange gradient */
-    div.stButton > button[kind="primary"] {{
-        background: linear-gradient(135deg, {TOKENS['brand_primary']} 0%,
-                                              {TOKENS['brand_accent']} 100%);
-        border: none;
-        color: white;
-        font-weight: 600;
-        box-shadow: 0 4px 12px rgba(208, 74, 2, 0.30);
-        transition: transform 120ms ease, box-shadow 120ms ease;
-    }}
-    div.stButton > button[kind="primary"]:hover {{
-        transform: translateY(-1px);
-        box-shadow: 0 6px 18px rgba(208, 74, 2, 0.40);
-    }}
-
-    /* Tab styling — shadcn-like pill tabs */
-    div[data-baseweb="tab-list"] {{
-        gap: 4px;
-        border-bottom: 1px solid {TOKENS['border']};
-    }}
-    button[data-baseweb="tab"] {{
-        border-radius: 8px 8px 0 0 !important;
-        padding: 0.6rem 1rem !important;
-        font-weight: 500;
-    }}
-    button[data-baseweb="tab"][aria-selected="true"] {{
-        background: {TOKENS['surface_muted']} !important;
-        color: {TOKENS['brand_primary']} !important;
-        font-weight: 600 !important;
-    }}
-
-    /* Dataframe border + rounded corners */
-    [data-testid="stDataFrame"] {{
-        border: 1px solid {TOKENS['border']};
-        border-radius: 10px;
-        overflow: hidden;
-    }}
-
-    /* Custom component classes used by helpers below */
-    .esg-hero {{
-        position: relative;
-        background:
-            radial-gradient(1200px 400px at 0% 0%, rgba(208, 74, 2, 0.14), transparent 60%),
-            radial-gradient(1000px 380px at 100% 0%, rgba(255, 182, 0, 0.14), transparent 60%),
-            linear-gradient(180deg, #fffaf4 0%, #ffffff 100%);
-        border: 1px solid {TOKENS['border']};
-        border-radius: 20px;
-        padding: 2.4rem 2.5rem 2.2rem 2.5rem;
-        margin-bottom: 1.75rem;
-        overflow: hidden;
-        box-shadow:
-            0 1px 2px rgba(15, 23, 42, 0.04),
-            0 12px 32px rgba(208, 74, 2, 0.07);
-    }}
-    .esg-hero::before {{
-        content: "";
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        background:
-            linear-gradient(to right, rgba(208, 74, 2, 0.0) 92%, rgba(208, 74, 2, 0.08) 100%),
-            linear-gradient(to left,  rgba(255, 182, 0, 0.0) 92%, rgba(255, 182, 0, 0.08) 100%);
-    }}
-    .esg-hero h1 {{
-        margin: 0 0 0.5rem 0;
-        font-size: 2.35rem;
-        background: linear-gradient(135deg, {TOKENS['brand_primary']} 0%, {TOKENS['brand_accent']} 55%, {TOKENS['brand_warn']} 100%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }}
-    .esg-hero p.esg-subtitle {{
-        margin: 0.1rem 0 0 0;
-        font-size: 1.08rem;
-        color: #475569;
-        line-height: 1.6;
-        max-width: 920px;
-    }}
-    .esg-hero .esg-eyebrow {{
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        padding: 0.28rem 0.75rem;
-        border-radius: 999px;
-        background: rgba(208, 74, 2, 0.10);
-        border: 1px solid rgba(208, 74, 2, 0.28);
-        color: {TOKENS['brand_primary_dark']};
-        font-size: 0.78rem;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-        text-transform: uppercase;
-        margin-bottom: 0.9rem;
-    }}
-    .esg-hero .esg-eyebrow .esg-eyebrow-dot {{
-        width: 6px; height: 6px; border-radius: 50%;
-        background: {TOKENS['brand_primary']};
-        box-shadow: 0 0 0 3px rgba(208, 74, 2, 0.20);
-    }}
-
-    /* ---- PwC logo header bar (used by pwc_header()) ---------------- */
-    .pwc-header {{
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0.5rem 0 1.0rem 0;
-        margin-bottom: 0.4rem;
-        border-bottom: 1px solid rgba(208, 74, 2, 0.18);
-    }}
-    .pwc-header .pwc-header-brand {{
-        display: flex;
-        align-items: center;
-        gap: 0.85rem;
-    }}
-    .pwc-header img.pwc-logo {{
-        height: 44px;
-        width: auto;
-        display: block;
-    }}
-    .pwc-header .pwc-header-text {{
-        display: flex;
-        flex-direction: column;
-        line-height: 1.1;
-    }}
-    .pwc-header .pwc-header-title {{
-        font-family: var(--font-display);
-        font-weight: 700;
-        font-size: 0.98rem;
-        color: {TOKENS['text']};
-        letter-spacing: -0.01em;
-    }}
-    .pwc-header .pwc-header-sub {{
-        font-size: 0.74rem;
-        color: {TOKENS['text_muted']};
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        margin-top: 2px;
-    }}
-    .pwc-header .pwc-accent-bar {{
-        height: 4px;
-        width: 64px;
-        border-radius: 999px;
-        background: linear-gradient(90deg, {TOKENS['brand_primary']} 0%,
-                                              {TOKENS['brand_accent']} 55%,
-                                              {TOKENS['brand_warn']} 100%);
-        box-shadow: 0 1px 4px rgba(208, 74, 2, 0.30);
-    }}
-    .esg-chip-row {{
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        margin-top: 1rem;
-    }}
-    .esg-chip {{
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        padding: 0.25rem 0.7rem;
-        border-radius: 999px;
-        background: {TOKENS['surface']};
-        border: 1px solid {TOKENS['border']};
-        font-size: 0.82rem;
-        font-weight: 500;
-        color: {TOKENS['text']};
-    }}
-    .esg-chip.status-running  {{ border-color: {_STATUS_COLORS['running']};  color: {_STATUS_COLORS['running']}; }}
-    .esg-chip.status-completed{{ border-color: {_STATUS_COLORS['completed']};color: {_STATUS_COLORS['completed']}; }}
-    .esg-chip.status-error    {{ border-color: {_STATUS_COLORS['error']};    color: {_STATUS_COLORS['error']}; }}
-    .esg-chip.status-idle     {{ border-color: {_STATUS_COLORS['idle']};     color: {_STATUS_COLORS['idle']}; }}
-
-    .esg-section {{
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        margin: 2rem 0 0.75rem 0;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid {TOKENS['border']};
-    }}
-    .esg-section .esg-section-title {{
-        font-size: 1.15rem;
-        font-weight: 650;
-        color: {TOKENS['text']};
-    }}
-    .esg-section .esg-section-caption {{
-        font-size: 0.88rem;
-        color: {TOKENS['text_muted']};
-    }}
-
-    .esg-grade-pill {{
-        display: inline-flex;
-        align-items: center;
-        padding: 0.2rem 0.6rem;
-        border-radius: 6px;
-        font-weight: 700;
-        font-size: 0.92rem;
-        color: white;
-    }}
-
-    .esg-agent-card {{
-        background: {TOKENS['surface_raised']};
-        border: 1px solid {TOKENS['border']};
-        border-left-width: 4px;
-        border-radius: 12px;
-        padding: 1rem 1.1rem;
-        height: 100%;
-        transition: box-shadow 140ms ease, transform 140ms ease;
-    }}
-    .esg-agent-card:hover {{
-        box-shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
-        transform: translateY(-2px);
-    }}
-    .esg-agent-card .esg-agent-title {{
-        font-weight: 600;
-        font-size: 0.95rem;
-    }}
-    .esg-agent-card .esg-agent-meta {{
-        font-size: 0.78rem;
-        color: {TOKENS['text_muted']};
-        margin-top: 0.3rem;
-    }}
+    /* Status --------------------------------------------------------- */
+    --status-idle: {_STATUS_COLORS['idle']};
+    --status-running: {_STATUS_COLORS['running']};
+    --status-completed: {_STATUS_COLORS['completed']};
+    --status-error: {_STATUS_COLORS['error']};
+    --status-warning: {_STATUS_COLORS['warning']};
+}}
 </style>
 """
 
+# ---------------------------------------------------------------------------
+# Static CSS — references the tokens above via var(--…)
+# ---------------------------------------------------------------------------
+_STATIC_CSS = """
+<style>
+/* L4 accessibility: skip link + reduced motion ------------------------ */
+.esg-skip-link {
+    position: absolute; left: -999px; top: 0;
+    background: var(--pwc-orange); color: #fff;
+    padding: var(--space-3) var(--space-5);
+    border-radius: 0 0 var(--radius-md) 0;
+    z-index: var(--z-tooltip);
+    font-weight: 600;
+    transition: left var(--dur-base) var(--ease-standard);
+}
+.esg-skip-link:focus { left: 0; outline: none; }
 
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* App shell ----------------------------------------------------------- */
+.stApp {
+    background:
+        radial-gradient(900px 280px at 0% 0%,    rgba(208, 74, 2, 0.10), transparent 70%),
+        radial-gradient(900px 280px at 100% 0%,  rgba(255, 182, 0, 0.08), transparent 70%),
+        linear-gradient(180deg, #fffaf4 0%, #ffffff 32%, #ffffff 100%) !important;
+    background-attachment: fixed !important;
+}
+[data-testid="stAppViewContainer"] { background: transparent !important; }
+[data-testid="stHeader"] { background: transparent !important; backdrop-filter: blur(8px); }
+[data-testid="stSidebar"] > div:first-child {
+    background: linear-gradient(180deg, var(--surface-muted) 0%, #ffffff 80%) !important;
+    border-right: 1px solid var(--border);
+}
+
+/* Typography ---------------------------------------------------------- */
+html, body, .stApp,
+.stMarkdown, .stText, .stCaption,
+[data-testid="stMarkdownContainer"], [data-testid="stMarkdown"],
+.stButton > button,
+.stTextInput input, .stTextArea textarea,
+.stSelectbox div[data-baseweb="select"] {
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'liga' 1, 'cv11' 1, 'ss01' 1, 'ss03' 1, 'cv03' 1;
+}
+
+/* Material icons — MUST stay below scope (do not collapse into block above) */
+.material-symbols-rounded, .material-symbols-outlined,
+.material-symbols-sharp, .material-icons,
+[class*="material-symbols"], [class*="material-icons"] {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
+    font-feature-settings: 'liga' 1 !important;
+    font-variant-ligatures: common-ligatures contextual !important;
+    font-style: normal !important; font-weight: normal !important;
+    line-height: 1 !important; letter-spacing: normal !important;
+    text-transform: none !important; display: inline-block !important;
+    white-space: nowrap !important; direction: ltr !important;
+    word-spacing: normal !important; -webkit-font-smoothing: antialiased !important;
+}
+.material-symbols-rounded   { font-family: 'Material Symbols Rounded'  !important; }
+.material-symbols-outlined  { font-family: 'Material Symbols Outlined' !important; }
+.material-symbols-sharp     { font-family: 'Material Symbols Sharp'    !important; }
+.material-icons             { font-family: 'Material Icons'            !important; }
+
+h1, h2, h3, h4, h5 { font-family: var(--font-display); letter-spacing: -0.018em; color: var(--text); }
+h1 { font-weight: 800; line-height: var(--lh-tight); }
+h2 { font-weight: 700; line-height: var(--lh-snug); }
+h3 { font-weight: 700; line-height: var(--lh-snug); }
+h4 { font-weight: 600; line-height: var(--lh-snug); }
+code, pre, kbd { font-family: var(--font-mono); }
+p, li, .stMarkdown p { color: var(--text-secondary); line-height: var(--lh-relaxed); }
+
+/* Layout container — responsive ---------------------------------------- */
+section.main > div.block-container {
+    padding-top: var(--space-6);
+    padding-bottom: var(--space-10);
+    max-width: 1380px;
+}
+@media (min-width: 1600px) { section.main > div.block-container { max-width: 1520px; } }
+@media (max-width: 1024px) {
+    section.main > div.block-container {
+        padding-left: var(--space-4); padding-right: var(--space-4);
+    }
+}
+@media (max-width: 768px) {
+    section.main > div.block-container { padding-top: var(--space-4); }
+    h1 { font-size: var(--text-2xl); }
+}
+
+/* L1: Universal focus ring (keyboard accessibility) ------------------- */
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible, textarea:focus-visible, select:focus-visible,
+.esg-agent-card:focus-visible, .esg-chip:focus-visible {
+    outline: none;
+    box-shadow: var(--ring-focus) !important;
+    border-radius: var(--radius-md);
+}
+
+/* st.metric refinement ------------------------------------------------ */
+[data-testid="stMetric"] {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-5);
+    box-shadow: var(--shadow-xs);
+    transition: box-shadow var(--dur-base) var(--ease-standard),
+                transform var(--dur-base) var(--ease-standard);
+}
+[data-testid="stMetric"]:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+[data-testid="stMetricLabel"] {
+    font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; font-size: var(--text-xs); letter-spacing: 0.05em;
+}
+[data-testid="stMetricValue"] {
+    font-weight: 700; color: var(--text); font-size: var(--text-xl);
+    font-family: var(--font-display);
+}
+
+/* Buttons ------------------------------------------------------------- */
+div.stButton > button {
+    transition: transform var(--dur-fast) var(--ease-standard),
+                box-shadow var(--dur-fast) var(--ease-standard),
+                background var(--dur-fast) var(--ease-standard);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+}
+div.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--pwc-orange) 0%, var(--pwc-tomato) 100%);
+    border: none; color: #fff;
+    box-shadow: var(--shadow-brand);
+}
+div.stButton > button[kind="primary"]:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 26px rgba(208, 74, 2, 0.42);
+}
+div.stButton > button[kind="primary"]:active:not(:disabled) {
+    transform: translateY(0); box-shadow: var(--shadow-sm);
+}
+div.stButton > button[kind="secondary"] {
+    background: var(--surface); border: 1px solid var(--border-strong); color: var(--text);
+}
+div.stButton > button[kind="secondary"]:hover:not(:disabled) {
+    background: var(--surface-muted); border-color: var(--pwc-orange);
+}
+div.stButton > button:disabled,
+div.stButton > button[disabled] {
+    opacity: 0.55; cursor: not-allowed;
+    box-shadow: none !important; transform: none !important;
+    filter: grayscale(0.4);
+}
+div.stButton > button[aria-busy="true"] {
+    cursor: progress; opacity: 0.85;
+}
+
+/* Inputs -------------------------------------------------------------- */
+.stTextInput input, .stTextArea textarea, .stNumberInput input {
+    border-radius: var(--radius-md) !important;
+    border: 1px solid var(--border) !important;
+    transition: border-color var(--dur-fast) var(--ease-standard),
+                box-shadow var(--dur-fast) var(--ease-standard);
+}
+.stTextInput input:hover, .stTextArea textarea:hover { border-color: var(--border-strong) !important; }
+.stTextInput input:focus, .stTextArea textarea:focus, .stNumberInput input:focus {
+    border-color: var(--pwc-orange) !important;
+    box-shadow: var(--ring-focus) !important;
+}
+
+/* Tabs (shadcn-pill) -------------------------------------------------- */
+div[data-baseweb="tab-list"] { gap: var(--space-1); border-bottom: 1px solid var(--border); }
+button[data-baseweb="tab"] {
+    border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+    padding: var(--space-3) var(--space-4) !important;
+    font-weight: 500;
+    transition: background var(--dur-fast) var(--ease-standard);
+}
+button[data-baseweb="tab"]:hover { background: var(--surface-muted) !important; }
+button[data-baseweb="tab"][aria-selected="true"] {
+    background: var(--surface-muted) !important;
+    color: var(--pwc-orange) !important;
+    font-weight: 600 !important;
+    box-shadow: inset 0 -2px 0 var(--pwc-orange);
+}
+
+/* Dataframe ----------------------------------------------------------- */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;
+    box-shadow: var(--shadow-xs);
+}
+
+/* Hero (esg-hero) ----------------------------------------------------- */
+.esg-hero {
+    position: relative;
+    background:
+        radial-gradient(1200px 380px at 0% 0%, rgba(208, 74, 2, 0.16), transparent 60%),
+        radial-gradient(1000px 360px at 100% 0%, rgba(255, 182, 0, 0.14), transparent 60%),
+        linear-gradient(180deg, #fffaf4 0%, #ffffff 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-8) var(--space-8) var(--space-7);
+    margin-bottom: var(--space-6);
+    overflow: hidden;
+    box-shadow: var(--shadow-xs), 0 12px 32px rgba(208, 74, 2, 0.07);
+}
+.esg-hero::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background:
+        linear-gradient(to right, rgba(208, 74, 2, 0) 90%, rgba(208, 74, 2, 0.08) 100%),
+        linear-gradient(to left,  rgba(255, 182, 0, 0) 90%, rgba(255, 182, 0, 0.08) 100%);
+}
+.esg-hero h1 {
+    margin: 0 0 var(--space-2) 0;
+    font-size: var(--text-3xl);
+    background: linear-gradient(135deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.esg-hero p.esg-subtitle {
+    margin: 2px 0 0 0; font-size: var(--text-md);
+    color: var(--text-secondary); line-height: var(--lh-relaxed); max-width: 920px;
+}
+.esg-hero .esg-eyebrow {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: 4px var(--space-3); border-radius: var(--radius-pill);
+    background: rgba(208, 74, 2, 0.10);
+    border: 1px solid rgba(208, 74, 2, 0.28);
+    color: var(--pwc-orange-dark);
+    font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; margin-bottom: var(--space-3);
+}
+.esg-hero .esg-eyebrow-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--pwc-orange);
+    box-shadow: 0 0 0 3px rgba(208, 74, 2, 0.20);
+    animation: esg-pulse 2.4s var(--ease-standard) infinite;
+}
+@media (max-width: 768px) {
+    .esg-hero { padding: var(--space-6) var(--space-5); border-radius: var(--radius-lg); }
+    .esg-hero h1 { font-size: var(--text-2xl); }
+}
+
+/* PwC header bar ------------------------------------------------------ */
+.pwc-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--space-2) 0 var(--space-3) 0;
+    margin-bottom: var(--space-2);
+    border-bottom: 1px solid rgba(208, 74, 2, 0.18);
+}
+.pwc-header .pwc-header-brand { display: flex; align-items: center; gap: var(--space-3); }
+.pwc-header img.pwc-logo { height: 44px; width: auto; display: block; }
+.pwc-header .pwc-header-text { display: flex; flex-direction: column; line-height: 1.1; }
+.pwc-header .pwc-header-title {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: var(--text-base); color: var(--text); letter-spacing: -0.01em;
+}
+.pwc-header .pwc-header-sub {
+    font-size: var(--text-xs); color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px;
+}
+.pwc-header .pwc-accent-bar {
+    height: 4px; width: 64px; border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 100%);
+    box-shadow: 0 1px 4px rgba(208, 74, 2, 0.30);
+}
+
+/* Chips (status, info) ------------------------------------------------ */
+.esg-chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.esg-chip {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: 4px var(--space-3); border-radius: var(--radius-pill);
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: var(--text-sm); font-weight: 500; color: var(--text);
+    transition: transform var(--dur-fast) var(--ease-standard),
+                box-shadow var(--dur-fast) var(--ease-standard);
+}
+.esg-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow-xs); }
+.esg-chip.status-running   { border-color: var(--status-running);   color: var(--status-running); background: rgba(224, 48, 30, 0.06); }
+.esg-chip.status-completed { border-color: var(--status-completed); color: var(--status-completed); background: rgba(46, 133, 64, 0.06); }
+.esg-chip.status-error     { border-color: var(--status-error);     color: var(--status-error); background: rgba(200, 16, 46, 0.06); }
+.esg-chip.status-warning,
+.esg-chip.status-skipped   { border-color: var(--status-warning);   color: #8a5b00; background: rgba(255, 182, 0, 0.10); }
+.esg-chip.status-idle      { border-color: var(--status-idle);      color: var(--status-idle); }
+
+/* Section header ------------------------------------------------------ */
+.esg-section {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: var(--space-4);
+    margin: var(--space-7) 0 var(--space-3) 0;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border);
+}
+.esg-section .esg-section-title { font-size: var(--text-lg); font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.esg-section .esg-section-caption { font-size: var(--text-sm); color: var(--text-muted); }
+@media (max-width: 768px) { .esg-section { flex-direction: column; align-items: flex-start; gap: var(--space-1); } }
+
+/* Grade pill ---------------------------------------------------------- */
+.esg-grade-pill {
+    display: inline-flex; align-items: center;
+    padding: 3px var(--space-3); border-radius: var(--radius-sm);
+    font-weight: 700; font-size: var(--text-base); color: #fff;
+    box-shadow: var(--shadow-xs);
+}
+
+/* Status dot — pulses while running ----------------------------------- */
+.esg-status-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    display: inline-block; vertical-align: middle;
+    background: var(--status-idle);
+}
+.esg-status-dot.status-running {
+    background: var(--status-running);
+    animation: esg-pulse 1.6s var(--ease-standard) infinite;
+}
+.esg-status-dot.status-completed { background: var(--status-completed); }
+.esg-status-dot.status-error     { background: var(--status-error); }
+.esg-status-dot.status-warning,
+.esg-status-dot.status-skipped   { background: var(--status-warning); }
+@keyframes esg-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(224, 48, 30, 0.55); }
+    70%  { box-shadow: 0 0 0 8px rgba(224, 48, 30, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(224, 48, 30, 0); }
+}
+
+/* Agent card ---------------------------------------------------------- */
+.esg-agent-card {
+    background: var(--surface-raised);
+    border: 1px solid var(--border); border-left-width: 4px;
+    border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-4) var(--space-3);
+    height: 100%;
+    display: flex; flex-direction: column; gap: var(--space-2);
+    transition: box-shadow var(--dur-base) var(--ease-standard),
+                transform var(--dur-base) var(--ease-standard),
+                border-color var(--dur-base) var(--ease-standard);
+}
+.esg-agent-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+.esg-agent-card.status-running {
+    border-color: var(--status-running);
+    background: linear-gradient(180deg, rgba(224, 48, 30, 0.04), var(--surface-raised) 60%);
+}
+.esg-agent-card.status-error {
+    border-color: var(--status-error);
+    background: linear-gradient(180deg, rgba(200, 16, 46, 0.05), var(--surface-raised) 60%);
+}
+.esg-agent-card.status-completed {
+    background: linear-gradient(180deg, rgba(46, 133, 64, 0.04), var(--surface-raised) 60%);
+}
+.esg-agent-card .esg-agent-head {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+}
+.esg-agent-card .esg-agent-title {
+    font-weight: 600; font-size: var(--text-base);
+    display: flex; align-items: center; gap: var(--space-2);
+    color: var(--text);
+}
+.esg-agent-card .esg-agent-status {
+    font-size: var(--text-xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    display: inline-flex; align-items: center; gap: 6px;
+}
+.esg-agent-card .esg-agent-meta {
+    font-size: var(--text-xs); color: var(--text-muted);
+    display: flex; flex-wrap: wrap; gap: var(--space-3);
+}
+.esg-agent-card .esg-agent-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.esg-agent-card .esg-agent-error {
+    font-size: var(--text-xs); color: var(--status-error);
+    background: rgba(200, 16, 46, 0.06);
+    border: 1px solid rgba(200, 16, 46, 0.18);
+    border-radius: var(--radius-sm);
+    padding: 6px var(--space-2);
+    font-family: var(--font-mono);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* KPI delta indicator ------------------------------------------------- */
+.esg-kpi-delta {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: var(--text-xs); font-weight: 600;
+    padding: 2px var(--space-2); border-radius: var(--radius-sm);
+}
+.esg-kpi-delta.positive { color: var(--pwc-success); background: rgba(46, 133, 64, 0.10); }
+.esg-kpi-delta.negative { color: var(--pwc-danger);  background: rgba(200, 16, 46, 0.10); }
+.esg-kpi-delta.neutral  { color: var(--text-muted);  background: rgba(91, 100, 115, 0.10); }
+
+/* Live badge — animated dot for streaming surfaces -------------------- */
+.esg-live-badge {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: 4px var(--space-3); border-radius: var(--radius-pill);
+    background: rgba(46, 133, 64, 0.10); color: var(--pwc-success);
+    border: 1px solid rgba(46, 133, 64, 0.30);
+    font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.esg-live-badge .esg-status-dot { background: var(--pwc-success); animation: esg-pulse 1.6s infinite; }
+
+/* Activity log -------------------------------------------------------- */
+.esg-log-shell {
+    background: var(--surface-sunken);
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: var(--space-3); max-height: 380px; overflow-y: auto;
+    font-family: var(--font-mono); font-size: var(--text-xs);
+    box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+.esg-log-row {
+    display: grid; grid-template-columns: 110px 90px 1fr;
+    gap: var(--space-3); padding: 6px var(--space-2);
+    border-radius: var(--radius-xs);
+    border-bottom: 1px solid rgba(241, 217, 196, 0.6);
+    transition: background var(--dur-fast) var(--ease-standard);
+}
+.esg-log-row:last-child { border-bottom: none; }
+.esg-log-row:hover { background: rgba(255, 255, 255, 0.6); }
+.esg-log-row .esg-log-time { color: var(--text-muted); }
+.esg-log-row .esg-log-tag  { font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.esg-log-row .esg-log-tag.info    { color: var(--pwc-info); }
+.esg-log-row .esg-log-tag.success { color: var(--pwc-success); }
+.esg-log-row .esg-log-tag.warning { color: #8a5b00; }
+.esg-log-row .esg-log-tag.error   { color: var(--pwc-danger); }
+.esg-log-row .esg-log-msg  { color: var(--text); white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 768px) {
+    .esg-log-row { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* Sparkline SVG ------------------------------------------------------- */
+.esg-sparkline { display: block; width: 100%; height: 36px; }
+
+/* Scrollbar refinement (webkit) --------------------------------------- */
+.esg-log-shell::-webkit-scrollbar { width: 8px; height: 8px; }
+.esg-log-shell::-webkit-scrollbar-thumb {
+    background: var(--border-strong); border-radius: var(--radius-pill);
+}
+.esg-log-shell::-webkit-scrollbar-track { background: transparent; }
+</style>
+"""
+
+_GLOBAL_CSS = _TOKEN_CSS + _STATIC_CSS
+
+
+# ---------------------------------------------------------------------------
+# Injection
+# ---------------------------------------------------------------------------
 def inject_global_css() -> None:
-    """Inject the design-system CSS.
-
-    Note: this re-runs on every Streamlit rerun. We intentionally do *not*
-    short-circuit via ``st.session_state`` — Streamlit rebuilds the whole
-    DOM on each rerun, so a one-shot guard would only inject the styles
-    on the first render and leave subsequent reruns un-styled. The CSS
-    payload is small (~6 KB) so re-injecting is cheap.
-
-    The first render also wires up ``style_metric_cards`` (which mutates
-    Streamlit-generated DOM) — that side-effect is one-shot per session.
-    """
-    # Typography + icon fonts via <link> tags. Material Symbols variants
-    # (Rounded, Outlined, legacy Material Icons) are now bundled into
-    # ``_FONT_LINK`` so they render via st.markdown and reach the page's
-    # main DOM directly. The previous components.html iframe injection
-    # silently failed on HuggingFace Spaces (cross-origin sandbox blocks
-    # ``window.parent.document.head`` access), causing icon ligature names
-    # like "upload" / "keyboard_double_arrow_left" to render as raw text.
+    """Inject font links + token + static CSS. Cheap; safe to call repeatedly."""
     st.markdown(_FONT_LINK, unsafe_allow_html=True)
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
 
@@ -523,29 +668,15 @@ def inject_global_css() -> None:
 
 
 # ---------------------------------------------------------------------------
-# PwC-branded page header — logo + product mark, top of every page
+# PwC header
 # ---------------------------------------------------------------------------
-_PWC_LOGO_CANDIDATES = (
-    "pwc_logo.png",
-    "assets/pwc_logo.png",
-    "static/pwc_logo.png",
-)
+_PWC_LOGO_CANDIDATES = ("pwc_logo.png", "assets/pwc_logo.png", "static/pwc_logo.png")
 
 
 @st.cache_data(show_spinner=False)
 def _pwc_logo_data_uri() -> str:
-    """Locate pwc_logo.png and return it as a base64 data URI (cached).
-
-    Falls back to an empty string when the logo isn't found, so the header
-    still renders without breaking the page.
-    """
     here = Path(__file__).resolve().parent
-    search_roots = (
-        here.parent,                  # repo root
-        here.parent.parent,           # parent of repo (defensive)
-        Path.cwd(),                   # current working directory
-    )
-    for root in search_roots:
+    for root in (here.parent, here.parent.parent, Path.cwd()):
         for rel in _PWC_LOGO_CANDIDATES:
             p = root / rel
             if p.is_file():
@@ -557,38 +688,34 @@ def _pwc_logo_data_uri() -> str:
     return ""
 
 
-def pwc_header(
-    product: str = "ESG CoPilot",
-    tagline: str = "Powered by PwC India",
-) -> None:
-    """Render the PwC logo + product wordmark at the top of a page.
-
-    Designed to be called once per page, immediately after
-    ``inject_global_css()`` (or any helper that calls it). Safe on reruns.
-    """
+def pwc_header(product: str = "ESG CoPilot", tagline: str = "Powered by PwC India") -> None:
     inject_global_css()
+    skip_link()
     logo_uri = _pwc_logo_data_uri()
-    logo_html = (
-        f'<img class="pwc-logo" src="{logo_uri}" alt="PwC"/>'
-        if logo_uri else ""
-    )
+    logo_html = f'<img class="pwc-logo" src="{logo_uri}" alt="PwC"/>' if logo_uri else ""
     st.markdown(
-        f'<div class="pwc-header">'
-        f'<div class="pwc-header-brand">'
-        f'{logo_html}'
+        f'<div class="pwc-header" role="banner">'
+        f'<div class="pwc-header-brand">{logo_html}'
         f'<div class="pwc-header-text">'
         f'<span class="pwc-header-title">{html.escape(product)}</span>'
         f'<span class="pwc-header-sub">{html.escape(tagline)}</span>'
-        f'</div>'
-        f'</div>'
-        f'<div class="pwc-accent-bar"></div>'
+        f'</div></div>'
+        f'<div class="pwc-accent-bar" aria-hidden="true"></div>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
 
+def skip_link(target_id: str = "main") -> None:
+    """L4: Render an offscreen 'Skip to main content' link visible on focus."""
+    st.markdown(
+        f'<a class="esg-skip-link" href="#{html.escape(target_id)}">Skip to main content</a>',
+        unsafe_allow_html=True,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Hero block — landing banner for Mission Control / ROI page
+# Hero
 # ---------------------------------------------------------------------------
 def hero(
     title: str,
@@ -598,81 +725,114 @@ def hero(
     emoji: str = "",
     eyebrow: Optional[str] = None,
 ) -> None:
-    """Render a polished hero block with optional eyebrow + status chips."""
     inject_global_css()
     safe_title = html.escape(title)
     prefix = f"{emoji} " if emoji else ""
     subtitle_html = (
-        f'<p class="esg-subtitle">{html.escape(subtitle)}</p>'
-        if subtitle else ""
+        f'<p class="esg-subtitle">{html.escape(subtitle)}</p>' if subtitle else ""
     )
     chip_html = ""
     if chips:
-        chip_items = "".join(
-            f'<span class="esg-chip">{html.escape(c)}</span>' for c in chips
-        )
-        chip_html = f'<div class="esg-chip-row">{chip_items}</div>'
+        chip_items = "".join(f'<span class="esg-chip">{html.escape(c)}</span>' for c in chips)
+        chip_html = f'<div class="esg-chip-row" role="list">{chip_items}</div>'
     eyebrow_html = ""
     if eyebrow:
         eyebrow_html = (
-            f'<span class="esg-eyebrow">'
-            f'<span class="esg-eyebrow-dot"></span>{html.escape(eyebrow)}'
+            f'<span class="esg-eyebrow" role="status">'
+            f'<span class="esg-eyebrow-dot" aria-hidden="true"></span>{html.escape(eyebrow)}'
             f'</span>'
         )
-
     st.markdown(
-        f'<div class="esg-hero">'
-        f'{eyebrow_html}'
-        f'<h1>{prefix}{safe_title}</h1>'
-        f'{subtitle_html}'
-        f'{chip_html}'
+        f'<div class="esg-hero" role="region" aria-label="{safe_title}">'
+        f'{eyebrow_html}<h1>{prefix}{safe_title}</h1>{subtitle_html}{chip_html}'
         f'</div>',
         unsafe_allow_html=True,
     )
 
 
 # ---------------------------------------------------------------------------
-# Section header — consistent divider between major sections
+# Section header
 # ---------------------------------------------------------------------------
 def section_header(title: str, caption: Optional[str] = None) -> None:
-    """Render a shadcn-style section header with a muted caption.
-
-    Uses a custom HTML block so the title and caption sit on one line with
-    a subtle bottom border — cleaner than the native ``st.subheader`` and
-    consistent with the shadcn card styling used elsewhere.
-    """
     inject_global_css()
-    cap_html = (
-        f'<span class="esg-section-caption">{html.escape(caption)}</span>'
-        if caption else ""
+    cap = (
+        f'<span class="esg-section-caption">{html.escape(caption)}</span>' if caption else ""
     )
     st.markdown(
         f'<div class="esg-section">'
-        f'<span class="esg-section-title">{html.escape(title)}</span>'
-        f'{cap_html}'
+        f'<span class="esg-section-title">{html.escape(title)}</span>{cap}'
         f'</div>',
         unsafe_allow_html=True,
     )
 
 
 # ---------------------------------------------------------------------------
-# KPI card — shadcn metric card with graceful st.metric fallback
+# KPI card — extended with trend / sparkline / delta_kind
 # ---------------------------------------------------------------------------
+def _sparkline_svg(values: Sequence[float], color: str) -> str:
+    if not values or len(values) < 2:
+        return ""
+    vmin, vmax = min(values), max(values)
+    rng = (vmax - vmin) or 1
+    step = 100.0 / (len(values) - 1)
+    pts = " ".join(
+        f"{i * step:.2f},{(1 - (v - vmin) / rng) * 28 + 4:.2f}"
+        for i, v in enumerate(values)
+    )
+    return (
+        f'<svg class="esg-sparkline" viewBox="0 0 100 36" preserveAspectRatio="none" aria-hidden="true">'
+        f'<polyline fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" '
+        f'stroke-linejoin="round" points="{pts}" />'
+        f'</svg>'
+    )
+
+
 def kpi_card(
     label: str,
     value: str,
     description: Optional[str] = None,
     *,
     key: Optional[str] = None,
+    delta: Optional[str] = None,
+    delta_kind: str = "neutral",
+    sparkline: Optional[Sequence[float]] = None,
 ) -> None:
-    """Render a shadcn metric card (React) with an st.metric fallback."""
+    """Render a KPI tile. Adds optional ``delta``/``sparkline`` that the
+    shadcn metric_card can't show; falls back to st.metric otherwise."""
     inject_global_css()
+
+    # Custom render path when caller supplies delta or sparkline
+    if delta is not None or sparkline:
+        spark_color = {
+            "positive": TOKENS["brand_success"],
+            "negative": TOKENS["brand_danger"],
+        }.get(delta_kind, TOKENS["brand_primary"])
+        spark = _sparkline_svg(sparkline or [], spark_color)
+        delta_html = (
+            f'<span class="esg-kpi-delta {html.escape(delta_kind)}">{html.escape(delta)}</span>'
+            if delta else ""
+        )
+        desc_html = (
+            f'<div style="color:var(--text-muted);font-size:var(--text-xs);margin-top:4px;">'
+            f'{html.escape(description)}</div>' if description else ""
+        )
+        st.markdown(
+            f'<div class="esg-agent-card" style="border-left-color:{spark_color};" '
+            f'role="group" aria-label="{html.escape(label)}">'
+            f'<div style="font-size:var(--text-xs);text-transform:uppercase;letter-spacing:0.05em;'
+            f'color:var(--text-muted);font-weight:600;">{html.escape(label)}</div>'
+            f'<div style="display:flex;align-items:baseline;gap:var(--space-2);">'
+            f'<div style="font-family:var(--font-display);font-weight:700;font-size:var(--text-2xl);'
+            f'color:var(--text);">{html.escape(value)}</div>{delta_html}</div>'
+            f'{spark}{desc_html}</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
     if _HAS_SHADCN and sui is not None:
         try:
             sui.metric_card(
-                title=label,
-                content=value,
-                description=description or "",
+                title=label, content=value, description=description or "",
                 key=key or f"kpi_{label}",
             )
             return
@@ -682,41 +842,207 @@ def kpi_card(
 
 
 # ---------------------------------------------------------------------------
-# Agent card — status-aware dashboard tile for pipeline overview
+# Agent card — extended with runtime, last_error, description
 # ---------------------------------------------------------------------------
+def format_duration(seconds: Optional[float]) -> str:
+    if seconds is None:
+        return "—"
+    if seconds < 1:
+        return f"{int(seconds * 1000)} ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    m, s = divmod(int(seconds), 60)
+    return f"{m}m {s:02d}s"
+
+
+def format_relative_time(iso: Optional[str]) -> str:
+    """Convert an ISO timestamp to '3m ago' / 'just now'. Returns '—' if blank."""
+    if not iso or iso == "Never":
+        return "Never"
+    try:
+        if iso.endswith("Z"):
+            dt = datetime.fromisoformat(iso[:-1]).replace(tzinfo=timezone.utc)
+        else:
+            dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            now = datetime.now()
+        else:
+            now = datetime.now(dt.tzinfo)
+        delta = (now - dt).total_seconds()
+    except Exception:
+        return iso[:16]
+    if delta < 0:
+        return "just now"
+    if delta < 10:
+        return "just now"
+    if delta < 60:
+        return f"{int(delta)}s ago"
+    if delta < 3600:
+        return f"{int(delta // 60)}m ago"
+    if delta < 86400:
+        return f"{int(delta // 3600)}h ago"
+    return f"{int(delta // 86400)}d ago"
+
+
 def agent_card(
     name: str,
     icon: str,
     status: str,
     last_run: str = "Never",
     color: str = TOKENS["brand_primary"],
+    *,
+    runtime_seconds: Optional[float] = None,
+    last_error: Optional[str] = None,
+    description: Optional[str] = None,
+    run_count: Optional[int] = None,
 ) -> None:
-    """Render a single agent status tile."""
+    """Status-aware agent tile. New keyword args surface operational realism
+    (runtime, last error, run count) without breaking older callers."""
     inject_global_css()
     status_key = (status or "idle").lower()
-    status_emoji = {
-        "idle": "⚪", "running": "🔄", "completed": "✅",
-        "error": "❌", "skipped": "⚠️",
-    }.get(status_key, "⚪")
     status_color = _STATUS_COLORS.get(status_key, TOKENS["text_muted"])
-    run_label = last_run[:16] if last_run and last_run != "Never" else "Never"
+    status_label = status_key.capitalize()
+
+    meta_bits = [
+        f'<span title="Last run">🕒 {html.escape(format_relative_time(last_run))}</span>'
+    ]
+    if runtime_seconds is not None:
+        meta_bits.append(f'<span title="Runtime">⚡ {format_duration(runtime_seconds)}</span>')
+    if run_count:
+        meta_bits.append(f'<span title="Run count">🔁 {run_count}×</span>')
+    meta_html = " ".join(meta_bits)
+
+    error_html = ""
+    if last_error and status_key == "error":
+        error_html = (
+            f'<div class="esg-agent-error" title="{html.escape(last_error)}">'
+            f'⚠ {html.escape(last_error[:140])}{"…" if len(last_error) > 140 else ""}</div>'
+        )
+    desc_html = (
+        f'<div style="font-size:var(--text-xs);color:var(--text-muted);'
+        f'line-height:var(--lh-snug);">{html.escape(description)}</div>'
+        if description else ""
+    )
+
     st.markdown(
-        f'<div class="esg-agent-card" style="border-left-color:{color};">'
+        f'<div class="esg-agent-card status-{html.escape(status_key)}" '
+        f'style="border-left-color:{color};" '
+        f'role="group" aria-label="{html.escape(name)} agent">'
+        f'<div class="esg-agent-head">'
         f'<div class="esg-agent-title">{html.escape(icon)} {html.escape(name)}</div>'
-        f'<div style="margin-top:0.4rem;color:{status_color};font-size:0.85rem;font-weight:500;">'
-        f'{status_emoji} {html.escape(status_key.capitalize())}'
+        f'<div class="esg-agent-status" style="color:{status_color};">'
+        f'<span class="esg-status-dot status-{html.escape(status_key)}"></span>'
+        f'{html.escape(status_label)}</div>'
         f'</div>'
-        f'<div class="esg-agent-meta">Last run: {html.escape(run_label)}</div>'
+        f'{desc_html}'
+        f'<div class="esg-agent-meta">{meta_html}</div>'
+        f'{error_html}'
         f'</div>',
         unsafe_allow_html=True,
     )
 
 
 # ---------------------------------------------------------------------------
-# Badge primitives (React shadcn when available, HTML pill fallback)
+# L2 — Operational realism
+# ---------------------------------------------------------------------------
+def live_badge(label: str = "Live") -> None:
+    inject_global_css()
+    st.markdown(
+        f'<span class="esg-live-badge" role="status" aria-live="polite">'
+        f'<span class="esg-status-dot" aria-hidden="true"></span>{html.escape(label)}'
+        f'</span>',
+        unsafe_allow_html=True,
+    )
+
+
+def log_panel(
+    entries: Iterable[dict],
+    *,
+    height: int = 380,
+    level_filter: Optional[Sequence[str]] = None,
+    agent_filter: Optional[Sequence[str]] = None,
+    key: str = "log",
+    show_filters: bool = True,
+    empty_message: str = "No activity yet — run the pipeline to populate logs.",
+) -> None:
+    """Filterable, monospace activity log. ``entries`` is an iterable of
+    dicts with at least ``timestamp`` (ISO), ``message``; optional ``level``
+    (info/success/warning/error) and ``agent``.
+    """
+    inject_global_css()
+    rows = list(entries or [])
+
+    if show_filters and rows:
+        all_levels = sorted({(r.get("level") or "info").lower() for r in rows})
+        all_agents = sorted({r.get("agent") or "—" for r in rows})
+        c1, c2, c3 = st.columns([2, 2, 1])
+        with c1:
+            sel_levels = st.multiselect(
+                "Level", all_levels, default=level_filter or all_levels,
+                key=f"{key}_levels",
+            )
+        with c2:
+            sel_agents = st.multiselect(
+                "Agent", all_agents, default=agent_filter or all_agents,
+                key=f"{key}_agents",
+            )
+        with c3:
+            search = st.text_input("Search", key=f"{key}_search", placeholder="Filter…")
+        rows = [
+            r for r in rows
+            if (r.get("level") or "info").lower() in sel_levels
+            and (r.get("agent") or "—") in sel_agents
+            and (not search or search.lower() in (r.get("message") or "").lower())
+        ]
+
+    if not rows:
+        st.info(empty_message)
+        return
+
+    body_parts = []
+    for r in rows[-500:]:  # cap render budget
+        ts = r.get("timestamp", "")
+        try:
+            ts_short = datetime.fromisoformat(ts).strftime("%H:%M:%S")
+        except Exception:
+            ts_short = ts[:8] if ts else "—"
+        level = (r.get("level") or "info").lower()
+        agent = r.get("agent") or "—"
+        msg = r.get("message") or ""
+        body_parts.append(
+            f'<div class="esg-log-row">'
+            f'<span class="esg-log-time">{html.escape(ts_short)} · {html.escape(agent)}</span>'
+            f'<span class="esg-log-tag {html.escape(level)}">{html.escape(level)}</span>'
+            f'<span class="esg-log-msg">{html.escape(msg)}</span>'
+            f'</div>'
+        )
+    st.markdown(
+        f'<div class="esg-log-shell" role="log" aria-live="polite" '
+        f'style="max-height:{int(height)}px;">'
+        f'{"".join(body_parts)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def retry_button(label: str = "Retry", *, key: str, disabled: bool = False) -> bool:
+    """Small secondary button styled for the 'try again' affordance."""
+    inject_global_css()
+    return st.button(
+        f"🔁 {label}", key=key, disabled=disabled, type="secondary",
+        use_container_width=False,
+    )
+
+
+def drilldown(title: str, *, expanded: bool = False, icon: str = "🔍"):
+    """Consistent expander styling for drill-down sections."""
+    inject_global_css()
+    return st.expander(f"{icon} {title}", expanded=expanded)
+
+
+# ---------------------------------------------------------------------------
+# Badge primitives
 # ---------------------------------------------------------------------------
 def badge(label: str, variant: str = "default") -> None:
-    """Render a small status badge. Variants: default, success, warn, error, info."""
     inject_global_css()
     if _HAS_SHADCN and sui is not None:
         try:
@@ -729,10 +1055,8 @@ def badge(label: str, variant: str = "default") -> None:
         except Exception:
             pass
     color = {
-        "success": TOKENS["brand_success"],
-        "warn": TOKENS["brand_warn"],
-        "error": TOKENS["brand_danger"],
-        "info": TOKENS["brand_accent"],
+        "success": TOKENS["brand_success"], "warn": TOKENS["brand_warn"],
+        "error": TOKENS["brand_danger"], "info": TOKENS["brand_accent"],
         "default": TOKENS["text_muted"],
     }.get(variant, TOKENS["text_muted"])
     st.markdown(
@@ -744,19 +1068,12 @@ def badge(label: str, variant: str = "default") -> None:
 
 def _map_variant_to_shadcn(variant: str) -> str:
     return {
-        "success": "default",
-        "warn": "outline",
-        "error": "destructive",
-        "info": "secondary",
-        "default": "secondary",
+        "success": "default", "warn": "outline", "error": "destructive",
+        "info": "secondary", "default": "secondary",
     }.get(variant, "secondary")
 
 
-# ---------------------------------------------------------------------------
-# Grade pill — specifically for IQS / Audit grades
-# ---------------------------------------------------------------------------
 def grade_pill(grade: str) -> str:
-    """Return an HTML pill string coloured by grade. Use with st.markdown."""
     color = _GRADE_COLORS.get(grade, TOKENS["text_muted"])
     return (
         f'<span class="esg-grade-pill" style="background:{color};">'
@@ -765,10 +1082,9 @@ def grade_pill(grade: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Pipeline chip row — one chip per agent with colour-coded status
+# Pipeline chip row
 # ---------------------------------------------------------------------------
 def pipeline_chips(statuses: dict, agent_config: dict) -> None:
-    """Render a horizontal chip row showing every agent's current status."""
     inject_global_css()
     chips_html = []
     for key, config in agent_config.items():
@@ -776,28 +1092,28 @@ def pipeline_chips(statuses: dict, agent_config: dict) -> None:
         icon = config.get("icon", "🤖")
         name = config.get("name", key)
         chips_html.append(
-            f'<span class="esg-chip status-{html.escape(status)}">'
+            f'<span class="esg-chip status-{html.escape(status)}" role="listitem" '
+            f'aria-label="{html.escape(name)} status {html.escape(status)}">'
+            f'<span class="esg-status-dot status-{html.escape(status)}" aria-hidden="true"></span>'
             f'{html.escape(icon)} {html.escape(name)}</span>'
         )
     st.markdown(
-        f'<div class="esg-chip-row">{"".join(chips_html)}</div>',
+        f'<div class="esg-chip-row" role="list" aria-label="Pipeline status">'
+        f'{"".join(chips_html)}</div>',
         unsafe_allow_html=True,
     )
 
 
 # ---------------------------------------------------------------------------
-# IQS gauge — inline SVG arc, no charting lib required
+# IQS gauge (unchanged geometry, modernized typography)
 # ---------------------------------------------------------------------------
 def iqs_gauge(score: float, grade: str, *, size: int = 220) -> None:
-    """Render an SVG gauge for the Investment Quality Score."""
     inject_global_css()
     score = max(0.0, min(100.0, float(score or 0)))
-    # Arc math
-    import math
     radius = size * 0.38
     center = size / 2
     start_angle = math.radians(135)
-    end_angle = math.radians(45 + 360)  # 270 deg sweep
+    end_angle = math.radians(45 + 360)
     sweep = end_angle - start_angle
     progress_angle = start_angle + sweep * (score / 100.0)
 
@@ -809,18 +1125,19 @@ def iqs_gauge(score: float, grade: str, *, size: int = 220) -> None:
     ex, ey = polar(end_angle)
     large_bg = 1 if sweep > math.pi else 0
     large_fg = 1 if (progress_angle - start_angle) > math.pi else 0
-
     color = _GRADE_COLORS.get(grade, TOKENS["brand_primary"])
 
     svg = f"""
     <svg width="{size}" height="{size}" viewBox="0 0 {size} {size}"
-         xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;">
+         xmlns="http://www.w3.org/2000/svg" role="img"
+         aria-label="Investment Quality Score {score:.0f} of 100, grade {html.escape(grade or 'N/A')}"
+         style="display:block;margin:0 auto;">
       <path d="M {sx:.2f} {sy:.2f} A {radius:.2f} {radius:.2f} 0 {large_bg} 1 {ex:.2f} {ey:.2f}"
             stroke="{TOKENS['border']}" stroke-width="14" fill="none" stroke-linecap="round"/>
       <path d="M {sx:.2f} {sy:.2f} A {radius:.2f} {radius:.2f} 0 {large_fg} 1 {px:.2f} {py:.2f}"
             stroke="{color}" stroke-width="14" fill="none" stroke-linecap="round"/>
       <text x="{center}" y="{center - 6}" text-anchor="middle"
-            font-family="Inter, sans-serif" font-weight="700"
+            font-family="Plus Jakarta Sans, Inter, sans-serif" font-weight="800"
             font-size="{size * 0.22:.0f}" fill="{TOKENS['text']}">{score:.0f}</text>
       <text x="{center}" y="{center + size * 0.12:.0f}" text-anchor="middle"
             font-family="Inter, sans-serif" font-weight="600"
@@ -831,26 +1148,35 @@ def iqs_gauge(score: float, grade: str, *, size: int = 220) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Switch — shadcn switch when available, checkbox fallback
+# Switch
 # ---------------------------------------------------------------------------
 def switch(label: str, *, default: bool = False, key: Optional[str] = None) -> bool:
     inject_global_css()
     if _HAS_SHADCN and sui is not None:
         try:
-            return bool(sui.switch(default_checked=default, label=label,
-                                   key=key or f"switch_{label}"))
+            return bool(sui.switch(
+                default_checked=default, label=label, key=key or f"switch_{label}",
+            ))
         except Exception:
             pass
     return st.checkbox(label, value=default, key=key)
 
 
 # ---------------------------------------------------------------------------
-# Feature info — dependency visibility so pages can tell users which React
-# components are active. Not shown by default; useful for debugging.
+# Feature info
 # ---------------------------------------------------------------------------
 def react_feature_status() -> dict:
-    """Return a snapshot of which React-backed libraries are active."""
-    return {
-        "shadcn": _HAS_SHADCN,
-        "extras": _HAS_EXTRAS,
-    }
+    return {"shadcn": _HAS_SHADCN, "extras": _HAS_EXTRAS}
+
+
+# ---------------------------------------------------------------------------
+# Telemetry helper — derive a flat audit-trail list across all agents
+# ---------------------------------------------------------------------------
+def collect_audit_trail(agent_objects: dict, *, limit: int = 200) -> list[dict]:
+    """Merge each agent's audit_trail into a single time-ordered list."""
+    rows: list[dict] = []
+    for agent in (agent_objects or {}).values():
+        trail = getattr(agent, "audit_trail", None) or []
+        rows.extend(trail)
+    rows.sort(key=lambda r: r.get("timestamp", ""), reverse=True)
+    return rows[:limit]

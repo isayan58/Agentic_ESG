@@ -10,7 +10,8 @@ from core.base_agent import BaseAgent
 from core.state_manager import state_manager
 from core.data_access import get_dataset
 from core.company_config import company_cfg
-from utils.data_processing import load_company_profile, load_esg_metrics
+from utils.data_processing import load_company_profile, load_esg_metrics, compute_esg_summary
+from utils.feedback_store import load_recent_feedback
 
 
 class ReportGeneratorAgent(BaseAgent):
@@ -36,6 +37,8 @@ class ReportGeneratorAgent(BaseAgent):
         audit_results = state_manager.subscribe("audit_results") or {}
         data_results = state_manager.subscribe("data_collection_results") or {}
         roi_results = state_manager.subscribe("roi_results") or {}
+        risk_results = state_manager.subscribe("risk_results") or {}
+        stakeholder_results = state_manager.subscribe("stakeholder_results") or {}
         reporter_profile = regulatory_results.get("reporter_profile", {})
 
         fy_label = f"FY{company_cfg.current_fy}" if company_cfg.current_fy else "Current FY"
@@ -62,11 +65,41 @@ class ReportGeneratorAgent(BaseAgent):
         # Audit trail
         audit_trail = self._compile_audit_trail(data_results, audit_results)
 
+        # Intelligence outputs
+        esg_summary = compute_esg_summary(metrics_df)
+        recommended_reports = self._generate_report_recommendations(
+            company, esg_summary, carbon_results, regulatory_results, roi_results, audit_results
+        )
+        dashboard_templates = self._generate_dashboard_templates(
+            company, esg_summary, carbon_results, regulatory_results, roi_results, audit_results
+        )
+        actionable_insights = self._generate_actionable_insights(
+            company,
+            esg_summary,
+            carbon_results,
+            regulatory_results,
+            roi_results,
+            audit_results,
+            risk_results,
+            stakeholder_results,
+        )
+
         results = {
             "report_title": f"{company_cfg.company_name} ESG Report {fy_label}",
             "generated_at": datetime.now().isoformat(),
             "company": company,
             "executive_summary": exec_summary,
+            "esg_summary": esg_summary,
+            "recommended_reports": recommended_reports,
+            "dashboard_templates": dashboard_templates,
+            "actionable_insights": actionable_insights,
+            "data_quality_summary": data_results.get("data_quality_summary", []),
+            "regulatory_action_plan": regulatory_results.get("regulatory_action_plan", []),
+            "carbon_insights": carbon_results.get("carbon_insights", []),
+            "risk_recommendations": risk_results.get("risk_recommendations", []),
+            "audit_recommendations": audit_results.get("audit_recommendations", []),
+            "roi_recommendations": roi_results.get("roi_recommendations", []),
+            "distribution_plan": stakeholder_results.get("distribution_plan", ""),
             "sections": {
                 "environmental": {
                     "title": "Environmental Performance",
@@ -129,7 +162,7 @@ class ReportGeneratorAgent(BaseAgent):
             f"Key commitments: {commitments}. "
             f"Tone: professional, forward-looking."
         )
-        return self.hf.generate_text(prompt)
+        return self.hf.generate_text(prompt, agent="report_generator")
 
     def _generate_section_narrative(self, section, section_data, metrics_df):
         pillar_map = {
@@ -156,7 +189,7 @@ class ReportGeneratorAgent(BaseAgent):
                     f"{row['metric_name']}: {val} {row['unit']} (target: {target})."
                 )
 
-        return self.hf.generate_text(" ".join(context_parts))
+        return self.hf.generate_text(" ".join(context_parts), agent="report_section")
 
     def _compile_metrics_tables(self, metrics_df):
         tables = {}
@@ -244,3 +277,97 @@ class ReportGeneratorAgent(BaseAgent):
             "status": "completed",
         })
         return trail
+
+    def _generate_report_recommendations(self, company, esg_summary, carbon_results, regulatory_results, roi_results, audit_results):
+        feedback_examples = self._load_feedback_examples(3)
+        prompt = (
+            f"You are an ESG reporting assistant. Based on the company profile and report metrics, "
+            f"suggest five complementary ESG report formats that would be most useful for investors, compliance teams, and senior management. "
+            f"For each report type, provide a one-sentence rationale. "
+            f"Company: {company.get('company_name', company_cfg.company_name)}, Sector: {company.get('sector', company_cfg.sector)}. "
+            f"ESG summary: {esg_summary}. "
+            f"Carbon: total_emissions={carbon_results.get('total_emissions_current', 'N/A')}, "
+            f"yoy_change={carbon_results.get('yoy_change_pct', 'N/A')}%. "
+            f"Regulatory compliance: {regulatory_results.get('overall_compliance', 'N/A')}%. "
+            f"ROI: {roi_results.get('financial_roi', {}).get('roi_pct', 'N/A')}%, "
+            f"net benefit={roi_results.get('financial_roi', {}).get('net_financial_benefit', 'N/A')}. "
+            f"Audit readiness: {audit_results.get('readiness_score', {}).get('grade', 'N/A')}. "
+            f"Recent user feedback: {feedback_examples}. "
+            f"Return the response as a bullet list of report titles and rationales."
+        )
+        raw = self.hf.generate_text(prompt, agent="report_generator")
+        lines = [line.strip('- ').strip() for line in raw.splitlines() if line.strip()]
+        return [line for line in lines if len(line) > 10][:6]
+
+    def _generate_dashboard_templates(self, company, esg_summary, carbon_results, regulatory_results, roi_results, audit_results):
+        prompt = (
+            f"You are an ESG analytics design assistant. Provide one sample Power BI report design and one sample QuickSight report design "
+            f"that can be built from the available ESG, carbon, compliance, ROI, and audit data. "
+            f"Company: {company.get('company_name', company_cfg.company_name)}. "
+            f"Sector: {company.get('sector', company_cfg.sector)}. "
+            f"ESG summary: {esg_summary}. "
+            f"Carbon: {carbon_results.get('total_emissions_current', 'N/A')} tCO2e, "
+            f"yoy change: {carbon_results.get('yoy_change_pct', 'N/A')}%. "
+            f"Compliance: {regulatory_results.get('overall_compliance', 'N/A')}%. "
+            f"ROI: {roi_results.get('financial_roi', {}).get('roi_pct', 'N/A')}%, "
+            f"Audit grade: {audit_results.get('readiness_score', {}).get('grade', 'N/A')}. "
+            f"List the recommended dashboards, key visuals, key measures, and data sources. Separate Power BI and QuickSight sections clearly."
+        )
+        raw = self.hf.generate_text(prompt, max_tokens=450, agent="report_generator")
+        return {
+            "summary": "Use the sample Power BI and QuickSight report designs to create data-rich dashboards from your ESG pipeline outputs.",
+            "power_bi": raw.split('QuickSight')[0].strip() if 'QuickSight' in raw else raw.strip(),
+            "quicksight": raw.split('QuickSight', 1)[1].strip() if 'QuickSight' in raw else "" ,
+        }
+
+    def _generate_actionable_insights(
+        self,
+        company,
+        esg_summary,
+        carbon_results,
+        regulatory_results,
+        roi_results,
+        audit_results,
+        risk_results,
+        stakeholder_results,
+    ):
+        feedback_examples = self._load_feedback_examples(4)
+        prompt = (
+            f"You are an ESG insights engine. Summarize the most important observations and improvement opportunities from the available ESG dataset. "
+            f"Use the company profile, ESG pillar summary, carbon emissions, compliance, ROI, audit readiness, risk, and stakeholder communication context. "
+            f"Provide 3-5 concise, actionable insights in bullet form. "
+            f"Company: {company.get('company_name', company_cfg.company_name)}. "
+            f"ESG summary: {esg_summary}. "
+            f"Carbon emissions: {carbon_results.get('total_emissions_current', 'N/A')} tCO2e, "
+            f"compliance: {regulatory_results.get('overall_compliance', 'N/A')}%. "
+            f"ROI: {roi_results.get('financial_roi', {}).get('roi_pct', 'N/A')}%. "
+            f"Audit readiness: {audit_results.get('readiness_score', {}).get('grade', 'N/A')}. "
+            f"Risk recommendations: {risk_results.get('risk_recommendations', [])}. "
+            f"Stakeholder distribution plan: {stakeholder_results.get('distribution_plan', '')}. "
+            f"Recent user feedback: {feedback_examples}."
+        )
+        raw = self.hf.generate_text(prompt, max_tokens=260, agent="report_generator")
+        bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return [line for line in bullets if len(line) > 10][:6]
+
+    def _load_feedback_examples(self, limit: int = 3) -> str:
+        feedback = load_recent_feedback(limit)
+        if not feedback:
+            return "none yet"
+        snippets = []
+        for item in feedback[:limit]:
+            rating = item.get("rating", "unknown")
+            comment = item.get("comment", "").splitlines()[0][:120]
+            snippets.append(f"{rating}: {comment}")
+        return "; ".join(snippets)
+
+    def _load_feedback_examples(self, limit: int = 3) -> str:
+        feedback = load_recent_feedback(limit)
+        if not feedback:
+            return "none yet"
+        snippets = []
+        for item in feedback[:limit]:
+            rating = item.get("rating", "unknown")
+            comment = item.get("comment", "").splitlines()[0][:120]
+            snippets.append(f"{rating}: {comment}")
+        return "; ".join(snippets)
