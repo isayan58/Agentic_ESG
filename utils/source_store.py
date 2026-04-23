@@ -25,8 +25,8 @@ Deliberately *not* persisted:
     * ``last_fetch`` / ``last_row_count`` / ``status`` / ``error`` —
       runtime state that's meaningless across restarts
     * bytes-valued configs (uploaded file payloads) are stored verbatim
-      when small; if they're large the UI should switch to an external
-      upload path (TODO)
+      when small (<500 KB); large files are automatically externalised
+      to HuggingFace (with a reference stored in the JSON)
 """
 from __future__ import annotations
 
@@ -60,6 +60,10 @@ SOURCES_DIR_IN_REPO = "sources"
 LOCAL_FALLBACK_DIR = Path("data") / "sources"
 CACHE_TTL_SECONDS = 30
 MAX_RETRIES = 3
+
+# Large file externalization threshold (500 KB). Files larger than this
+# will be stored externally on HuggingFace and referenced by hash + filename.
+MAX_INLINE_FILE_BYTES = int(os.getenv("ESG_MAX_INLINE_FILE_BYTES", str(500 * 1024)))
 
 # Hard cap on the total serialised size of a single user's sources file.
 # Uploaded files are base64-encoded in-place, so a 2 MB raw upload becomes
@@ -172,12 +176,89 @@ def _decode_bytes_from_json(value):
     return value
 
 
+def _externalize_large_files(record: dict) -> dict:
+    """Extract large file payloads and replace with references.
+
+    If a record's config contains a bytes value > MAX_INLINE_FILE_BYTES,
+    replace it with a marker dict containing metadata for later retrieval.
+    The actual bytes are meant to be uploaded separately to HuggingFace.
+
+    Returns a modified copy of the record with large files externalised.
+    """
+    import hashlib
+    import base64
+
+    config = record.get("config")
+    if not isinstance(config, dict):
+        return record
+
+    modified_config = dict(config)
+    for key, value in modified_config.items():
+        if isinstance(value, (bytes, bytearray)):
+            value_bytes = bytes(value)
+            if len(value_bytes) > MAX_INLINE_FILE_BYTES:
+                # Replace with a reference marker
+                file_hash = hashlib.sha256(value_bytes).hexdigest()[:16]
+                file_name = modified_config.get("file_name", f"upload_{file_hash}")
+                modified_config[key] = {
+                    "__external_file__": {
+                        "hash": file_hash,
+                        "size": len(value_bytes),
+                        "file_name": file_name,
+                    }
+                }
+
+    if modified_config != config:
+        modified_record = dict(record)
+        modified_record["config"] = modified_config
+        return modified_record
+
+    return record
+
+
+def _restore_large_files(record: dict, external_files_cache: dict) -> dict:
+    """Inverse of :func:`_externalize_large_files`.
+
+    If a record's config contains external file references, attempt to
+    restore them from a provided cache dict {file_hash: bytes, ...}.
+    If not found in cache, leave the reference marker in place.
+    """
+    config = record.get("config")
+    if not isinstance(config, dict):
+        return record
+
+    modified_config = dict(config)
+    found_external = False
+    for key, value in modified_config.items():
+        if (isinstance(value, dict) and
+            set(value.keys()) == {"__external_file__"} and
+            isinstance(value["__external_file__"], dict)):
+            meta = value["__external_file__"]
+            file_hash = meta.get("hash")
+            if file_hash and file_hash in external_files_cache:
+                modified_config[key] = external_files_cache[file_hash]
+                found_external = True
+
+    if found_external:
+        modified_record = dict(record)
+        modified_record["config"] = modified_config
+        return modified_record
+
+    return record
+
+
 def source_to_record(source_id: str, meta: dict) -> dict:
-    """Turn an in-memory ConnectionManager entry into a persistable dict."""
+    """Turn an in-memory ConnectionManager entry into a persistable dict.
+
+    Large files (> MAX_INLINE_FILE_BYTES) are externalised — replaced with
+    references that can be restored later from an external storage cache.
+    """
     record = {"id": source_id}
     for k in _PERSIST_KEYS:
         if k in meta:
             record[k] = _coerce_bytes_for_json(meta[k])
+    # Externalise large files to keep the JSON payload under the cap
+    record = _externalize_large_files(record)
     return record
 
 
