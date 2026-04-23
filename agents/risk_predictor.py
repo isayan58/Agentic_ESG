@@ -54,6 +54,10 @@ class RiskPredictorAgent(BaseAgent):
             climate_risks, rating_prediction, supplier_risks
         )
 
+        risk_recommendations = self._generate_risk_recommendations(
+            climate_risks, rating_prediction, supplier_risks, market_regime, downside_protection
+        )
+
         results = {
             "climate_risks": climate_risks,
             "rating_prediction": rating_prediction,
@@ -61,6 +65,7 @@ class RiskPredictorAgent(BaseAgent):
             "scenarios": scenarios,
             "market_regime": market_regime,
             "downside_protection": downside_protection,
+            "risk_recommendations": risk_recommendations,
             "narrative": narrative,
             "overall_risk_score": climate_risks["overall_score"],
         }
@@ -273,7 +278,23 @@ class RiskPredictorAgent(BaseAgent):
             f"High-risk suppliers: {supplier_risks['high_risk_count']}/{supplier_risks.get('total_suppliers', 0)}. "
             f"Provide key insights and recommendations."
         )
-        return self.hf.generate_text(prompt)
+        raw = self.hf.generate_text(prompt)
+        bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return bullets if bullets else [raw.strip()]
+
+    def _generate_risk_recommendations(self, climate_risks, rating_prediction, supplier_risks, market_regime, downside_protection):
+        prompt = (
+            f"You are an ESG risk strategist. Provide 4 prioritized recommendations for {company_cfg.company_name} "
+            f"based on climate risk, rating prediction, supplier risks, market regime, and downside protection. "
+            f"Overall risk score: {climate_risks['overall_score']}/100 ({climate_risks['overall_level']}). "
+            f"Predicted ESG rating: {rating_prediction['predicted']}. "
+            f"High-risk suppliers: {supplier_risks.get('high_risk_count', 0)}. "
+            f"Market regime: {market_regime.get('regime', 'Unknown')}. "
+            f"Downside protection score: {downside_protection.get('score', 0)}."
+        )
+        raw = self.hf.generate_text(prompt, max_tokens=260)
+        bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return bullets if bullets else [raw.strip()]
 
     def _multi_agency_ratings(self, met_pct, pillar_scores):
         """Predict ratings across MSCI, Sustainalytics, and CDP-style scales."""

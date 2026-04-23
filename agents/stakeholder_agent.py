@@ -76,11 +76,14 @@ class StakeholderAgent(BaseAgent):
         # J-Curve expectation framing (H6)
         j_curve_framing = self._frame_j_curve(roi_results)
 
+        distribution_plan = self._generate_distribution_plan(communications, context)
+
         results = {
             "communications": communications,
             "performance_summary": perf_summary,
             "business_case": business_case,
             "j_curve_framing": j_curve_framing,
+            "distribution_plan": distribution_plan,
             "audiences": list(AUDIENCE_PROFILES.keys()),
             "context_data": context,
         }
@@ -276,3 +279,11 @@ class StakeholderAgent(BaseAgent):
             f"ESG rating: {context['esg_rating']}."
         )
         return self.hf.generate_text(prompt, max_tokens=150)
+
+    def _generate_distribution_plan(self, communications, context):
+        prompt = (
+            f"You are an ESG communications strategist. Recommend the best distribution channels and messaging cadence for {context['company_name']}. "
+            f"Use the audience profiles: Investors, Regulators, Employees, and Public. "
+            f"Include one outreach tactic for each audience and mention the ideal timing relative to the report release."
+        )
+        return self.hf.generate_text(prompt, max_tokens=220)

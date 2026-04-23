@@ -40,7 +40,7 @@ hero(
         "9 Agents · Orchestrated",
         "Shared-state pub/sub",
         "BRSR · CSRD · GRI · SASB",
-        "Always-on monitoring",
+        "AI-generated reports, dashboards, and insights",
     ],
 )
 
@@ -209,6 +209,7 @@ if st.session_state.pipeline_results:
     reg_res = results.get("regulatory_tracker", {})
     action_res = results.get("action_agent", {})
     report_res = results.get("report_generator", {})
+    stakeholder_res = results.get("stakeholder_agent", {})
     kpi_res = roi_res.get("kpi_engine", {})
     fin_summary = kpi_res.get("financial_summary", {})
     cagr = kpi_res.get("cagr", {})
@@ -285,6 +286,78 @@ if st.session_state.pipeline_results:
                 scores = {fw: d["compliance_pct"] for fw, d in reg_res["framework_results"].items()}
                 fig = compliance_radar(scores)
                 render_chart(fig)
+
+        report_recommendations = report_res.get("recommended_reports", []) if report_res else []
+        actionable_insights = report_res.get("actionable_insights", []) if report_res else []
+        dashboard_templates = report_res.get("dashboard_templates", {}) if report_res else {}
+
+        if report_recommendations or actionable_insights or dashboard_templates:
+            section_header("AI-Generated Report Intelligence",
+                           "What the Report Generator produced for this pipeline run.")
+            if report_recommendations:
+                st.markdown("**Recommended Report Pack**")
+                for item in report_recommendations[:5]:
+                    st.markdown(f"- {item}")
+            if actionable_insights:
+                st.markdown("**Key Insights from the Report Generator**")
+                for insight in actionable_insights:
+                    st.markdown(f"- {insight}")
+            if dashboard_templates:
+                with st.expander("Sample BI / Dashboard Templates", expanded=False):
+                    st.markdown(dashboard_templates.get("summary", ""))
+                    if dashboard_templates.get("power_bi"):
+                        st.markdown("##### Power BI Template")
+                        st.markdown(dashboard_templates.get("power_bi"))
+                    if dashboard_templates.get("quicksight"):
+                        st.markdown("##### QuickSight Template")
+                        st.markdown(dashboard_templates.get("quicksight"))
+
+        data_quality_summary = data_res.get("data_quality_summary", [])
+        regulatory_action_plan = reg_res.get("regulatory_action_plan", [])
+        carbon_insights = carbon_res.get("carbon_insights", [])
+        risk_recommendations = risk_res.get("risk_recommendations", [])
+        audit_recommendations = audit_res.get("audit_recommendations", [])
+        roi_recommendations = roi_res.get("roi_recommendations", [])
+        distribution_plan = stakeholder_res.get("distribution_plan", "")
+
+        if (
+            data_quality_summary
+            or regulatory_action_plan
+            or carbon_insights
+            or risk_recommendations
+            or audit_recommendations
+            or roi_recommendations
+            or distribution_plan
+        ):
+            section_header("Agentic Intelligence Summaries",
+                           "Cross-agent recommendations, insights, and operational plans.")
+            if data_quality_summary:
+                st.markdown("**Data Quality Summary**")
+                for item in data_quality_summary[:4]:
+                    st.markdown(f"- {item}")
+            if regulatory_action_plan:
+                st.markdown("**Regulatory Action Plan**")
+                for item in regulatory_action_plan[:4]:
+                    st.markdown(f"- {item}")
+            if carbon_insights:
+                st.markdown("**Carbon Accounting Insights**")
+                for item in carbon_insights[:4]:
+                    st.markdown(f"- {item}")
+            if risk_recommendations:
+                st.markdown("**Risk Recommendations**")
+                for item in risk_recommendations[:4]:
+                    st.markdown(f"- {item}")
+            if audit_recommendations:
+                st.markdown("**Audit Recommendations**")
+                for item in audit_recommendations[:4]:
+                    st.markdown(f"- {item}")
+            if roi_recommendations:
+                st.markdown("**ROI Recommendations**")
+                for item in roi_recommendations[:4]:
+                    st.markdown(f"- {item}")
+            if distribution_plan:
+                st.markdown("**Stakeholder Distribution Plan**")
+                st.markdown(distribution_plan)
 
         # Actions summary
         if action_res and "actions" in action_res:
