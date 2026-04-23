@@ -63,6 +63,7 @@ from agents.audit_agent import AuditAgent
 from agents.action_agent import ActionAgent
 from agents.stakeholder_agent import StakeholderAgent
 from core.orchestrator import Orchestrator
+from utils.feedback_store import save_feedback
 
 # Initialize agents
 orchestrator = Orchestrator()
@@ -877,13 +878,19 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
                 framework_output = gr.Markdown()
             with gr.Tab("Audit Trail"):
                 audit_output = gr.Markdown()
+            with gr.Tab("BI Templates"):
+                bi_output = gr.Markdown()
+            with gr.Tab("Insights"):
+                insights_output = gr.Markdown()
+            with gr.Tab("Agent Intelligence"):
+                agent_output = gr.Markdown()
 
-        def run_report(rtype):
+        def run_report(rtype, state):
             agent = orchestrator.get_agent("report_generator")
             results = agent.run()
             if "error" in results:
                 err = f"Error: {results['error']}"
-                return err, err, err, err
+                return err, err, err, err, err, err, err, {}
 
             # ── Build report text based on type ──
             report = ""
@@ -1060,10 +1067,75 @@ with gr.Blocks(title="ESG CoPilot", theme=gr.themes.Soft()) as demo:
             else:
                 audit_text = "*No audit trail available. Run the full pipeline for complete provenance tracking.*"
 
-            return report, metrics_text, framework_text, audit_text
+            dashboard_templates = results.get("dashboard_templates", {})
+            bi_text = ""
+            if dashboard_templates:
+                bi_text += dashboard_templates.get("summary", "") + "\n\n"
+                if dashboard_templates.get("power_bi"):
+                    bi_text += "### Power BI Template\n" + dashboard_templates.get("power_bi") + "\n\n"
+                if dashboard_templates.get("quicksight"):
+                    bi_text += "### QuickSight Template\n" + dashboard_templates.get("quicksight") + "\n"
 
-        btn.click(run_report, inputs=[report_type],
-                  outputs=[report_output, metrics_output, framework_output, audit_output])
+            insights = results.get("actionable_insights", [])
+            insights_text = "\n".join(f"- {i}" for i in insights) if insights else "No insights available."
+
+            agent_text = []
+            for key, label in [
+                ("data_quality_summary", "Data Quality Summary"),
+                ("regulatory_action_plan", "Regulatory Action Plan"),
+                ("carbon_insights", "Carbon Insights"),
+                ("risk_recommendations", "Risk Recommendations"),
+                ("audit_recommendations", "Audit Recommendations"),
+                ("roi_recommendations", "ROI Recommendations"),
+            ]:
+                items = results.get(key, [])
+                if items:
+                    agent_text.append(f"## {label}")
+                    agent_text.extend(f"- {item}" for item in items[:5])
+            distribution_plan = results.get("distribution_plan", "")
+            if distribution_plan:
+                agent_text.append("## Stakeholder Distribution Plan")
+                agent_text.append(distribution_plan)
+            if not agent_text:
+                agent_text = ["No agent intelligence available. Run the full pipeline first."]
+
+            # Save the latest results into state so feedback can attach to them.
+            state = {
+                "results": results,
+                "report_type": rtype,
+            }
+            return report, metrics_text, framework_text, audit_text, bi_text, insights_text, "\n\n".join(agent_text), state
+
+        btn.click(
+            run_report,
+            inputs=[report_type, report_state],
+            outputs=[report_output, metrics_output, framework_output, audit_output, bi_output, insights_output, agent_output, report_state],
+        )
+
+        def submit_feedback(rating, comment, state):
+            if not state or "results" not in state:
+                return "Run a report first to submit feedback."
+            save_feedback(
+                {
+                    "report_title": state["results"].get("report_title"),
+                    "company": state["results"].get("company", {}).get("company_name"),
+                    "rating": rating,
+                    "comment": comment,
+                    "report_type": state.get("report_type", "Gradio Report Generator"),
+                    "executive_summary": state["results"].get("executive_summary", ""),
+                    "recommended_reports": state["results"].get("recommended_reports", []),
+                    "actionable_insights": state["results"].get("actionable_insights", []),
+                    "dashboard_templates": state["results"].get("dashboard_templates", {}),
+                },
+                username=None,
+            )
+            return "Thanks — feedback has been recorded."
+
+        gr.Button("Submit Feedback", variant="secondary").click(
+            submit_feedback,
+            inputs=[feedback_rating, feedback_comment, report_state],
+            outputs=[feedback_status],
+        )
 
     with gr.Tab("🔌 Enterprise Connectors"):
         gr.Markdown("Connect to ERP, HR, IoT, Supplier Portal, SQL, and API data sources.")

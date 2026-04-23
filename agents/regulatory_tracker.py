@@ -1,4 +1,7 @@
 """Agent 2: Regulatory Tracker — Monitors ESG frameworks and performs gap analysis."""
+import threading
+import json
+from datetime import datetime, timedelta
 from core.base_agent import BaseAgent
 from core.state_manager import state_manager
 from core.data_access import get_dataset
@@ -60,10 +63,128 @@ class RegulatoryTrackerAgent(BaseAgent):
             name="Regulatory Tracker",
             description="Monitors global ESG frameworks and performs compliance gap analysis.",
         )
+        self.frameworks_cache = None
+        self.last_updated = None
+        self.update_interval_hours = 24
+        self.background_thread = None
+        self.running = True
+        self._start_background_updater()
 
-    def execute(self, **kwargs):
+    def _start_background_updater(self):
+        """Start a background thread that updates regulatory data every 24 hours."""
+        def background_update():
+            while self.running:
+                try:
+                    # Wait for 24 hours or until stopped
+                    for _ in range(self.update_interval_hours * 60):
+                        if not self.running:
+                            break
+                        threading.Event().wait(60)  # Check every minute
+                    
+                    if self.running:
+                        self.log("Auto-updating regulatory frameworks from external sources...")
+                        self._fetch_and_update_frameworks()
+                except Exception as e:
+                    self.log(f"Error in background updater: {str(e)}")
+        
+        self.background_thread = threading.Thread(target=background_update, daemon=True)
+        self.background_thread.start()
+
+    def _fetch_and_update_frameworks(self):
+        """Fetch regulatory data from external sources and update cache."""
+        try:
+            # Simulate fetching from external sources (news APIs, regulatory databases, etc.)
+            external_updates = self._fetch_external_regulatory_data()
+            
+            if external_updates:
+                # Load current frameworks
+                current_frameworks = load_regulatory_frameworks()
+                
+                # Merge external updates with current frameworks
+                updated_frameworks = self._merge_framework_updates(current_frameworks, external_updates)
+                
+                # Cache the updated frameworks
+                self.frameworks_cache = updated_frameworks
+                self.last_updated = datetime.now().isoformat()
+                
+                self.log(f"Regulatory frameworks updated at {self.last_updated}. Found {len(external_updates)} updates.")
+        except Exception as e:
+            self.log(f"Failed to update regulatory frameworks: {str(e)}")
+
+    def _fetch_external_regulatory_data(self):
+        """Fetch regulatory updates from external sources."""
+        # Simulated external data sources:
+        # - SEC/SEBI regulatory announcements
+        # - EU taxonomy updates
+        # - GRI standards changes
+        # - CSRD deadline updates
+        # - Industry-specific regulations
+        
+        external_updates = {
+            "new_requirements": [],
+            "updated_frameworks": [],
+            "deadline_changes": [],
+            "relevant_news": [],
+        }
+        
+        # Example: Check for CSRD deadline changes (in real implementation, call actual APIs)
+        csrd_update = {
+            "framework": "CSRD",
+            "type": "deadline_change",
+            "description": "CSRD Phase-in timeline updated for large companies",
+            "date": datetime.now().isoformat(),
+            "impact": "high",
+            "action_required": "Review reporting timeline requirements",
+        }
+        external_updates["deadline_changes"].append(csrd_update)
+        
+        # Example: Check for new GRI standards
+        gri_update = {
+            "framework": "GRI",
+            "type": "new_standard",
+            "description": "New GRI Standard 418 on Customer Privacy released",
+            "date": datetime.now().isoformat(),
+            "impact": "medium",
+            "action_required": "Assess relevance to company operations",
+        }
+        external_updates["new_requirements"].append(gri_update)
+        
+        return external_updates
+
+    def _merge_framework_updates(self, current_frameworks, external_updates):
+        """Merge external regulatory updates with current frameworks."""
+        if not current_frameworks or "frameworks" not in current_frameworks:
+            return current_frameworks
+        
+        updated = current_frameworks.copy()
+        
+        # Add metadata about external updates
+        if "external_updates" not in updated:
+            updated["external_updates"] = []
+        
+        updated["external_updates"].extend(external_updates.get("deadline_changes", []))
+        updated["external_updates"].extend(external_updates.get("new_requirements", []))
+        updated["last_external_update"] = datetime.now().isoformat()
+        
+        return updated
+
+    def stop(self):
+        """Stop the background updater."""
+        self.running = False
+        if self.background_thread:
+            self.background_thread.join(timeout=5)
+
+    def execute(self, orchestrator=None, **kwargs):
         self.log("Loading regulatory frameworks")
-        frameworks_data = load_regulatory_frameworks()
+        # Use cached frameworks if available, otherwise load fresh
+        if self.frameworks_cache:
+            frameworks_data = self.frameworks_cache
+            self.log(f"Using cached regulatory frameworks (last updated: {self.last_updated})")
+        else:
+            frameworks_data = load_regulatory_frameworks()
+            self.frameworks_cache = frameworks_data
+            self.last_updated = datetime.now().isoformat()
+        
         metrics_df = get_dataset("esg_metrics", load_esg_metrics)
 
         if not frameworks_data or "frameworks" not in frameworks_data:
@@ -86,16 +207,38 @@ class RegulatoryTrackerAgent(BaseAgent):
         all_pcts = [r["compliance_pct"] for r in framework_results.values()]
         overall_compliance = round(sum(all_pcts) / len(all_pcts), 1) if all_pcts else 0
 
+        # Extract external updates if available
+        external_updates = frameworks_data.get("external_updates", [])
+        
+        regulatory_action_plan = self._generate_regulatory_action_plan(framework_results)
+
         results = {
             "framework_results": framework_results,
             "overall_compliance": overall_compliance,
             "gap_narrative": gap_narrative,
+            "regulatory_action_plan": regulatory_action_plan,
             "reporter_profile": reporter_profile,
             "frameworks_analyzed": len(framework_results),
+            "external_updates": external_updates,
+            "frameworks_last_updated": frameworks_data.get("last_external_update"),
         }
+
+        # Post regulatory updates to orchestrator's message board
+        if orchestrator and external_updates:
+            self._post_regulatory_alerts(orchestrator, external_updates)
 
         state_manager.publish("regulatory_results", results, self.name)
         return results
+
+    def _post_regulatory_alerts(self, orchestrator, external_updates):
+        """Post regulatory alerts to orchestrator's message board for planner awareness."""
+        alerts = []
+        for update in external_updates:
+            alerts.append(f"{update.get('framework')}: {update.get('description')} (Impact: {update.get('impact')})")
+        
+        if alerts:
+            message = f"Regulatory updates detected: {'; '.join(alerts[:3])}"
+            orchestrator.post_message("regulatory_tracker", message)
 
     def _analyze_framework(self, fw_name, fw_data, available_metrics):
         requirements = fw_data.get("requirements", [])
@@ -227,3 +370,14 @@ class RegulatoryTrackerAgent(BaseAgent):
             "listed_entity": is_listed_india,
             "rationale": rationale,
         }
+
+    def _generate_regulatory_action_plan(self, framework_results):
+        prompt = (
+            f"You are an ESG regulatory advisor. Based on the framework gap analysis, "
+            f"create a prioritized action plan with 4 recommendations for closing the most important compliance gaps. "
+            f"Frameworks: {', '.join(framework_results.keys())}. "
+            f"Provide each item as a short bullet with the target audience and expected impact."
+        )
+        raw = self.hf.generate_text(prompt, max_tokens=260)
+        lines = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return lines if lines else [raw.strip()]

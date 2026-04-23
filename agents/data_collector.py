@@ -154,6 +154,9 @@ class DataCollectorAgent(BaseAgent):
         # ── Phase 7: Assign verifiable trust / confidence scoring ──
         confidence_scores = self._compute_confidence_scores(datasets, quality_scores)
 
+        # ── Phase 8: Generate AI-driven data quality summary ──
+        data_quality_summary = self._generate_data_quality_summary(quality_scores, self.missing_data_alerts)
+
         # Publish validated data to shared state
         for name, df in datasets.items():
             state_manager.publish(f"validated_{name}", df.to_dict(), self.name)
@@ -178,10 +181,23 @@ class DataCollectorAgent(BaseAgent):
             "connector_statuses": self.connector_statuses,
             "missing_data_alerts": self.missing_data_alerts,
             "confidence_scores": confidence_scores,
+            "data_quality_summary": data_quality_summary,
         }
 
         state_manager.publish("data_collection_results", results, self.name)
         return results
+
+    def _generate_data_quality_summary(self, quality_scores, missing_data_alerts):
+        prompt = (
+            f"You are an ESG data quality analyst. Summarize the current data collection status "
+            f"for the company, including dataset completeness, confidence, and any missing or low-quality data alerts. "
+            f"Quality scores: {quality_scores}. "
+            f"Missing data alerts: {[alert['message'] for alert in missing_data_alerts]}. "
+            f"Provide 3 concise recommendations to improve the data foundation for ESG reporting."
+        )
+        raw = self.hf.generate_text(prompt, max_tokens=220)
+        bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return bullets if bullets else [raw.strip()]
 
     def _detect_missing_data(self, datasets, quality_scores):
         """Proactively detect gaps before they compromise reporting."""

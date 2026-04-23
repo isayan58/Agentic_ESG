@@ -5,7 +5,8 @@ from agents.report_generator import ReportGeneratorAgent
 from utils.charts import emissions_donut, compliance_radar, chart_unavailable_message
 from core.state_manager import state_manager
 from utils.streamlit_compat import safe_dataframe
-from utils.auth import require_login, sidebar_auth_widget
+from utils.auth import current_user, require_login, sidebar_auth_widget
+from utils.feedback_store import save_feedback
 from utils.ui import inject_global_css, pwc_header
 from utils.pipeline_refresh import data_freshness_caption
 
@@ -69,6 +70,71 @@ if results and "error" not in results:
     if carbon_data and "scope_totals_current" in carbon_data:
         fig = emissions_donut(carbon_data["scope_totals_current"])
         render_chart(fig)
+
+    st.markdown("---")
+
+    # Recommended report pack and insights
+    recommended_reports = results.get("recommended_reports", [])
+    if recommended_reports:
+        st.markdown("### Recommended Report Pack")
+        for item in recommended_reports:
+            st.markdown(f"- {item}")
+
+    actionable_insights = results.get("actionable_insights", [])
+    if actionable_insights:
+        st.markdown("### Key Insights")
+        for insight in actionable_insights:
+            st.markdown(f"- {insight}")
+
+    data_quality_summary = results.get("data_quality_summary", [])
+    if data_quality_summary:
+        st.markdown("### Data Quality Summary")
+        for item in data_quality_summary[:5]:
+            st.markdown(f"- {item}")
+
+    regulatory_action_plan = results.get("regulatory_action_plan", [])
+    if regulatory_action_plan:
+        st.markdown("### Regulatory Action Plan")
+        for item in regulatory_action_plan[:5]:
+            st.markdown(f"- {item}")
+
+    carbon_insights = results.get("carbon_insights", [])
+    if carbon_insights:
+        st.markdown("### Carbon Insights")
+        for item in carbon_insights[:5]:
+            st.markdown(f"- {item}")
+
+    risk_recommendations = results.get("risk_recommendations", [])
+    if risk_recommendations:
+        st.markdown("### Risk Recommendations")
+        for item in risk_recommendations[:5]:
+            st.markdown(f"- {item}")
+
+    audit_recommendations = results.get("audit_recommendations", [])
+    if audit_recommendations:
+        st.markdown("### Audit Recommendations")
+        for item in audit_recommendations[:5]:
+            st.markdown(f"- {item}")
+
+    roi_recommendations = results.get("roi_recommendations", [])
+    if roi_recommendations:
+        st.markdown("### ROI Recommendations")
+        for item in roi_recommendations[:5]:
+            st.markdown(f"- {item}")
+
+    distribution_plan = results.get("distribution_plan", "")
+    if distribution_plan:
+        st.markdown("### Stakeholder Distribution Plan")
+        st.markdown(distribution_plan)
+
+    dashboard_templates = results.get("dashboard_templates", {})
+    if dashboard_templates:
+        st.markdown("### Sample BI / Dashboard Templates")
+        st.markdown(dashboard_templates.get("summary", ""))
+        with st.expander("Power BI Template"):
+            st.markdown(dashboard_templates.get("power_bi", ""))
+        with st.expander("QuickSight Template"):
+            st.markdown(dashboard_templates.get("quicksight", ""))
 
     st.markdown("---")
 
@@ -158,3 +224,41 @@ tr:nth-child(even) {{ background: #f8f9fa; }}
 
     with col2:
         st.download_button("📥 Download HTML Report", report_html, "esg_report_2024.html", "text/html")
+
+    st.markdown("---")
+    st.markdown("### Help the tool learn")
+    st.markdown(
+        "Your feedback is saved to the feedback store and used to improve future report generation prompts."
+    )
+
+    rating = st.radio(
+        "How useful was this report?",
+        ["Excellent", "Good", "Average", "Poor"],
+        index=1,
+        horizontal=True,
+        key="report_feedback_rating",
+    )
+    comment = st.text_area(
+        "What should improve?",
+        key="report_feedback_comment",
+        height=120,
+    )
+
+    if st.button("Submit feedback", key="report_feedback_submit"):
+        user = current_user()
+        username = user.get("username") if user else "anonymous"
+        save_feedback(
+            {
+                "report_title": results.get("report_title"),
+                "company": results.get("company", {}).get("company_name"),
+                "rating": rating,
+                "comment": comment,
+                "report_type": "Streamlit Report Generator",
+                "executive_summary": results.get("executive_summary", ""),
+                "recommended_reports": results.get("recommended_reports", []),
+                "actionable_insights": results.get("actionable_insights", []),
+                "dashboard_templates": results.get("dashboard_templates", {}),
+            },
+            username=username,
+        )
+        st.success("Thanks — your feedback has been recorded.")

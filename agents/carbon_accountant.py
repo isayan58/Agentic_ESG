@@ -82,6 +82,10 @@ class CarbonAccountantAgent(BaseAgent):
             total_current, yoy_change, scope_totals_current
         )
 
+        carbon_insights = self._generate_carbon_insights(
+            scope_totals_current, yoy_change, hotspots, carbon_intensity, cost_linkage, carbon_tax_risk
+        )
+
         results = {
             "scope_totals_current": scope_totals_current,
             "scope_totals_previous": scope_totals_previous,
@@ -97,6 +101,7 @@ class CarbonAccountantAgent(BaseAgent):
             "cost_linkage": cost_linkage,
             "carbon_tax_risk": carbon_tax_risk,
             "narrative": narrative,
+            "carbon_insights": carbon_insights,
             "reporting_year": current_fy,
         }
 
@@ -226,4 +231,21 @@ class CarbonAccountantAgent(BaseAgent):
             f"Top supply chain hotspots: {hotspot_names}. "
             f"Provide analysis and key insights."
         )
-        return self.hf.generate_text(prompt)
+        raw = self.hf.generate_text(prompt)
+        bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return bullets if bullets else [raw.strip()]
+
+    def _generate_carbon_insights(self, scope_totals, yoy_change, hotspots, carbon_intensity, cost_linkage, carbon_tax_risk):
+        prompt = (
+            f"You are a carbon accounting advisor. Summarize the most important carbon insights for {company_cfg.company_name}. "
+            f"Total Scope 1: {scope_totals.get('Scope 1', 0)} tCO2e, Scope 2: {scope_totals.get('Scope 2', 0)} tCO2e, "
+            f"Scope 3: {scope_totals.get('Scope 3', 0)} tCO2e. YoY change: {yoy_change}%. "
+            f"Carbon intensity: {carbon_intensity} tCO2e per $M. "
+            f"Top hotspots: {', '.join(h['supplier'] for h in hotspots[:3]) if hotspots else 'none identified'}. "
+            f"Cost linkage and carbon tax risk: {cost_linkage.get('total_cost_saving_cr', 0)} Cr savings, "
+            f"current exposure INR {carbon_tax_risk.get('current_domestic_exposure_cr', 0)} Cr. "
+            f"Provide 3 quick insights and one mitigation recommendation."
+        )
+        raw = self.hf.generate_text(prompt, max_tokens=260)
+        bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
+        return bullets if bullets else [raw.strip()]
