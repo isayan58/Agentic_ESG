@@ -321,7 +321,10 @@ if st.session_state.pipeline_results:
                 st.markdown("**Recommended Report Pack**")
                 for item in report_recommendations[:5]:
                     st.markdown(f"- {item}")
-            if actionable_insights:
+            # Skip "Key Insights" if it's identical to the Report Pack — both
+            # prompts share the HuggingFace fallback, which can return the same
+            # generic narrative for both call sites.
+            if actionable_insights and actionable_insights != report_recommendations:
                 st.markdown("**Key Insights from the Report Generator**")
                 for insight in actionable_insights:
                     st.markdown(f"- {insight}")

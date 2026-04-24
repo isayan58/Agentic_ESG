@@ -223,10 +223,10 @@ def quality_bar(quality_scores):
         text=[f"{s}%" for s in scores],
         textposition="outside",
     ))
+    fig.update_layout(**LAYOUT_DEFAULTS)
     fig.update_layout(
         title="Data Quality Scores",
         xaxis=dict(range=[0, 105], title="Score (%)"),
-        **LAYOUT_DEFAULTS,
     )
     return fig
 
@@ -259,12 +259,12 @@ def supplier_risk_heatmap(suppliers_df):
         text=suppliers_df["esg_score"],
         textposition="outside",
     ))
+    fig.update_layout(**LAYOUT_DEFAULTS)
     fig.update_layout(
         title="Supplier ESG Scores & Risk Ratings",
         xaxis_title="Supplier",
         yaxis_title="ESG Score",
         xaxis=dict(tickangle=-45),
-        **LAYOUT_DEFAULTS,
     )
     return fig
 
@@ -508,13 +508,13 @@ def enterprise_stack_layers():
             showlegend=False,
         ))
 
+    fig.update_layout(**LAYOUT_DEFAULTS)
     fig.update_layout(
         title="Enterprise Stack Architecture",
         xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
         yaxis=dict(autorange="reversed"),
         height=400,
         bargap=0.15,
-        **LAYOUT_DEFAULTS,
     )
     return fig
 
@@ -537,11 +537,11 @@ def connector_status_chart(statuses):
         text=[s["status"].capitalize() for s in statuses.values()],
         textposition="inside",
     ))
+    fig.update_layout(**LAYOUT_DEFAULTS)
     fig.update_layout(
         title="Enterprise Connector Status",
         xaxis=dict(range=[0, 110], title="Sync Health (%)"),
         height=300,
-        **LAYOUT_DEFAULTS,
     )
     return fig
 
@@ -573,12 +573,12 @@ def monitoring_timeline(alerts):
             hoverinfo="text",
         ))
 
+    fig.update_layout(**LAYOUT_DEFAULTS)
     fig.update_layout(
         title="24/7 Monitoring — Alert Timeline",
         yaxis=dict(tickvals=[1, 2, 3], ticktext=["Info", "Warning", "Critical"], range=[0.5, 3.5]),
         xaxis_title="Timestamp",
         height=300,
-        **LAYOUT_DEFAULTS,
     )
     return fig
 
@@ -597,12 +597,12 @@ def tier_comparison_chart():
     fig.add_trace(go.Bar(name="Professional", y=features, x=professional, orientation="h", marker_color=COLORS["warning"]))
     fig.add_trace(go.Bar(name="Enterprise", y=features, x=enterprise, orientation="h", marker_color=COLORS["accent"]))
 
+    fig.update_layout(**LAYOUT_DEFAULTS)
     fig.update_layout(
         title="Tier Comparison — Feature Coverage (%)",
         barmode="group",
         xaxis_title="Capability Level",
         height=350,
         legend=dict(orientation="h", y=1.12),
-        **LAYOUT_DEFAULTS,
     )
     return fig
