@@ -1,4 +1,4 @@
-"""React-backed UI helpers for ESG CoPilot Streamlit pages.
+"""React-backed UI helpers for ESG Pilot Streamlit pages.
 
 This module is the **single source of truth** for the product's design
 system. Every page imports from here and never touches Streamlit theming,
@@ -57,8 +57,8 @@ except Exception:  # pragma: no cover
 # ---------------------------------------------------------------------------
 TOKENS = {
     # Brand palette — PwC orange family
-    "brand_primary": "#D04A02",
-    "brand_primary_dark": "#A23A02",
+    "brand_primary": "#FD5108",
+    "brand_primary_dark": "#C23A00",
     "brand_accent": "#E0301E",
     "brand_warn": "#FFB600",
     "brand_danger": "#C8102E",
@@ -145,8 +145,8 @@ _TOKEN_CSS = f"""
     --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
     --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.12), 0 4px 10px rgba(15, 23, 42, 0.06);
     --shadow-xl: 0 24px 48px rgba(15, 23, 42, 0.16), 0 8px 16px rgba(15, 23, 42, 0.08);
-    --shadow-brand: 0 8px 22px rgba(208, 74, 2, 0.20);
-    --ring-focus: 0 0 0 3px rgba(208, 74, 2, 0.35);
+    --shadow-brand: 0 8px 22px rgba(253, 81, 8, 0.20);
+    --ring-focus: 0 0 0 3px rgba(253, 81, 8, 0.35);
     --ring-focus-info: 0 0 0 3px rgba(37, 99, 235, 0.35);
 
     /* Motion --------------------------------------------------------- */
@@ -221,7 +221,7 @@ _STATIC_CSS = """
 /* App shell ----------------------------------------------------------- */
 .stApp {
     background:
-        radial-gradient(1100px 360px at 12% -4%,   rgba(208, 74, 2, 0.14), transparent 65%),
+        radial-gradient(1100px 360px at 12% -4%,   rgba(253, 81, 8, 0.14), transparent 65%),
         radial-gradient(1000px 340px at 88% -4%,   rgba(255, 182, 0, 0.12), transparent 65%),
         radial-gradient(720px 540px at 50% 120%,   rgba(224, 48, 30, 0.07), transparent 70%),
         linear-gradient(180deg, #fffaf4 0%, #ffffff 32%, #ffffff 100%) !important;
@@ -230,8 +230,8 @@ _STATIC_CSS = """
 .stApp::before {
     content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
     background-image:
-        linear-gradient(to right,  rgba(208, 74, 2, 0.04) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(208, 74, 2, 0.04) 1px, transparent 1px);
+        linear-gradient(to right,  rgba(253, 81, 8, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(253, 81, 8, 0.04) 1px, transparent 1px);
     background-size: 56px 56px;
     mask-image: radial-gradient(1200px 600px at 50% 0%, rgba(0,0,0,0.75), transparent 70%);
     -webkit-mask-image: radial-gradient(1200px 600px at 50% 0%, rgba(0,0,0,0.75), transparent 70%);
@@ -239,9 +239,55 @@ _STATIC_CSS = """
 [data-testid="stAppViewContainer"] { background: transparent !important; position: relative; z-index: 1; }
 [data-testid="stHeader"] { background: transparent !important; backdrop-filter: blur(8px); }
 [data-testid="stSidebar"] > div:first-child {
-    background: linear-gradient(180deg, var(--surface-muted) 0%, #ffffff 80%) !important;
+    background: linear-gradient(180deg, #ffffff 0%, var(--surface-muted) 85%) !important;
     border-right: 1px solid var(--border);
+    box-shadow: inset -1px 0 0 rgba(253, 81, 8, 0.06);
 }
+
+/* Sidebar nav — pill-style page links with orange active state -------- */
+[data-testid="stSidebarNav"] ul { padding: var(--space-2) var(--space-2); }
+[data-testid="stSidebarNav"] ul li { margin: 2px 0; }
+[data-testid="stSidebarNav"] a {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: 10px var(--space-3) !important;
+    border-radius: var(--radius-md) !important;
+    color: var(--text-secondary) !important;
+    font-weight: 500 !important;
+    font-family: var(--font-body) !important;
+    letter-spacing: -0.005em;
+    border: 1px solid transparent;
+    transition:
+        background var(--dur-base) var(--ease-standard),
+        color var(--dur-base) var(--ease-standard),
+        border-color var(--dur-base) var(--ease-standard),
+        transform var(--dur-fast) var(--ease-standard),
+        box-shadow var(--dur-base) var(--ease-standard);
+}
+[data-testid="stSidebarNav"] a:hover {
+    background: linear-gradient(135deg, rgba(253, 81, 8, 0.08), rgba(255, 182, 0, 0.10)) !important;
+    color: var(--pwc-orange-dark) !important;
+    border-color: rgba(253, 81, 8, 0.18);
+    transform: translateX(2px);
+}
+[data-testid="stSidebarNav"] a[aria-current="page"],
+[data-testid="stSidebarNav"] a[aria-selected="true"],
+[data-testid="stSidebarNav"] a.st-emotion-cache-active,
+[data-testid="stSidebarNav"] li[aria-current="page"] > a,
+[data-testid="stSidebarNav"] li[aria-selected="true"] > a {
+    background: linear-gradient(135deg, var(--pwc-orange) 0%, var(--pwc-tomato) 100%) !important;
+    color: #fff !important;
+    border-color: rgba(194, 58, 0, 0.35);
+    box-shadow:
+        0 8px 20px rgba(253, 81, 8, 0.30),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    font-weight: 600 !important;
+}
+[data-testid="stSidebarNav"] a[aria-current="page"]:hover,
+[data-testid="stSidebarNav"] li[aria-current="page"] > a:hover {
+    background: linear-gradient(135deg, var(--pwc-orange-dark) 0%, var(--pwc-tomato) 100%) !important;
+    transform: translateX(2px);
+}
+[data-testid="stSidebarNav"] span, [data-testid="stSidebarNav"] p { font-weight: inherit !important; }
 
 /* Typography ---------------------------------------------------------- */
 html, body, .stApp,
@@ -363,10 +409,35 @@ div.stButton > button[kind="primary"]::after {
 div.stButton > button[kind="primary"]:hover:not(:disabled) {
     transform: translateY(-1px);
     background-position: 100% 0%;
-    box-shadow: 0 14px 32px rgba(208, 74, 2, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    box-shadow: 0 14px 32px rgba(253, 81, 8, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 div.stButton > button[kind="primary"]:hover:not(:disabled)::after {
     transform: translateX(120%);
+}
+div.stButton > button[kind="primary"]:active:not(:disabled) {
+    transform: translateY(0);
+    background: linear-gradient(135deg, var(--pwc-orange-dark) 0%, #7c2d00 100%);
+    box-shadow: 0 4px 10px rgba(194, 58, 0, 0.45), inset 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+div.stButton > button[kind="secondary"] {
+    transition:
+        transform var(--dur-fast) var(--ease-standard),
+        background var(--dur-base) var(--ease-standard),
+        border-color var(--dur-base) var(--ease-standard),
+        color var(--dur-base) var(--ease-standard),
+        box-shadow var(--dur-base) var(--ease-standard);
+}
+div.stButton > button[kind="secondary"]:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(253, 81, 8, 0.08), rgba(255, 182, 0, 0.10)) !important;
+    border-color: var(--pwc-orange) !important;
+    color: var(--pwc-orange-dark) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(253, 81, 8, 0.14);
+}
+div.stButton > button[kind="secondary"]:active:not(:disabled) {
+    background: linear-gradient(135deg, rgba(253, 81, 8, 0.18), rgba(255, 182, 0, 0.20)) !important;
+    transform: translateY(0);
+    box-shadow: inset 0 2px 4px rgba(194, 58, 0, 0.15);
 }
 div.stButton > button[kind="primary"]:active:not(:disabled) {
     transform: translateY(0); box-shadow: var(--shadow-sm);
@@ -426,7 +497,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
 .esg-hero {
     position: relative;
     background:
-        radial-gradient(1200px 380px at 0% 0%,   rgba(208, 74, 2, 0.18), transparent 60%),
+        radial-gradient(1200px 380px at 0% 0%,   rgba(253, 81, 8, 0.18), transparent 60%),
         radial-gradient(1000px 360px at 100% 0%, rgba(255, 182, 0, 0.16), transparent 60%),
         radial-gradient(700px 280px at 50% 120%, rgba(224, 48, 30, 0.10), transparent 70%),
         linear-gradient(180deg, #fffaf4 0%, #ffffff 100%);
@@ -438,13 +509,13 @@ button[data-baseweb="tab"][aria-selected="true"] {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.8),
         0 1px 2px rgba(15, 23, 42, 0.04),
-        0 24px 60px rgba(208, 74, 2, 0.12);
+        0 24px 60px rgba(253, 81, 8, 0.12);
 }
 .esg-hero::before {
     content: ""; position: absolute; inset: -40% -10% auto -10%; height: 80%;
     pointer-events: none; z-index: 0;
     background:
-        radial-gradient(360px 220px at 18% 40%, rgba(208, 74, 2, 0.22), transparent 70%),
+        radial-gradient(360px 220px at 18% 40%, rgba(253, 81, 8, 0.22), transparent 70%),
         radial-gradient(380px 220px at 82% 30%, rgba(255, 182, 0, 0.22), transparent 70%),
         radial-gradient(320px 200px at 52% 80%, rgba(224, 48, 30, 0.18), transparent 70%);
     filter: blur(10px);
@@ -453,8 +524,8 @@ button[data-baseweb="tab"][aria-selected="true"] {
 .esg-hero::after {
     content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
     background-image:
-        linear-gradient(to right,  rgba(208, 74, 2, 0.05) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(208, 74, 2, 0.05) 1px, transparent 1px);
+        linear-gradient(to right,  rgba(253, 81, 8, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(253, 81, 8, 0.05) 1px, transparent 1px);
     background-size: 48px 48px;
     mask-image: radial-gradient(700px 320px at 50% 40%, rgba(0,0,0,0.35), transparent 75%);
     -webkit-mask-image: radial-gradient(700px 320px at 50% 40%, rgba(0,0,0,0.35), transparent 75%);
@@ -494,27 +565,27 @@ button[data-baseweb="tab"][aria-selected="true"] {
     padding: 6px var(--space-4); border-radius: var(--radius-pill);
     background: rgba(255, 255, 255, 0.72);
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(208, 74, 2, 0.30);
+    border: 1px solid rgba(253, 81, 8, 0.30);
     color: var(--pwc-orange-dark);
     font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em;
     text-transform: uppercase; margin-bottom: var(--space-4);
-    box-shadow: 0 4px 14px rgba(208, 74, 2, 0.14);
+    box-shadow: 0 4px 14px rgba(253, 81, 8, 0.14);
 }
 .esg-hero .esg-eyebrow-dot {
     width: 7px; height: 7px; border-radius: 50%;
     background: var(--pwc-orange);
-    box-shadow: 0 0 0 3px rgba(208, 74, 2, 0.22);
+    box-shadow: 0 0 0 3px rgba(253, 81, 8, 0.22);
     animation: esg-pulse 2.4s var(--ease-standard) infinite;
 }
 .esg-hero .esg-chip {
     background: rgba(255, 255, 255, 0.78);
     backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-    border-color: rgba(208, 74, 2, 0.22);
+    border-color: rgba(253, 81, 8, 0.22);
     font-weight: 600;
 }
 .esg-hero .esg-chip:hover {
-    border-color: rgba(208, 74, 2, 0.45);
-    box-shadow: 0 6px 18px rgba(208, 74, 2, 0.14);
+    border-color: rgba(253, 81, 8, 0.45);
+    box-shadow: 0 6px 18px rgba(253, 81, 8, 0.14);
 }
 @media (max-width: 768px) {
     .esg-hero { padding: var(--space-6) var(--space-5); border-radius: var(--radius-lg); }
@@ -526,7 +597,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
     display: flex; align-items: center; justify-content: space-between;
     padding: var(--space-2) 0 var(--space-3) 0;
     margin-bottom: var(--space-2);
-    border-bottom: 1px solid rgba(208, 74, 2, 0.18);
+    border-bottom: 1px solid rgba(253, 81, 8, 0.18);
 }
 .pwc-header .pwc-header-brand { display: flex; align-items: center; gap: var(--space-3); }
 .pwc-header img.pwc-logo { height: 44px; width: auto; display: block; }
@@ -542,8 +613,50 @@ button[data-baseweb="tab"][aria-selected="true"] {
 .pwc-header .pwc-accent-bar {
     height: 4px; width: 64px; border-radius: var(--radius-pill);
     background: linear-gradient(90deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 100%);
-    box-shadow: 0 1px 4px rgba(208, 74, 2, 0.30);
+    box-shadow: 0 1px 4px rgba(253, 81, 8, 0.30);
 }
+
+/* PwC brand header — sidebar variant (navbar top) --------------------- */
+/* Renders at the top of the sidebar as the product's identity anchor.  */
+[data-testid="stSidebar"] .pwc-header-sidebar {
+    flex-direction: column; align-items: flex-start;
+    padding: var(--space-3) var(--space-3) var(--space-4) var(--space-3);
+    margin: 0 calc(var(--space-2) * -1) var(--space-3) calc(var(--space-2) * -1);
+    border-bottom: 1px solid rgba(253, 81, 8, 0.22);
+    background: linear-gradient(135deg, #ffffff 0%, var(--surface-muted) 100%);
+    box-shadow: 0 1px 0 rgba(253, 81, 8, 0.10);
+}
+[data-testid="stSidebar"] .pwc-header-sidebar .pwc-header-brand {
+    width: 100%;
+}
+[data-testid="stSidebar"] .pwc-header-sidebar img.pwc-logo {
+    height: 38px;
+}
+[data-testid="stSidebar"] .pwc-header-sidebar .pwc-header-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.15rem;
+    background: linear-gradient(135deg, var(--pwc-orange-dark) 0%, var(--pwc-orange) 45%, var(--pwc-amber) 120%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.025em;
+}
+[data-testid="stSidebar"] .pwc-header-sidebar .pwc-header-sub {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    margin-top: 3px;
+}
+[data-testid="stSidebar"] .pwc-header-sidebar .pwc-accent-bar {
+    margin-top: var(--space-3);
+    width: 48px; height: 3px;
+}
+/* Kill Streamlit's default top padding in the sidebar so our brand sits
+   flush at the very top of the navbar. */
+[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding-top: var(--space-2) !important; }
+[data-testid="stSidebar"] > div:first-child > div:first-child > div:first-child { padding-top: 0 !important; }
 
 /* Chips (status, info) ------------------------------------------------ */
 .esg-chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
@@ -555,7 +668,18 @@ button[data-baseweb="tab"][aria-selected="true"] {
     transition: transform var(--dur-fast) var(--ease-standard),
                 box-shadow var(--dur-fast) var(--ease-standard);
 }
-.esg-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow-xs); }
+.esg-chip:hover {
+    transform: translateY(-1px);
+    border-color: rgba(253, 81, 8, 0.45);
+    background: linear-gradient(135deg, rgba(253, 81, 8, 0.06), rgba(255, 182, 0, 0.08));
+    color: var(--pwc-orange-dark);
+    box-shadow: 0 6px 16px rgba(253, 81, 8, 0.12);
+}
+.esg-chip:active {
+    transform: translateY(0);
+    background: linear-gradient(135deg, rgba(253, 81, 8, 0.14), rgba(255, 182, 0, 0.16));
+    box-shadow: inset 0 2px 4px rgba(194, 58, 0, 0.12);
+}
 .esg-chip.status-running   { border-color: var(--status-running);   color: var(--status-running); background: rgba(224, 48, 30, 0.06); }
 .esg-chip.status-completed { border-color: var(--status-completed); color: var(--status-completed); background: rgba(46, 133, 64, 0.06); }
 .esg-chip.status-error     { border-color: var(--status-error);     color: var(--status-error); background: rgba(200, 16, 46, 0.06); }
@@ -576,7 +700,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
     content: ""; position: absolute; left: 0; bottom: -1px;
     width: 72px; height: 3px; border-radius: var(--radius-pill);
     background: linear-gradient(90deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 100%);
-    box-shadow: 0 2px 8px rgba(208, 74, 2, 0.35);
+    box-shadow: 0 2px 8px rgba(253, 81, 8, 0.35);
 }
 .esg-section .esg-section-title {
     font-family: var(--font-display);
@@ -627,8 +751,16 @@ button[data-baseweb="tab"][aria-selected="true"] {
                 border-color var(--dur-base) var(--ease-standard);
 }
 .esg-agent-card:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
+    box-shadow:
+        0 18px 36px rgba(253, 81, 8, 0.14),
+        0 2px 6px rgba(15, 23, 42, 0.05);
+    transform: translateY(-3px);
+    border-color: rgba(253, 81, 8, 0.30);
+    border-left-color: var(--pwc-orange) !important;
+}
+.esg-agent-card:active {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(253, 81, 8, 0.14), inset 0 2px 4px rgba(194, 58, 0, 0.08);
 }
 .esg-agent-card.status-running {
     border-color: var(--status-running);
@@ -688,6 +820,110 @@ button[data-baseweb="tab"][aria-selected="true"] {
     font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
 }
 .esg-live-badge .esg-status-dot { background: var(--pwc-success); animation: esg-pulse 1.6s infinite; }
+
+/* Top status strip (like the dashboard mockup's system-status row) ---- */
+.esg-statusbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    margin: 0 0 var(--space-5) 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background:
+        linear-gradient(90deg, rgba(255, 250, 244, 0.95) 0%, #ffffff 100%);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px rgba(253, 81, 8, 0.06);
+}
+.esg-statusbar .esg-statusbar-left {
+    display: flex; align-items: center; gap: var(--space-3); flex: 1; min-width: 0;
+}
+.esg-statusbar .esg-statusbar-right {
+    display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+}
+.esg-statusbar .esg-sb-search {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: 8px var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: #ffffff; color: var(--text-muted);
+    font-size: var(--text-sm); font-family: var(--font-body);
+    min-width: 260px; max-width: 420px; flex: 1;
+    transition: border-color var(--dur-base) var(--ease-standard),
+                box-shadow var(--dur-base) var(--ease-standard);
+}
+.esg-statusbar .esg-sb-search:hover {
+    border-color: var(--pwc-orange);
+    box-shadow: 0 4px 12px rgba(253, 81, 8, 0.10);
+}
+.esg-statusbar .esg-sb-search kbd {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    padding: 1px 6px; border-radius: var(--radius-xs);
+    border: 1px solid var(--border);
+    background: var(--surface-muted);
+    color: var(--text-muted);
+}
+.esg-statusbar .esg-sb-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px var(--space-3); border-radius: var(--radius-pill);
+    background: linear-gradient(135deg, rgba(46, 133, 64, 0.08), rgba(46, 133, 64, 0.14));
+    border: 1px solid rgba(46, 133, 64, 0.30);
+    color: var(--pwc-success);
+    font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.04em;
+    transition: transform var(--dur-fast) var(--ease-standard),
+                box-shadow var(--dur-base) var(--ease-standard);
+}
+.esg-statusbar .esg-sb-chip:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(46, 133, 64, 0.18);
+}
+.esg-statusbar .esg-sb-chip .esg-status-dot {
+    background: var(--pwc-success); animation: esg-pulse 1.8s infinite;
+}
+.esg-statusbar .esg-sb-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: var(--radius-md);
+    background: #ffffff; border: 1px solid var(--border);
+    color: var(--text-secondary); font-size: 1rem;
+    transition: background var(--dur-base) var(--ease-standard),
+                border-color var(--dur-base) var(--ease-standard),
+                transform var(--dur-fast) var(--ease-standard),
+                color var(--dur-base) var(--ease-standard);
+    cursor: pointer; position: relative;
+}
+.esg-statusbar .esg-sb-icon:hover {
+    background: linear-gradient(135deg, rgba(253, 81, 8, 0.08), rgba(255, 182, 0, 0.10));
+    border-color: var(--pwc-orange);
+    color: var(--pwc-orange-dark);
+    transform: translateY(-1px);
+}
+.esg-statusbar .esg-sb-icon .esg-sb-badge {
+    position: absolute; top: -4px; right: -4px;
+    min-width: 16px; height: 16px; padding: 0 4px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--pwc-orange), var(--pwc-tomato));
+    color: #fff; font-size: 10px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(253, 81, 8, 0.40);
+}
+.esg-statusbar .esg-sb-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--pwc-orange) 0%, var(--pwc-tomato) 60%, var(--pwc-amber) 120%);
+    color: #fff; font-weight: 700; font-family: var(--font-display);
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 14px rgba(253, 81, 8, 0.30), inset 0 1px 0 rgba(255,255,255,0.35);
+    transition: transform var(--dur-fast) var(--ease-standard),
+                box-shadow var(--dur-base) var(--ease-standard);
+    cursor: pointer;
+}
+.esg-statusbar .esg-sb-avatar:hover {
+    transform: translateY(-1px) scale(1.03);
+    box-shadow: 0 10px 22px rgba(253, 81, 8, 0.42);
+}
+@media (max-width: 900px) {
+    .esg-statusbar { flex-direction: column; align-items: stretch; }
+    .esg-statusbar .esg-sb-search { max-width: 100%; }
+}
 
 /* Activity log -------------------------------------------------------- */
 .esg-log-shell {
@@ -775,19 +1011,26 @@ def _pwc_logo_data_uri() -> str:
     return ""
 
 
-def pwc_header(product: str = "ESG CoPilot", tagline: str = "Powered by PwC India") -> None:
+def pwc_header(product: str = "ESG Pilot", tagline: str = "Powered by PwC India") -> None:
+    """Brand header — renders at the TOP of the sidebar (navbar).
+
+    Every page calls ``pwc_header()`` as part of its boot sequence. Rendering
+    into ``st.sidebar`` puts the PwC logo + product name + tagline at the top
+    of the navbar — the first thing clients see, consistent across all pages.
+    """
     inject_global_css()
     skip_link()
     logo_uri = _pwc_logo_data_uri()
     logo_html = f'<img class="pwc-logo" src="{logo_uri}" alt="PwC"/>' if logo_uri else ""
-    st.markdown(
-        f'<div class="pwc-header" role="banner">'
-        f'<div class="pwc-header-brand">{logo_html}'
-        f'<div class="pwc-header-text">'
-        f'<span class="pwc-header-title">{html.escape(product)}</span>'
-        f'<span class="pwc-header-sub">{html.escape(tagline)}</span>'
-        f'</div></div>'
-        f'<div class="pwc-accent-bar" aria-hidden="true"></div>'
+    st.sidebar.markdown(
+        f'<div class="pwc-header pwc-header-sidebar" role="banner">'
+        f'  <div class="pwc-header-brand">{logo_html}'
+        f'    <div class="pwc-header-text">'
+        f'      <span class="pwc-header-title">{html.escape(product)}</span>'
+        f'      <span class="pwc-header-sub">{html.escape(tagline)}</span>'
+        f'    </div>'
+        f'  </div>'
+        f'  <div class="pwc-accent-bar" aria-hidden="true"></div>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -799,6 +1042,408 @@ def skip_link(target_id: str = "main") -> None:
         f'<a class="esg-skip-link" href="#{html.escape(target_id)}">Skip to main content</a>',
         unsafe_allow_html=True,
     )
+
+
+def _derive_system_status(statuses: Optional[dict]) -> tuple[str, str, str]:
+    """Given a Mission-Control-style statuses dict, return (tone, label, icon).
+
+    tone ∈ {'idle','running','completed','error','warning'} — drives the pill
+    color via existing `status-*` classes. Label is the human copy.
+    """
+    if not statuses:
+        return "idle", "All systems ready", "●"
+    total = len(statuses)
+    running, completed, errored, warning = 0, 0, 0, 0
+    for v in statuses.values():
+        s = ((v or {}).get("status") or "idle").lower()
+        if s == "running":
+            running += 1
+        elif s == "completed":
+            completed += 1
+        elif s == "error":
+            errored += 1
+        elif s in ("warning", "skipped"):
+            warning += 1
+    if errored:
+        return "error", f"{errored} agent{'s' if errored != 1 else ''} errored · {total - errored} healthy", "⚠"
+    if running:
+        return "running", f"{running}/{total} agent{'s' if total != 1 else ''} running", "●"
+    if completed == total and total > 0:
+        return "completed", f"All {total} agents completed", "✓"
+    if warning:
+        return "warning", f"{warning} warning{'s' if warning != 1 else ''} · {total - warning} clean", "●"
+    return "idle", "All systems ready", "●"
+
+
+def statusbar(
+    *,
+    search_placeholder: str = "Search anything…",
+    statuses: Optional[dict] = None,
+    system_label: str = "System Status",
+    system_value: Optional[str] = None,
+    tone: Optional[str] = None,
+    notifications: int = 0,
+    avatar_initial: str = "S",
+) -> None:
+    """Render a top status strip — search + LIVE system pill + notif + avatar.
+
+    Pass ``statuses`` (same shape as Mission Control's ``orch.get_agent_statuses()``)
+    and the pill will automatically reflect live agent state: running counts,
+    errors, completions, or a neutral ready state. Animated pulse conveys
+    liveness. If ``statuses`` is omitted, ``system_value``/``tone`` can be
+    used for a static override.
+    """
+    inject_global_css()
+    if statuses is not None or system_value is None:
+        auto_tone, auto_value, _ = _derive_system_status(statuses)
+        final_tone = tone or auto_tone
+        final_value = system_value or auto_value
+    else:
+        final_tone = tone or "idle"
+        final_value = system_value
+
+    # Pill background + dot color per tone
+    tone_bg = {
+        "running":   "linear-gradient(135deg, rgba(224, 48, 30, 0.08), rgba(224, 48, 30, 0.16))",
+        "completed": "linear-gradient(135deg, rgba(46, 133, 64, 0.08), rgba(46, 133, 64, 0.16))",
+        "error":     "linear-gradient(135deg, rgba(200, 16, 46, 0.08), rgba(200, 16, 46, 0.18))",
+        "warning":   "linear-gradient(135deg, rgba(255, 182, 0, 0.10), rgba(255, 182, 0, 0.22))",
+        "idle":      "linear-gradient(135deg, rgba(46, 133, 64, 0.06), rgba(46, 133, 64, 0.14))",
+    }.get(final_tone, "linear-gradient(135deg, rgba(46, 133, 64, 0.06), rgba(46, 133, 64, 0.14))")
+    tone_fg = _STATUS_COLORS.get(final_tone, TOKENS["brand_success"])
+    tone_border = {
+        "running":   "rgba(224, 48, 30, 0.35)",
+        "completed": "rgba(46, 133, 64, 0.35)",
+        "error":     "rgba(200, 16, 46, 0.40)",
+        "warning":   "rgba(255, 182, 0, 0.45)",
+        "idle":      "rgba(46, 133, 64, 0.30)",
+    }.get(final_tone, "rgba(46, 133, 64, 0.30)")
+
+    badge = (
+        f'<span class="esg-sb-badge">{int(notifications)}</span>'
+        if notifications and notifications > 0 else ""
+    )
+    st.markdown(
+        f'''
+        <div class="esg-statusbar" role="region" aria-label="System chrome">
+            <div class="esg-statusbar-left">
+                <div class="esg-sb-search" role="search">
+                    <span aria-hidden="true">🔍</span>
+                    <span>{html.escape(search_placeholder)}</span>
+                    <kbd>⌘K</kbd>
+                </div>
+            </div>
+            <div class="esg-statusbar-right">
+                <span class="esg-sb-chip status-{html.escape(final_tone)}"
+                      role="status" aria-live="polite"
+                      style="background:{tone_bg}; color:{tone_fg}; border-color:{tone_border};">
+                    <span class="esg-status-dot status-{html.escape(final_tone)}" aria-hidden="true"
+                          style="background:{tone_fg};"></span>
+                    {html.escape(system_label)} · {html.escape(final_value)}
+                </span>
+                <span class="esg-sb-icon" role="button" tabindex="0" aria-label="Notifications">
+                    🔔{badge}
+                </span>
+                <span class="esg-sb-avatar" role="img" aria-label="Account">
+                    {html.escape(avatar_initial[:1].upper())}
+                </span>
+            </div>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-page agent status header — user + current agent + live status
+# ---------------------------------------------------------------------------
+_PAGE_HEADER_CSS = """
+<style>
+.esg-page-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center; gap: var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    margin: 0 0 var(--space-5) 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background:
+        linear-gradient(90deg, #ffffff 0%, var(--surface-muted) 100%);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04),
+                0 10px 24px rgba(253, 81, 8, 0.06);
+}
+.esg-page-header .ph-user {
+    display: flex; align-items: center; gap: var(--space-3);
+    min-width: 0;
+}
+.esg-page-header .ph-avatar {
+    flex-shrink: 0;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--pwc-orange) 0%, var(--pwc-tomato) 60%, var(--pwc-amber) 130%);
+    color: #fff; font-weight: 800; font-family: var(--font-display);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 1rem;
+    box-shadow: 0 6px 14px rgba(253, 81, 8, 0.32), inset 0 1px 0 rgba(255,255,255,0.35);
+}
+.esg-page-header .ph-who {
+    display: flex; flex-direction: column; line-height: 1.15; min-width: 0;
+}
+.esg-page-header .ph-greeting {
+    font-size: var(--text-xs); color: var(--text-muted);
+    letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600;
+}
+.esg-page-header .ph-name {
+    font-family: var(--font-display);
+    font-weight: 700; color: var(--text); font-size: var(--text-md);
+    letter-spacing: -0.015em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 220px;
+}
+.esg-page-header .ph-agent {
+    display: flex; align-items: center; gap: var(--space-3);
+    justify-self: center;
+}
+.esg-page-header .ph-agent-icon {
+    width: 38px; height: 38px; border-radius: var(--radius-md);
+    background: linear-gradient(135deg, rgba(253, 81, 8, 0.14), rgba(255, 182, 0, 0.22));
+    color: var(--pwc-orange-dark);
+    border: 1px solid rgba(253, 81, 8, 0.25);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 1.15rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.esg-page-header .ph-agent-text {
+    display: flex; flex-direction: column; line-height: 1.1;
+}
+.esg-page-header .ph-agent-label {
+    font-size: var(--text-xs); color: var(--text-muted);
+    letter-spacing: 0.07em; text-transform: uppercase; font-weight: 700;
+}
+.esg-page-header .ph-agent-name {
+    font-family: var(--font-display);
+    font-weight: 700; color: var(--text); font-size: var(--text-md);
+    letter-spacing: -0.015em;
+}
+.esg-page-header .ph-status {
+    display: flex; align-items: center; gap: var(--space-3);
+}
+.esg-page-header .ph-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px var(--space-3); border-radius: var(--radius-pill);
+    font-size: var(--text-xs); font-weight: 800; letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border: 1px solid;
+    transition: transform var(--dur-fast) var(--ease-standard);
+}
+.esg-page-header .ph-chip:hover { transform: translateY(-1px); }
+.esg-page-header .ph-chip.running {
+    background: linear-gradient(135deg, rgba(253, 81, 8, 0.10), rgba(253, 81, 8, 0.20));
+    color: var(--pwc-orange-dark); border-color: rgba(253, 81, 8, 0.40);
+}
+.esg-page-header .ph-chip.completed,
+.esg-page-header .ph-chip.idle {
+    background: linear-gradient(135deg, rgba(46, 133, 64, 0.08), rgba(46, 133, 64, 0.18));
+    color: var(--pwc-success); border-color: rgba(46, 133, 64, 0.35);
+}
+.esg-page-header .ph-chip.error {
+    background: linear-gradient(135deg, rgba(200, 16, 46, 0.10), rgba(200, 16, 46, 0.22));
+    color: var(--pwc-danger); border-color: rgba(200, 16, 46, 0.42);
+}
+.esg-page-header .ph-chip.warning {
+    background: linear-gradient(135deg, rgba(255, 182, 0, 0.12), rgba(255, 182, 0, 0.25));
+    color: #8a5b00; border-color: rgba(255, 182, 0, 0.45);
+}
+.esg-page-header .ph-meta {
+    display: flex; flex-direction: column; line-height: 1.15; text-align: right;
+}
+.esg-page-header .ph-meta .m-key {
+    font-size: var(--text-xs); color: var(--text-muted);
+    letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600;
+}
+.esg-page-header .ph-meta .m-val {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm); color: var(--text); font-weight: 600;
+}
+@media (max-width: 900px) {
+    .esg-page-header {
+        grid-template-columns: 1fr;
+        row-gap: var(--space-3);
+    }
+    .esg-page-header .ph-agent { justify-self: flex-start; }
+    .esg-page-header .ph-meta { text-align: left; }
+    .esg-page-header .ph-name { max-width: 100%; }
+}
+</style>
+"""
+
+
+def _resolve_user_display(user: Optional[dict]) -> tuple[str, str, str]:
+    """Return (greeting, display_name, initials) for a current_user() dict."""
+    if not user:
+        return "Guest session", "Not signed in", "·"
+    name = (user.get("full_name") or user.get("username") or "").strip()
+    role = (user.get("role") or "").strip() or "Member"
+    if not name:
+        return "Guest session", "Not signed in", "·"
+    display = f"{name} · {role.title()}"
+    initials = "".join(part[:1] for part in name.split()[:2]).upper() or name[:1].upper()
+    return "Signed in", display, initials
+
+
+def page_agent_header(
+    *,
+    agent_key: Optional[str] = None,
+    agent_icon: str = "🤖",
+    agent_display_name: Optional[str] = None,
+    user: Optional[dict] = None,
+    statuses: Optional[dict] = None,
+) -> None:
+    """Top-of-page strip: signed-in user + current agent + live status pill.
+
+    ``agent_key`` matches the orchestrator key ("data_collector", "roi_agent",
+    etc.). When ``statuses`` isn't supplied, the helper pulls live status from
+    ``st.session_state.orchestrator.get_agent_statuses()`` — so the pill
+    reflects the real agent state at this moment.
+
+    Pass ``agent_key=None`` to render the header as a user-greeting only
+    (useful on Sign-In / Settings / Home-like pages).
+    """
+    inject_global_css()
+    st.markdown(_PAGE_HEADER_CSS, unsafe_allow_html=True)
+
+    # If the caller didn't hand us a user dict, try to look it up. Keeps
+    # page call sites tidy — they only need to pass the agent_key/icon.
+    if user is None:
+        try:
+            from utils.auth import current_user as _cu
+            user = _cu()
+        except Exception:
+            user = None
+
+    greeting, display_name, initials = _resolve_user_display(user)
+
+    # --- Live status lookup ---
+    meta: dict = {}
+    if agent_key:
+        if statuses is None:
+            orch = st.session_state.get("orchestrator")
+            if orch is not None:
+                try:
+                    statuses = orch.get_agent_statuses()
+                except Exception:
+                    statuses = None
+        if statuses and agent_key in statuses:
+            meta = statuses[agent_key] or {}
+
+    status_raw = str(meta.get("status") or "idle").lower()
+    status_label = {
+        "running":   "RUNNING",
+        "error":     "ERROR",
+        "completed": "READY",
+        "idle":      "READY",
+        "warning":   "WARNING",
+    }.get(status_raw, "READY")
+    dot_extra = "running" if status_raw == "running" else status_raw
+
+    last_run_rel = format_relative_time(meta.get("last_run") or "Never")
+    runtime = format_duration(meta.get("runtime_seconds"))
+    run_count = meta.get("run_count") or 0
+
+    # Assemble agent block (only when we're on an agent-specific page)
+    agent_html = ""
+    if agent_key:
+        name = html.escape(agent_display_name or meta.get("name") or agent_key.replace("_", " ").title())
+        agent_html = (
+            f'<div class="ph-agent">'
+            f'  <span class="ph-agent-icon">{html.escape(agent_icon)}</span>'
+            f'  <div class="ph-agent-text">'
+            f'    <span class="ph-agent-label">Current agent</span>'
+            f'    <span class="ph-agent-name">{name}</span>'
+            f'  </div>'
+            f'</div>'
+        )
+
+    # Right-side status + metadata. When there's no agent context we still
+    # show a "Ready" session chip so the bar never feels empty.
+    right_html = (
+        f'<div class="ph-status">'
+        f'  <span class="ph-chip {dot_extra}">'
+        f'    <span class="esg-status-dot status-{dot_extra}" aria-hidden="true"></span>'
+        f'    {status_label}'
+        f'  </span>'
+        f'  <div class="ph-meta">'
+        f'    <span class="m-key">Last run</span>'
+        f'    <span class="m-val">{html.escape(last_run_rel)}</span>'
+        f'  </div>'
+        f'  <div class="ph-meta">'
+        f'    <span class="m-key">Runtime</span>'
+        f'    <span class="m-val">{html.escape(runtime)}</span>'
+        f'  </div>'
+        f'  <div class="ph-meta">'
+        f'    <span class="m-key">Runs</span>'
+        f'    <span class="m-val">{int(run_count)}</span>'
+        f'  </div>'
+        f'</div>'
+    )
+
+    st.markdown(
+        f'<div class="esg-page-header" role="region" aria-label="Session and agent status">'
+        f'  <div class="ph-user">'
+        f'    <span class="ph-avatar">{html.escape(initials)}</span>'
+        f'    <div class="ph-who">'
+        f'      <span class="ph-greeting">{html.escape(greeting)}</span>'
+        f'      <span class="ph-name">{html.escape(display_name)}</span>'
+        f'    </div>'
+        f'  </div>'
+        f'  {agent_html}'
+        f'  {right_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def page_agent_header_live(
+    *,
+    agent_key: Optional[str] = None,
+    agent_icon: str = "🤖",
+    agent_display_name: Optional[str] = None,
+    user: Optional[dict] = None,
+) -> None:
+    """Fragment-wrapped variant of ``page_agent_header``. Auto-refreshes every
+    2 s while the bound agent is actively running; renders once otherwise.
+    Drop-in replacement for the static helper on pages that care about
+    real-time status during a pipeline run.
+    """
+    # Decide whether we need ticks by inspecting the current status once.
+    interval: Optional[int] = None
+    if agent_key is not None:
+        try:
+            orch = st.session_state.get("orchestrator")
+            if orch is not None:
+                s = orch.get_agent_statuses() or {}
+                if s.get(agent_key, {}).get("status") == "running":
+                    interval = 2
+        except Exception:
+            pass
+
+    try:
+        @st.fragment(run_every=interval)
+        def _render() -> None:
+            page_agent_header(
+                agent_key=agent_key,
+                agent_icon=agent_icon,
+                agent_display_name=agent_display_name,
+                user=user,
+            )
+        _render()
+    except TypeError:
+        # Fallback for older Streamlit without fragment(run_every=...)
+        page_agent_header(
+            agent_key=agent_key,
+            agent_icon=agent_icon,
+            agent_display_name=agent_display_name,
+            user=user,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1188,6 +1833,412 @@ def pipeline_chips(statuses: dict, agent_config: dict) -> None:
         f'<div class="esg-chip-row" role="list" aria-label="Pipeline status">'
         f'{"".join(chips_html)}</div>',
         unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ESG ROI featured card — a React-iframe rich component
+# ---------------------------------------------------------------------------
+# Rendered via streamlit.components.v1.html so it gets its own isolated DOM.
+# That lets us run real JS (count-up, SVG draw-on, pulse animations) without
+# polluting Streamlit's CSS scope or fighting its rerun model.
+def esg_roi_featured_card(
+    *,
+    results: Optional[dict] = None,
+    mode: str = "auto",
+    user_name: Optional[str] = None,
+    height: int = 360,
+) -> None:
+    """Render the ESG ROI agent as a featured dashboard hero card.
+
+    Three modes (``mode``):
+      * ``"live"``   — signed-in user, real ``roi_agent.results`` passed.
+      * ``"empty"``  — signed-in but no run yet. Card shows "run to populate".
+      * ``"teaser"`` — guest (not signed in). Card shows an indicative
+                       preview clearly watermarked as sample data.
+      * ``"auto"``   — pick based on inputs: live if ``results`` present and
+                       has an IQS score, teaser if ``user_name`` is None,
+                       else empty.
+
+    ``results`` is the raw dict returned by ``ROIAgent.run()`` — the card
+    pulls IQS/grade from ``results['investment_quality_score']`` and ROI
+    figures from ``results['financial_roi']`` / ``['strategic_roi']`` so it
+    always reflects whatever Mission Control most recently produced.
+    """
+    from streamlit.components.v1 import html as _html
+
+    inject_global_css()
+
+    # --- Resolve mode ----------------------------------------------------
+    if mode == "auto":
+        if results and isinstance(results.get("investment_quality_score"), dict) \
+                and results["investment_quality_score"].get("score") is not None:
+            mode = "live"
+        elif user_name:
+            mode = "empty"
+        else:
+            mode = "teaser"
+
+    # --- Defaults (teaser uses aspirational sample numbers) --------------
+    iqs_score: float = 87.0
+    grade: str = "A"
+    financial_return: str = "2.47×"
+    strategic_return: str = "IQS 87 / 100"
+    payback_months: int = 14
+    delta_label: str = "+12 vs last quarter"
+    sparkline: Optional[Sequence[float]] = None
+
+    # --- Live mapping from the ROI agent's result schema -----------------
+    # ROIAgent.run() returns (see agents/roi_agent.py):
+    #   results['investment_quality_score']['score' | 'grade']
+    #   results['financial_roi']['roi_pct' | 'payback_years' | 'net_financial_benefit']
+    #   results['strategic_roi']['cost_of_capital_reduction_bps' | 'brand_premium_score']
+    #   results['j_curve']['quarters'][i]['cumulative_benefit']
+    if mode == "live" and results:
+        iqs_block = results.get("investment_quality_score") or {}
+        iqs_score = float(iqs_block.get("score") or 0)
+        grade = str(iqs_block.get("grade") or "—")
+
+        fin = results.get("financial_roi") or {}
+        roi_pct = fin.get("roi_pct")
+        if isinstance(roi_pct, (int, float)):
+            financial_return = f"{1 + float(roi_pct) / 100:.2f}×"
+        else:
+            financial_return = "—"
+
+        payback_years = fin.get("payback_years")
+        if isinstance(payback_years, (int, float)) and payback_years:
+            payback_months = max(1, int(round(float(payback_years) * 12)))
+        else:
+            payback_months = 0
+
+        strat = results.get("strategic_roi") or {}
+        coc_bps = strat.get("cost_of_capital_reduction_bps")
+        if isinstance(coc_bps, (int, float)) and coc_bps:
+            strategic_return = f"{int(coc_bps)} bps · WACC"
+        else:
+            strategic_return = f"IQS {iqs_score:.0f} / 100"
+
+        j_curve = results.get("j_curve") or {}
+        quarters = j_curve.get("quarters") or []
+        if quarters:
+            try:
+                sparkline = [
+                    float(q.get("cumulative_benefit") or 0) for q in quarters
+                ]
+            except Exception:
+                sparkline = None
+
+        delta_label = "live · updated now"
+
+    elif mode == "empty":
+        iqs_score, grade = 0, "—"
+        financial_return = "—"
+        strategic_return = "Run pipeline to populate"
+        payback_months = 0
+        delta_label = "no run yet"
+
+    # --- Sparkline polyline (100×36 viewBox) -----------------------------
+    spark: Sequence[float] = list(sparkline) if sparkline else \
+        [42, 48, 55, 51, 62, 68, 75, 71, 82, max(1.0, iqs_score or 50)]
+    if len(spark) < 2:
+        spark = [spark[0] if spark else 0, spark[0] if spark else 0]
+    vmin, vmax = min(spark), max(spark)
+    rng = (vmax - vmin) or 1
+    step = 100.0 / (len(spark) - 1)
+    points = " ".join(
+        f"{i * step:.2f},{(1 - (v - vmin) / rng) * 28 + 4:.2f}" for i, v in enumerate(spark)
+    )
+
+    # --- Mode-specific badge (top-right watermark) -----------------------
+    if mode == "teaser":
+        mode_badge = (
+            '<span class="mode-badge teaser" title="Illustrative numbers — sign in for yours">'
+            '◇ SAMPLE PREVIEW · SIGN IN FOR YOUR NUMBERS</span>'
+        )
+    elif mode == "empty":
+        mode_badge = (
+            '<span class="mode-badge empty">◯ NO ROI RUN YET · OPEN MISSION CONTROL</span>'
+        )
+    else:
+        mode_badge = (
+            '<span class="mode-badge live"><span class="live-dot"></span>'
+            '<span class="live-label">LIVE</span></span>'
+        )
+
+    # Greeting line
+    greet = (
+        f'Good to see you, {html.escape(user_name)} — here is your current investment thesis.'
+        if mode == "live" and user_name else
+        (f'Signed in as {html.escape(user_name)}. Run Mission Control to populate your ROI view.'
+         if mode == "empty" and user_name else
+         'See what your ROI could look like. Sign in to unlock your live numbers.')
+    )
+    live_dot = ""  # badge now lives in top-right; left title has no duplicate
+
+    _html(
+        f"""
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin: 0; padding: 0; font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; }}
+  .roi-wrap {{
+    position: relative;
+    border-radius: 22px;
+    padding: 26px 32px;
+    color: #fff;
+    background:
+      radial-gradient(600px 340px at 0% 0%, rgba(255, 182, 0, 0.40), transparent 60%),
+      radial-gradient(700px 380px at 100% 120%, rgba(194, 58, 0, 0.65), transparent 70%),
+      linear-gradient(135deg, #FD5108 0%, #E0301E 55%, #8A2A00 120%);
+    box-shadow:
+      0 24px 60px rgba(253, 81, 8, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.30);
+    overflow: hidden;
+    min-height: {height - 20}px;
+    display: grid; grid-template-columns: 1.3fr 1fr; gap: 28px;
+    transition: transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                box-shadow 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }}
+  .roi-wrap::before {{
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(600px 400px at 20% 0%, rgba(0,0,0,0.7), transparent 75%);
+    -webkit-mask-image: radial-gradient(600px 400px at 20% 0%, rgba(0,0,0,0.7), transparent 75%);
+    opacity: 0.6;
+  }}
+  .roi-wrap:hover {{
+    transform: translateY(-3px);
+    box-shadow:
+      0 32px 72px rgba(253, 81, 8, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.40);
+  }}
+  /* Mode-specific treatments */
+  .roi-wrap.mode-empty {{
+    background:
+      radial-gradient(600px 340px at 0% 0%, rgba(255, 182, 0, 0.22), transparent 60%),
+      radial-gradient(700px 380px at 100% 120%, rgba(100, 45, 20, 0.45), transparent 70%),
+      linear-gradient(135deg, #7A2E0C 0%, #4B1A05 100%);
+  }}
+  .roi-wrap.mode-teaser {{ filter: saturate(1.05); }}
+  .mode-badge {{
+    position: absolute; top: 18px; right: 22px; z-index: 5;
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 10px; font-weight: 800; letter-spacing: 0.12em;
+    padding: 6px 12px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.32);
+    color: #fffbe6;
+    text-transform: uppercase;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.20);
+  }}
+  .mode-badge.live {{
+    background: rgba(74, 222, 128, 0.18);
+    border-color: rgba(74, 222, 128, 0.45);
+    color: #d1fae5;
+  }}
+  .mode-badge.empty {{
+    background: rgba(255, 182, 0, 0.18);
+    border-color: rgba(255, 182, 0, 0.45);
+    color: #fff8d7;
+  }}
+  .mode-badge.teaser {{
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.40);
+    color: #fff;
+  }}
+  .roi-left  {{ position: relative; z-index: 1; display: flex; flex-direction: column; gap: 14px; }}
+  .roi-right {{ position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; }}
+  .eyebrow {{
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.30);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase;
+    align-self: flex-start;
+  }}
+  .eyebrow .star {{ font-size: 13px; filter: drop-shadow(0 0 8px rgba(255,255,255,0.5)); }}
+  .live-dot {{
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: #4ade80; box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
+    animation: live-pulse 1.4s ease-out infinite;
+  }}
+  .live-label {{ font-size: 10px; font-weight: 800; letter-spacing: 0.12em; color: #d1fae5; }}
+  @keyframes live-pulse {{
+    0% {{ box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7); }}
+    70% {{ box-shadow: 0 0 0 7px rgba(74, 222, 128, 0); }}
+    100% {{ box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }}
+  }}
+  h2.roi-title {{
+    margin: 0;
+    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+    font-weight: 800; font-size: 2rem; letter-spacing: -0.025em;
+    line-height: 1.1;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+  }}
+  .roi-subtitle {{
+    margin: 0; color: rgba(255, 255, 255, 0.88);
+    font-size: 0.95rem; line-height: 1.55; max-width: 95%;
+  }}
+  .roi-metric-row {{
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 6px;
+  }}
+  .roi-metric {{
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    backdrop-filter: blur(8px);
+    border-radius: 14px; padding: 12px 14px;
+    transition: background 200ms ease, transform 200ms ease;
+  }}
+  .roi-metric:hover {{ background: rgba(255, 255, 255, 0.20); transform: translateY(-2px); }}
+  .roi-metric .m-label {{
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.78); text-transform: uppercase;
+  }}
+  .roi-metric .m-value {{
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 800; font-size: 1.35rem; letter-spacing: -0.025em;
+    margin-top: 4px; line-height: 1.1;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+  }}
+  /* Right column: large animated score */
+  .iqs-stack {{ display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }}
+  .iqs-ring {{
+    position: relative; width: 150px; height: 150px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    background:
+      conic-gradient(from 210deg,
+        #FFB600 0deg,
+        #fff 260deg,
+        rgba(255, 255, 255, 0.2) 260deg);
+    animation: ring-fill 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }}
+  .iqs-ring::before {{
+    content: ""; position: absolute; inset: 10px; border-radius: 50%;
+    background: linear-gradient(135deg, #B02800 0%, #7A1C00 100%);
+  }}
+  @keyframes ring-fill {{
+    from {{ background: conic-gradient(from 210deg, rgba(255,255,255,0.2) 0deg, rgba(255,255,255,0.2) 360deg); }}
+  }}
+  .iqs-num {{
+    position: relative; z-index: 1;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 800; font-size: 2.8rem; letter-spacing: -0.035em;
+    color: #fff;
+    text-shadow: 0 3px 14px rgba(0, 0, 0, 0.30);
+  }}
+  .iqs-sub {{
+    font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
+    color: rgba(255, 255, 255, 0.85); text-transform: uppercase;
+  }}
+  .grade-pill {{
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.94); color: #8A2A00;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 800; font-size: 12px; letter-spacing: 0.04em;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+  }}
+  .delta-chip {{
+    font-size: 11px; font-weight: 700; color: #d1fae5;
+    background: rgba(74, 222, 128, 0.20);
+    border: 1px solid rgba(74, 222, 128, 0.40);
+    padding: 3px 10px; border-radius: 999px;
+    letter-spacing: 0.02em;
+  }}
+  /* Sparkline */
+  .spark {{ margin-top: 10px; width: 100%; }}
+  .spark polyline {{
+    fill: none; stroke: #fff; stroke-width: 2.2;
+    stroke-linecap: round; stroke-linejoin: round;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
+    stroke-dasharray: 400; stroke-dashoffset: 400;
+    animation: draw 1.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }}
+  .spark-fill {{
+    fill: url(#sparkGrad);
+    opacity: 0;
+    animation: fadeIn 800ms 1.2s forwards;
+  }}
+  @keyframes draw   {{ to {{ stroke-dashoffset: 0; }} }}
+  @keyframes fadeIn {{ to {{ opacity: 0.5; }} }}
+  @media (max-width: 820px) {{
+    .roi-wrap {{ grid-template-columns: 1fr; }}
+    .roi-right {{ align-items: flex-start; }}
+    .iqs-stack {{ align-items: flex-start; }}
+    h2.roi-title {{ font-size: 1.55rem; }}
+  }}
+</style></head>
+<body>
+  <div class="roi-wrap mode-{mode}">
+    {mode_badge}
+    <div class="roi-left">
+      <span class="eyebrow"><span class="star">✦</span> FEATURED AGENT · CFO-READY INTELLIGENCE</span>
+      <h2 class="roi-title">ESG ROI Agent — the investment thesis, quantified.</h2>
+      <p class="roi-subtitle">{greet}</p>
+      <div class="roi-metric-row">
+        <div class="roi-metric">
+          <div class="m-label">Financial Return</div>
+          <div class="m-value">{html.escape(financial_return)}</div>
+        </div>
+        <div class="roi-metric">
+          <div class="m-label">Strategic Return</div>
+          <div class="m-value">{html.escape(strategic_return)}</div>
+        </div>
+        <div class="roi-metric">
+          <div class="m-label">Payback Horizon</div>
+          <div class="m-value">{payback_months if payback_months else "—"}{" mo" if payback_months else ""}</div>
+        </div>
+      </div>
+    </div>
+    <div class="roi-right">
+      <div class="iqs-stack">
+        <span class="grade-pill">⭐ GRADE {html.escape(grade)}</span>
+        <div class="iqs-ring">
+          <div class="iqs-num" id="iqs-num" data-target="{iqs_score:.0f}">0</div>
+        </div>
+        <div class="iqs-sub">IQS · Investment Quality Score</div>
+        <span class="delta-chip">↑ {html.escape(delta_label)}</span>
+        <svg class="spark" viewBox="0 0 100 36" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"  stop-color="#FFB600" stop-opacity="0.8"/>
+              <stop offset="100%" stop-color="#FFB600" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <polygon class="spark-fill" points="0,36 {points} 100,36"/>
+          <polyline points="{points}"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+<script>
+  (function() {{
+    const el = document.getElementById('iqs-num');
+    if (!el) return;
+    const target = parseFloat(el.dataset.target || '0');
+    const duration = 1600;
+    let start = null;
+    function tick(ts) {{
+      if (!start) start = ts;
+      const p = Math.min((ts - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * eased).toString();
+      if (p < 1) requestAnimationFrame(tick);
+    }}
+    requestAnimationFrame(tick);
+  }})();
+</script>
+</body></html>
+""",
+        height=height,
+        scrolling=False,
     )
 
 

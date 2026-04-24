@@ -1,6 +1,6 @@
-# ESG CoPilot — Schema Reference
+# ESG Pilot — Schema Reference
 
-This document is the canonical reference for preparing data files to upload into ESG CoPilot. It covers every supported schema, the auto-detection logic, how column names are matched, the correct upload workflow, and known column synonyms. Hand this document to your data team when preparing files for the platform.
+This document is the canonical reference for preparing data files to upload into ESG Pilot. It covers every supported schema, the auto-detection logic, how column names are matched, the correct upload workflow, and known column synonyms. Hand this document to your data team when preparing files for the platform.
 
 ---
 
@@ -174,7 +174,7 @@ Valid values for `waste_type`: `Hazardous`, `Non-Hazardous`.
 
 ## Peer Benchmarking Schemas
 
-The four schemas below come from the multi-company ESG financial dashboard format (`esg_financial_dashboard_15_companies.xlsx`). Together they power peer comparison, sector benchmarking, ESG-to-financial correlation analysis, and multi-company risk profiling in the ESG CoPilot platform.
+The four schemas below come from the multi-company ESG financial dashboard format (`esg_financial_dashboard_15_companies.xlsx`). Together they power peer comparison, sector benchmarking, ESG-to-financial correlation analysis, and multi-company risk profiling in the ESG Pilot platform.
 
 All four sheets follow the same company × year panel structure — 15 companies across FY2020–FY2024 is the reference dataset, but any number of companies and years is supported.
 
@@ -376,7 +376,7 @@ All four sheets follow the same company × year panel structure — 15 companies
 
 ## Auto-Detection
 
-When you upload a file, ESG CoPilot automatically detects which schema it matches by scanning for indicator columns. The table below shows which column(s) trigger each schema.
+When you upload a file, ESG Pilot automatically detects which schema it matches by scanning for indicator columns. The table below shows which column(s) trigger each schema.
 
 **Core schemas (single-company data):**
 
@@ -410,7 +410,7 @@ Only one schema is matched per file. If your data spans multiple schemas (e.g. a
 
 ## Column Mapping
 
-After schema detection, ESG CoPilot attempts to map every column in your file to the corresponding column in the detected schema. Three matching strategies are tried in order:
+After schema detection, ESG Pilot attempts to map every column in your file to the corresponding column in the detected schema. Three matching strategies are tried in order:
 
 ### Step 1: Exact match
 
@@ -434,7 +434,7 @@ If exact and normalized matching both fail, the column name is checked against a
 
 ## Column Synonyms
 
-The following alternative column names are automatically mapped to the canonical schema column. Use these if your internal naming convention differs from the ESG CoPilot schema.
+The following alternative column names are automatically mapped to the canonical schema column. Use these if your internal naming convention differs from the ESG Pilot schema.
 
 | Your column name | Maps to schema column | Schema |
 |------------------|-----------------------|--------|
@@ -519,7 +519,7 @@ In the Streamlit dashboard, navigate to **Data Collector → Connect Data Source
 
 **Step 3 — Upload and preview**
 
-Select your file. Click **Test & Preview**. ESG CoPilot will:
+Select your file. Click **Test & Preview**. ESG Pilot will:
 - Detect the schema automatically.
 - Suggest a column mapping.
 - Show a preview of the first rows.
@@ -541,7 +541,7 @@ Click **Run Full Pipeline**. Your uploaded data will drive all calculations. The
 
 ## Session Storage Note
 
-All data in ESG CoPilot is stored in RAM only. There is no database and no disk persistence.
+All data in ESG Pilot is stored in RAM only. There is no database and no disk persistence.
 
 | Stage | Storage location | Scope |
 |-------|-----------------|-------|

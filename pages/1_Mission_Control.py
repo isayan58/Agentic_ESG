@@ -20,7 +20,7 @@ from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
 from utils.session import get_session_connection_manager
 
-st.set_page_config(page_title="Mission Control | ESG CoPilot", page_icon="🎛️", layout="wide")
+st.set_page_config(page_title="Mission Control | ESG Pilot", page_icon="🎛️", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()

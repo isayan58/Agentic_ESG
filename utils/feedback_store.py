@@ -1,4 +1,4 @@
-"""Persistent feedback logging for ESG CoPilot.
+"""Persistent feedback logging for ESG Pilot.
 
 Stores explicit user feedback alongside generated report metadata so the
 pipeline can learn from real usage signals over time.

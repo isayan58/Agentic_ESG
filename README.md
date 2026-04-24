@@ -1,5 +1,5 @@
 ---
-title: ESG CoPilot Dashboard
+title: ESG Pilot Dashboard
 emoji: 🌍
 colorFrom: red
 colorTo: yellow
@@ -10,11 +10,11 @@ pinned: false
 license: mit
 ---
 
-# ESG CoPilot: Autonomous ESG Intelligence
+# ESG Pilot: Autonomous ESG Intelligence
 
 > From manual compliance to autonomous ESG excellence.
 
-ESG CoPilot is an agentic AI platform for enterprise ESG intelligence. It connects fragmented enterprise data, monitors changing regulations, automates carbon accounting, predicts ESG risk, and generates audit-ready reporting — all from one coordinated multi-agent system.
+ESG Pilot is an agentic AI platform for enterprise ESG intelligence. It connects fragmented enterprise data, monitors changing regulations, automates carbon accounting, predicts ESG risk, and generates audit-ready reporting — all from one coordinated multi-agent system.
 
 | | |
 | --- | --- |
@@ -46,7 +46,7 @@ This creates a gap between what enterprises are expected to report and what thei
 
 ## The Solution
 
-ESG CoPilot is an agentic AI layer for ESG operations. Instead of treating reporting as a periodic manual task, it treats ESG as an always-on intelligence workflow.
+ESG Pilot is an agentic AI layer for ESG operations. Instead of treating reporting as a periodic manual task, it treats ESG as an always-on intelligence workflow.
 
 Core outcomes:
 
@@ -117,7 +117,7 @@ Recent platform enhancements:
 
 ## Data Connectors
 
-ESG CoPilot supports 9 data connector types — from local files to cloud data lakes:
+ESG Pilot supports 9 data connector types — from local files to cloud data lakes:
 
 | Connector | Type | Features |
 | --- | --- | --- |
@@ -139,7 +139,7 @@ All external imports are optional. Missing packages show install hints instead o
 
 ## ETL Engine
 
-ESG CoPilot ships its own lightweight ETL engine rather than depending on Airflow, dbt, Prefect, Dagster, or any external orchestrator. Everything runs in-process on the Streamlit replica — zero scheduler, zero worker pool, zero broker.
+ESG Pilot ships its own lightweight ETL engine rather than depending on Airflow, dbt, Prefect, Dagster, or any external orchestrator. Everything runs in-process on the Streamlit replica — zero scheduler, zero worker pool, zero broker.
 
 The engine has four layers:
 
@@ -379,7 +379,7 @@ This section documents verified functional and operational changes introduced in
 
 ### Authentication & Access Control
 
-ESG CoPilot now ships with a lightweight but production-grade authentication layer (`utils/auth.py`, `pages/0_Sign_In.py`).
+ESG Pilot now ships with a lightweight but production-grade authentication layer (`utils/auth.py`, `pages/0_Sign_In.py`).
 
 **How it works:**
 
@@ -451,7 +451,7 @@ Four bugs in the upload-to-pipeline flow were identified and fixed. The correct 
 
 ### Known Limitation: Session-Scoped Storage
 
-All data in ESG CoPilot is stored exclusively in process RAM. There is no database, no disk persistence, and no cross-session sharing.
+All data in ESG Pilot is stored exclusively in process RAM. There is no database, no disk persistence, and no cross-session sharing.
 
 | Stage | Where data lives |
 | --- | --- |

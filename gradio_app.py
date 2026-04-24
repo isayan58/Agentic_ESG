@@ -1,4 +1,4 @@
-"""ESG CoPilot — Gradio Interface with tabs for all core agents."""
+"""ESG Pilot — Gradio Interface with tabs for all core agents."""
 import os
 
 # ── Fix jinja2 + starlette incompatibility ──────────────────────────────────
@@ -612,8 +612,8 @@ def run_full_pipeline():
 
 # --- Build Gradio Interface ---
 
-with gr.Blocks(title="ESG CoPilot") as demo:
-    gr.Markdown("# 🌍 ESG CoPilot — Autonomous ESG Intelligence")
+with gr.Blocks(title="ESG Pilot") as demo:
+    gr.Markdown("# 🌍 ESG Pilot — Autonomous ESG Intelligence")
     gr.Markdown("*9 specialized AI agents powered by HuggingFace*")
 
     with gr.Tab("🎛️ Mission Control"):
@@ -1237,7 +1237,7 @@ with gr.Blocks(title="ESG CoPilot") as demo:
         btn.click(run_spark, outputs=out_spark)
 
 def _esg_auth(username: str, password: str) -> bool:
-    """Gradio auth callable — validates against the shared ESG CoPilot user store.
+    """Gradio auth callable — validates against the shared ESG Pilot user store.
 
     Accepts either a registered username or the user's email (plus their password).
     Returns True on match; False otherwise. Any backend hiccup fails closed.
@@ -1274,7 +1274,7 @@ if __name__ == "__main__":
         share=False,
         auth=_auth,
         auth_message=(
-            "Sign in with your ESG CoPilot credentials. "
+            "Sign in with your ESG Pilot credentials. "
             "Don't have an account? Create one at the Streamlit dashboard first."
         ),
         theme=gr.themes.Soft(),

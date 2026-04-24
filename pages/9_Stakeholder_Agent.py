@@ -2,14 +2,22 @@
 import streamlit as st
 from agents.stakeholder_agent import StakeholderAgent
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header
 from utils.pipeline_refresh import data_freshness_caption
 
-st.set_page_config(page_title="Stakeholder Agent | ESG CoPilot", page_icon="👥", layout="wide")
+st.set_page_config(page_title="Stakeholder Agent | ESG Pilot", page_icon="👥", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Stakeholder Agent.")
+
+# Top-of-page status strip — shows the signed-in user, the current
+# agent, and the agent's LIVE status (auto-refreshes while running).
+page_agent_header_live(
+    agent_key="stakeholder_agent",
+    agent_icon="👥",
+)
+
 st.title("👥 Stakeholder Agent")
 st.markdown("*Generates audience-tailored ESG communications*")
 data_freshness_caption(can_refresh=False)

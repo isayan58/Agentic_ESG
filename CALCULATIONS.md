@@ -1,4 +1,4 @@
-# ESG CoPilot — Calculations Reference
+# ESG Pilot — Calculations Reference
 
 Every numeric formula, weight, threshold, and magic constant in the agent pipeline, with `file:line` citations and the source-of-truth comment where one exists in code. This is the document to open when:
 

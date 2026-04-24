@@ -50,7 +50,18 @@ class Orchestrator:
         self.message_board = {}
 
         for key, agent_cls, _ in PIPELINE_ORDER:
-            self.agents[key] = agent_cls()
+            agent = agent_cls()
+            # Pin the canonical orchestrator key as the agent's telemetry
+            # identifier. Overrides the slug-from-name fallback so the ROI
+            # agent records under "roi_agent" (not "esg_roi_agent").
+            agent.telemetry_key = key
+            # Re-hydrate now that we know the real key — catches any prior
+            # persisted state written under this key in a previous session.
+            try:
+                agent._hydrate_from_telemetry()
+            except Exception:
+                pass
+            self.agents[key] = agent
 
         self.agent_dependencies = {key: deps for key, _, deps in PIPELINE_ORDER}
         self.agent_order = [key for key, _, _ in PIPELINE_ORDER]

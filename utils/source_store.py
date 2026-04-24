@@ -1,4 +1,4 @@
-"""Persistent per-user data-source registry for ESG CoPilot.
+"""Persistent per-user data-source registry for ESG Pilot.
 
 Companion to ``utils.user_store``. Where ``user_store`` keeps one global
 ``users.json`` in a private HF Dataset, this module keeps one JSON file

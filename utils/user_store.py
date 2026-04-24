@@ -1,4 +1,4 @@
-"""Persistent user store for ESG CoPilot authentication.
+"""Persistent user store for ESG Pilot authentication.
 
 Primary backend: a *private* HuggingFace Dataset repo containing a single
 ``users.json`` file. This is free, writable with a user access token, and
@@ -356,7 +356,7 @@ class UserStore:
             path_in_repo=USERS_PATH_IN_REPO,
             repo_id=self._dataset,
             repo_type="dataset",
-            commit_message="Update ESG CoPilot user registry",
+            commit_message="Update ESG Pilot user registry",
         )
 
     def _ensure_dataset_exists(self) -> None:

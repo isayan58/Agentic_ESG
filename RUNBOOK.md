@@ -1,4 +1,4 @@
-# ESG CoPilot — Agent Runbook
+# ESG Pilot — Agent Runbook
 
 Complete technical reference for all 9 AI agents: architecture, calculations, scoring logic, data flows, and operational procedures.
 
@@ -36,7 +36,7 @@ Complete technical reference for all 9 AI agents: architecture, calculations, sc
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    ESG CoPilot Platform                      │
+│                    ESG Pilot Platform                      │
 ├─────────────────────────────────────────────────────────────┤
 │  UI Layer:  Streamlit (10 pages)  |  Gradio (tabbed)        │
 ├─────────────────────────────────────────────────────────────┤
@@ -208,7 +208,7 @@ Wraps HuggingFace Inference API with automatic fallback:
 
 ## Data ETL & Freshness
 
-ESG CoPilot does **not** use Airflow, dbt, Prefect, Dagster, Luigi, or any external orchestration framework. The ETL is a bespoke, in-process, per-user pipeline — all four stages run inside the Streamlit worker for the session that triggered them.
+ESG Pilot does **not** use Airflow, dbt, Prefect, Dagster, Luigi, or any external orchestration framework. The ETL is a bespoke, in-process, per-user pipeline — all four stages run inside the Streamlit worker for the session that triggered them.
 
 ### Why in-process, not an external scheduler?
 
@@ -1099,7 +1099,7 @@ Stakeholder context now also includes:
 
 ## Data Connectors
 
-ESG CoPilot supports 9 data connector types. All are defined in `utils/real_connectors.py`.
+ESG Pilot supports 9 data connector types. All are defined in `utils/real_connectors.py`.
 
 ### Local Connectors (always available)
 

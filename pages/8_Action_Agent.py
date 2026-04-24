@@ -5,14 +5,22 @@ from agents.action_agent import ActionAgent
 from utils.charts import action_timeline, chart_unavailable_message
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header
 from utils.pipeline_refresh import data_freshness_caption
 
-st.set_page_config(page_title="Action Agent | ESG CoPilot", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Action Agent | ESG Pilot", page_icon="🎯", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Action Agent.")
+
+# Top-of-page status strip — shows the signed-in user, the current
+# agent, and the agent's LIVE status (auto-refreshes while running).
+page_agent_header_live(
+    agent_key="action_agent",
+    agent_icon="🎯",
+)
+
 st.title("🎯 Action Agent")
 st.markdown("*Generates prioritized, actionable ESG recommendations with timelines*")
 data_freshness_caption(can_refresh=False)

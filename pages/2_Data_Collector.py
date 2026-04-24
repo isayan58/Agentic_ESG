@@ -15,13 +15,21 @@ from utils.connection_manager import ConnectionManager
 from utils.session import get_session_connection_manager
 from utils.source_store import SourcePayloadTooLarge
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header
 
-st.set_page_config(page_title="Data Collector | ESG CoPilot", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Data Collector | ESG Pilot", page_icon="📊", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Data Collector agent.")
+
+# Top-of-page status strip — shows the signed-in user, the current
+# agent, and the agent's LIVE status (auto-refreshes while running).
+page_agent_header_live(
+    agent_key="data_collector",
+    agent_icon="📊",
+)
+
 st.title("📊 Data Collector Agent")
 st.markdown("*Connect real data sources, cloud storage, or run with sample data*")
 st.markdown("---")

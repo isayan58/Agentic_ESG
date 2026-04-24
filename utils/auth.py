@@ -1,4 +1,4 @@
-"""Authentication primitives for ESG CoPilot.
+"""Authentication primitives for ESG Pilot.
 
 This module glues together:
     * ``utils.user_store`` — persistence (HF Dataset or local JSON)

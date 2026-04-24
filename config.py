@@ -1,4 +1,4 @@
-"""ESG CoPilot Configuration — loads company data from company_profile.json."""
+"""ESG Pilot Configuration — loads company data from company_profile.json."""
 import os
 
 # HuggingFace API — narrative polish only (per-agent text generation)

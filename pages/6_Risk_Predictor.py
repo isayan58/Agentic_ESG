@@ -5,14 +5,22 @@ from agents.risk_predictor import RiskPredictorAgent
 from utils.charts import risk_gauge, charts_available, chart_unavailable_message
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header
 from utils.pipeline_refresh import data_freshness_caption
 
-st.set_page_config(page_title="Risk Predictor | ESG CoPilot", page_icon="⚠️", layout="wide")
+st.set_page_config(page_title="Risk Predictor | ESG Pilot", page_icon="⚠️", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Risk Predictor agent.")
+
+# Top-of-page status strip — shows the signed-in user, the current
+# agent, and the agent's LIVE status (auto-refreshes while running).
+page_agent_header_live(
+    agent_key="risk_predictor",
+    agent_icon="⚠️",
+)
+
 st.title("⚠️ Risk Predictor Agent")
 st.markdown("*Advanced climate risk forecasting, ESG rating prediction, and dynamic scenario analysis*")
 data_freshness_caption(can_refresh=False)

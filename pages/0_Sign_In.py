@@ -1,4 +1,4 @@
-"""Sign In / Sign Up page for ESG CoPilot.
+"""Sign In / Sign Up page for ESG Pilot.
 
 Presents two tabs — Sign In and Create account — backed by
 ``utils.auth``. On success the user is redirected to Mission Control.
@@ -17,7 +17,7 @@ from utils.auth import (
 from utils.ui import hero, inject_global_css, pwc_header, section_header
 
 st.set_page_config(
-    page_title="Sign In | ESG CoPilot",
+    page_title="Sign In | ESG Pilot",
     page_icon="🔐",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -27,7 +27,7 @@ pwc_header()
 sidebar_auth_widget()
 
 hero(
-    title="Sign in to ESG CoPilot",
+    title="Sign in to ESG Pilot",
     emoji="🔐",
     subtitle=(
         "Authenticate to unlock the 9-agent autonomous pipeline, Mission Control, "

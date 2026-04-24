@@ -6,6 +6,7 @@ from core.orchestrator import Orchestrator
 from utils.streamlit_compat import safe_dataframe
 from utils.ui import (
     hero, section_header, kpi_card, iqs_gauge, grade_pill, inject_global_css,
+    page_agent_header_live,
     pwc_header,
 )
 from utils.auth import require_login, sidebar_auth_widget
@@ -20,11 +21,19 @@ except ImportError:
     _PLOTLY = False
 
 
-st.set_page_config(page_title="ESG ROI Agent | ESG CoPilot", page_icon="⭐", layout="wide")
+st.set_page_config(page_title="ESG ROI Agent | ESG Pilot", page_icon="⭐", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to explore the ESG ROI dashboard.")
+
+# Top-of-page status strip — shows the signed-in user, the current
+# agent, and the agent's LIVE status (auto-refreshes while running).
+page_agent_header_live(
+    agent_key="roi_agent",
+    agent_icon="⭐",
+)
+
 get_session_connection_manager()
 
 hero(

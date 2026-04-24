@@ -66,7 +66,7 @@ LAYOUT_DEFAULTS = dict(
 
 
 def apply_chart_theme(fig):
-    """Apply the ESG CoPilot design system to any Plotly figure.
+    """Apply the ESG Pilot design system to any Plotly figure.
 
     Idempotent — call right before ``st.plotly_chart``. Safe to use on
     figures that already set their own colors; explicit traces win, the
@@ -466,7 +466,7 @@ def before_after_comparison():
     ))
     fig.add_trace(go.Bar(
         y=categories, x=after, orientation="h",
-        name="After (ESG CoPilot)", marker_color=COLORS["accent"],
+        name="After (ESG Pilot)", marker_color=COLORS["accent"],
         text=[f"{v}%" for v in after], textposition="inside",
     ))
     fig.update_layout(**LAYOUT_DEFAULTS)

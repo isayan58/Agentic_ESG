@@ -6,15 +6,23 @@ from utils.charts import compliance_radar, chart_unavailable_message
 from utils.monitoring import regulatory_updater
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header
 from utils.pipeline_refresh import data_freshness_caption
 from utils.gap_suggestions import suggestions_for_gap, render_suggestion_block
 
-st.set_page_config(page_title="Regulatory Tracker | ESG CoPilot", page_icon="📋", layout="wide")
+st.set_page_config(page_title="Regulatory Tracker | ESG Pilot", page_icon="📋", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to access the Regulatory Tracker agent.")
+
+# Top-of-page status strip — shows the signed-in user, the current
+# agent, and the agent's LIVE status (auto-refreshes while running).
+page_agent_header_live(
+    agent_key="regulatory_tracker",
+    agent_icon="📋",
+)
+
 st.title("📋 Regulatory Tracker Agent")
 st.markdown("*Monitors global ESG frameworks — auto-updates within 24 hours of any mandate shift*")
 data_freshness_caption(can_refresh=False)
