@@ -633,8 +633,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
 [data-testid="stSidebar"] [data-testid="stSidebarNav"] {
     order: 2 !important;                /* page links BELOW brand        */
     padding-top: var(--space-3) !important;
-    border-top: 1px solid rgba(253, 81, 8, 0.18);
-    margin-top: var(--space-2);
+    margin-top: var(--space-3);
 }
 
 [data-testid="stSidebar"] .pwc-header-sidebar {
@@ -643,7 +642,6 @@ button[data-baseweb="tab"][aria-selected="true"] {
     margin: 0 calc(var(--space-2) * -1) var(--space-3) calc(var(--space-2) * -1);
     border-bottom: 1px solid rgba(253, 81, 8, 0.22);
     background: linear-gradient(135deg, #ffffff 0%, var(--surface-muted) 100%);
-    box-shadow: 0 1px 0 rgba(253, 81, 8, 0.10);
 }
 [data-testid="stSidebar"] .pwc-header-sidebar .pwc-header-brand {
     width: 100%;
@@ -855,7 +853,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
     display: flex; align-items: center; gap: var(--space-3); flex: 1; min-width: 0;
 }
 .esg-statusbar .esg-statusbar-right {
-    display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+    display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
 }
 .esg-statusbar .esg-sb-search {
     display: inline-flex; align-items: center; gap: var(--space-2);
@@ -916,13 +914,14 @@ button[data-baseweb="tab"][aria-selected="true"] {
     transform: translateY(-1px);
 }
 .esg-statusbar .esg-sb-icon .esg-sb-badge {
-    position: absolute; top: -4px; right: -4px;
-    min-width: 16px; height: 16px; padding: 0 4px;
+    position: absolute; top: -2px; right: -2px;
+    min-width: 14px; height: 14px; padding: 0 4px;
     border-radius: 999px;
     background: linear-gradient(135deg, var(--pwc-orange), var(--pwc-tomato));
-    color: #fff; font-size: 10px; font-weight: 700;
+    color: #fff; font-size: 9px; font-weight: 700; line-height: 1;
     display: inline-flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 6px rgba(253, 81, 8, 0.40);
+    box-shadow: 0 2px 6px rgba(253, 81, 8, 0.40),
+                0 0 0 2px #ffffff;
 }
 .esg-statusbar .esg-sb-avatar {
     width: 36px; height: 36px; border-radius: 50%;
@@ -2069,8 +2068,8 @@ def esg_roi_featured_card(
     border-color: rgba(255, 255, 255, 0.40);
     color: #fff;
   }}
-  .roi-left  {{ position: relative; z-index: 1; display: flex; flex-direction: column; gap: 14px; }}
-  .roi-right {{ position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; }}
+  .roi-left  {{ position: relative; z-index: 1; display: flex; flex-direction: column; gap: 14px; padding-top: 36px; }}
+  .roi-right {{ position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; padding-top: 36px; }}
   .eyebrow {{
     display: inline-flex; align-items: center; gap: 8px;
     padding: 6px 14px; border-radius: 999px;

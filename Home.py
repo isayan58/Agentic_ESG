@@ -364,16 +364,21 @@ st.markdown(
         }
         .home-agent-tile .tile-head {
             display: flex; align-items: center; justify-content: space-between;
-            gap: 0.5rem;
+            gap: 0.75rem;
         }
         .home-agent-tile .tile-title {
-            display: flex; align-items: center; gap: 0.55rem;
+            display: flex; align-items: center; gap: 0.7rem;
+            min-width: 0; flex: 1;
             font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
             font-weight: 700;
             color: #0f172a;
             font-size: 0.98rem;
             letter-spacing: -0.012em;
         }
+        .home-agent-tile .tile-title > span:last-child {
+            min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .home-agent-tile .tile-pill { flex-shrink: 0; }
         .home-agent-tile .tile-icon {
             flex-shrink: 0;
             width: 34px; height: 34px; border-radius: 10px;

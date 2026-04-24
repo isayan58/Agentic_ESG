@@ -1,6 +1,10 @@
 """Mission Control — Full pipeline overview with business impact, pipeline visualization, and transformation view."""
+import json
+import os
 import pandas as pd
 import streamlit as st
+import anthropic
+import config
 from core.orchestrator import Orchestrator
 from config import AGENT_CONFIG
 from utils.charts import (
@@ -19,6 +23,7 @@ from utils.ui import (
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
 from utils.session import get_session_connection_manager
+from utils.data_gaps import compute_data_gaps
 
 st.set_page_config(page_title="Mission Control | ESG Pilot", page_icon="🎛️", layout="wide")
 inject_global_css()
@@ -217,6 +222,262 @@ if run_pipeline:
 # ── Pipeline Results ──
 if st.session_state.pipeline_results:
     results = st.session_state.pipeline_results
+    st.markdown("---")
+
+    # ── Data Coverage & Next Data to Unlock ──
+    # Proactively tells the client exactly which tables are missing, which
+    # specific columns in their registered sources are unmapped, and what kind
+    # of source would plug the gap. This is the automated answer to "what do
+    # you need from me to guide me better?" — shown before the chat so the
+    # client has the context before asking follow-ups.
+    section_header(
+        "Data Coverage & Next Data to Unlock",
+        "A read of the data this run actually had available — what's in, what's missing, and the specific source that would close each gap.",
+    )
+
+    _gap_conn_mgr = st.session_state.get("conn_manager")
+    gap_report = compute_data_gaps(_gap_conn_mgr, results)
+
+    gc1, gc2, gc3, gc4 = st.columns(4)
+    with gc1:
+        kpi_card(
+            "Registered Sources",
+            str(gap_report["source_count"]),
+            "Real connectors / uploads in this run."
+            if gap_report["has_sources"]
+            else "No sources registered — sample data was used.",
+        )
+    with gc2:
+        cov = gap_report["schema_coverage"]
+        kpi_card(
+            "Schema Coverage",
+            f"{cov['covered']}/{cov['total']}",
+            "ESG data tables the client has populated.",
+        )
+    with gc3:
+        kpi_card(
+            "Agents Completed",
+            str(len(gap_report["agents_completed"])),
+            "Ran cleanly against the available data.",
+        )
+    with gc4:
+        kpi_card(
+            "Agents Degraded",
+            str(len(gap_report["agents_errored"])),
+            ", ".join(gap_report["agents_errored"])
+            if gap_report["agents_errored"]
+            else "No agent errored out.",
+        )
+
+    if gap_report["using_sample_data"]:
+        st.info(
+            "ℹ️ This run used built-in sample data because no real sources are "
+            "registered. Upload real data on the **Data Collector** page to "
+            "see gap guidance tailored to the client's actual systems.",
+            icon="💡",
+        )
+
+    gap_left, gap_right = st.columns([1, 1])
+
+    with gap_left:
+        st.markdown("##### Registered sources — unmapped fields")
+        if gap_report["sources"]:
+            src_rows = [
+                {
+                    "Source": s["display_name"],
+                    "Type": s["connector_type"],
+                    "Schema": s["target_schema"],
+                    "Missing required": ", ".join(s["missing_required"]) or "—",
+                    "Missing optional": ", ".join(s["missing_optional"]) or "—",
+                }
+                for s in gap_report["sources"]
+            ]
+            safe_dataframe(pd.DataFrame(src_rows), use_container_width=True, hide_index=True)
+            any_req_missing = any(s["missing_required"] for s in gap_report["sources"])
+            if any_req_missing:
+                st.warning(
+                    "One or more registered sources is missing required columns. "
+                    "Re-open the source on the **Data Collector** page and map "
+                    "those columns before the next run.",
+                    icon="⚠️",
+                )
+        else:
+            st.caption("No sources registered yet — nothing to audit here.")
+
+    with gap_right:
+        st.markdown("##### Missing data tables — what each would unlock")
+        if gap_report["missing_schemas"]:
+            miss_rows = [
+                {
+                    "Schema": m["schema"],
+                    "Unblocks": ", ".join(m["blocks_agents"]),
+                    "Why it matters": m["why"],
+                    "Suggested source": m["example_source"],
+                }
+                for m in gap_report["missing_schemas"]
+            ]
+            safe_dataframe(pd.DataFrame(miss_rows), use_container_width=True, hide_index=True)
+        else:
+            st.success("Every supported ESG data table is covered by at least one source.", icon="✅")
+
+    # LLM-layered prioritized recommendations — cached per (sources, results)
+    # so re-rendering the page doesn't re-hit the API.
+    def _gap_cache_key(report: dict) -> str:
+        return json.dumps({
+            "sources": [(s["target_schema"],
+                         tuple(s["missing_required"]),
+                         tuple(s["missing_optional"]))
+                        for s in report["sources"]],
+            "missing": [m["schema"] for m in report["missing_schemas"]],
+            "errored": report["agents_errored"],
+            "sample": report["using_sample_data"],
+        }, sort_keys=True)
+
+    cache_key = _gap_cache_key(gap_report)
+    cache = st.session_state.setdefault("mc_gap_advice_cache", {})
+    cached = cache.get(cache_key)
+
+    st.markdown("##### Prioritized recommendations")
+    advice_slot = st.empty()
+
+    def _generate_gap_advice(report: dict, run_results: dict) -> str:
+        api_key = config.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return ("⚠️ `ANTHROPIC_API_KEY` is not set — set it and reload to "
+                    "see prioritized recommendations.")
+        client = anthropic.Anthropic(api_key=api_key)
+        prompt = (
+            "You are an ESG data advisor talking to the client. Based on the "
+            "data-gap report and this pipeline run's results, give 3–5 "
+            "prioritized recommendations. For each: (1) the concrete data "
+            "artefact to request (file / system / columns), (2) the source "
+            "system or team that likely owns it, and (3) the specific "
+            "downstream analysis it unlocks in this app. Order by business "
+            "impact. Be concrete — name columns and example sources, not "
+            "abstract capability language. If the client already has good "
+            "coverage, say so and point to the one or two optional fields "
+            "that would most sharpen the current analysis. Markdown bullet "
+            "list, no preamble.\n\n"
+            f"GAP REPORT:\n{json.dumps(report, indent=2, default=str)}\n\n"
+            f"PIPELINE RESULTS (summary):\n"
+            f"{json.dumps({k: v for k, v in run_results.items() if k != 'planning'}, default=str)[:20000]}"
+        )
+        response = client.messages.create(
+            model=config.ANTHROPIC_MODEL,
+            max_tokens=1400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return "".join(
+            block.text for block in response.content
+            if getattr(block, "type", None) == "text"
+        ).strip() or "(no recommendations generated)"
+
+    if cached:
+        advice_slot.markdown(cached)
+    else:
+        advice_slot.markdown("_Generating prioritized recommendations from the gap report…_")
+        try:
+            advice = _generate_gap_advice(gap_report, results)
+        except Exception as exc:
+            advice = f"⚠️ Recommendation generation failed: `{exc}`"
+        cache[cache_key] = advice
+        advice_slot.markdown(advice)
+
+    st.markdown("---")
+
+    # ── Ask the Pilot (natural-language Q&A grounded in this run) ──
+    section_header(
+        "Ask the Pilot",
+        "Ask a question about this pipeline run. Claude answers using the current agent results as context — no data from other runs or the web.",
+    )
+
+    if "mc_chat" not in st.session_state:
+        st.session_state.mc_chat = []
+
+    def _pipeline_context(run_results: dict, char_limit: int = 40000) -> str:
+        """Compact JSON snapshot of the run for the model. Drops planning log
+        (shown elsewhere) and truncates hard to stay well under the prompt-
+        cache sweet spot even on large runs."""
+        snapshot = {k: v for k, v in run_results.items() if k != "planning"}
+        try:
+            text = json.dumps(snapshot, default=str, indent=2)
+        except TypeError:
+            text = str(snapshot)
+        if len(text) > char_limit:
+            text = text[:char_limit] + "\n…[truncated]"
+        return text
+
+    def _ask_pilot(question: str, history: list[dict], run_results: dict) -> str:
+        api_key = config.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return ("⚠️ `ANTHROPIC_API_KEY` is not set in this environment — "
+                    "set it and reload to use the Pilot.")
+        client = anthropic.Anthropic(api_key=api_key)
+        system = [
+            {
+                "type": "text",
+                "text": (
+                    "You are the ESG Pilot, answering questions about a single ESG "
+                    "pipeline run. Ground every claim in the JSON context provided. "
+                    "If the data cannot answer the question (e.g. no sector breakdown, "
+                    "no time-series), say so plainly and point to the closest signal "
+                    "that *is* available. Prefer concrete numbers from the context "
+                    "over generic ESG advice. Be concise — 3–6 short paragraphs or a "
+                    "tight bullet list. Never invent fields that aren't in the JSON."
+                ),
+            },
+            {
+                "type": "text",
+                "text": f"Pipeline run context (JSON):\n{_pipeline_context(run_results)}",
+                "cache_control": {"type": "ephemeral"},
+            },
+        ]
+        messages = [
+            {"role": turn["role"], "content": turn["content"]}
+            for turn in history
+        ]
+        messages.append({"role": "user", "content": question})
+        response = client.messages.create(
+            model=config.ANTHROPIC_MODEL,
+            max_tokens=2048,
+            system=system,
+            messages=messages,
+        )
+        return "".join(
+            block.text for block in response.content
+            if getattr(block, "type", None) == "text"
+        ).strip() or "(no response)"
+
+    for turn in st.session_state.mc_chat:
+        with st.chat_message(turn["role"]):
+            st.markdown(turn["content"])
+
+    user_q = st.chat_input(
+        "Ask about this run — e.g. 'Which KPI is weakest?' or 'Where is the biggest ROI lever?'"
+    )
+    if user_q:
+        st.session_state.mc_chat.append({"role": "user", "content": user_q})
+        with st.chat_message("user"):
+            st.markdown(user_q)
+        with st.chat_message("assistant"):
+            placeholder = st.empty()
+            placeholder.markdown("_Thinking…_")
+            try:
+                answer = _ask_pilot(
+                    user_q,
+                    st.session_state.mc_chat[:-1],
+                    results,
+                )
+            except Exception as exc:
+                answer = f"⚠️ Pilot call failed: `{exc}`"
+            placeholder.markdown(answer)
+        st.session_state.mc_chat.append({"role": "assistant", "content": answer})
+
+    if st.session_state.mc_chat:
+        if st.button("Clear chat", key="mc_chat_clear"):
+            st.session_state.mc_chat = []
+            st.rerun()
+
     st.markdown("---")
 
     tab_results, tab_business, tab_hypotheses, tab_pipeline, tab_transform, tab_stack, tab_tiers, tab_monitor = st.tabs([
