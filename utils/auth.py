@@ -246,13 +246,30 @@ def _cookie_manager():
 
 
 def _read_cookie() -> Optional[str]:
+    """Read the auth cookie, forcing the browser component to sync first.
+
+    ``stx.CookieManager`` is asynchronous — on the very first render of a
+    page the React component hasn't yet posted its cookie dict back to the
+    server, so ``cm.get(name)`` returns ``None`` even when the cookie exists.
+    Streamlit will re-run the script once the component reports, but by then
+    any ``require_login`` call has already fired ``st.stop()`` and redirected
+    to the sign-in page. Calling ``cm.get_all()`` surfaces that "not yet
+    hydrated" state explicitly — we set a session flag so ``require_login``
+    can render a brief splash instead of a false sign-in gate.
+    """
     cm = _cookie_manager()
     if cm is None:
         return None
     try:
-        return cm.get(COOKIE_NAME)
+        all_cookies = cm.get_all()
     except Exception:  # pragma: no cover - defensive
+        all_cookies = None
+    if all_cookies is None:
+        # Component hasn't posted yet — mark pending so require_login can wait.
+        st.session_state["_auth_cookie_pending"] = True
         return None
+    st.session_state["_auth_cookie_pending"] = False
+    return all_cookies.get(COOKIE_NAME)
 
 
 def _write_cookie(value: str) -> None:
@@ -488,6 +505,26 @@ def require_login(message: str = "Please sign in to access this page.") -> dict:
             # the user has already authenticated for.
             pass
         return user
+
+    # Cookie component may still be hydrating on the first render after a
+    # browser refresh. Show a tiny splash and stop — Streamlit will re-run
+    # once the component posts the cookie, and the second pass will hit the
+    # ``if user`` branch above.
+    if st.session_state.get("_auth_cookie_pending"):
+        st.markdown(
+            """
+            <div style="
+                padding: 1.25rem 1.5rem;
+                border-radius: 12px;
+                background: linear-gradient(135deg, #FFF7EF 0%, #FFF1E3 100%);
+                border: 1px solid rgba(253, 81, 8, 0.18);
+                color: #7a2e0c;
+                font-family: 'Inter', sans-serif; font-size: 0.95rem;
+            ">⏳ Restoring your session…</div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.stop()
 
     st.markdown(
         """

@@ -8,7 +8,7 @@ from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, page_agent_header_live, pwc_header
 from utils.pipeline_refresh import data_freshness_caption
 
-st.set_page_config(page_title="Risk Predictor | ESG Pilot", page_icon="⚠️", layout="wide")
+st.set_page_config(page_title="Risk Predictor | ESG Intelligence Hub", page_icon="⚠️", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()

@@ -17,7 +17,7 @@ from utils.auth import (
 from utils.ui import hero, inject_global_css, pwc_header, section_header
 
 st.set_page_config(
-    page_title="Sign In | ESG Pilot",
+    page_title="Sign In | ESG Intelligence Hub",
     page_icon="🔐",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -27,7 +27,7 @@ pwc_header()
 sidebar_auth_widget()
 
 hero(
-    title="Sign in to ESG Pilot",
+    title="Sign in to ESG Intelligence Hub",
     emoji="🔐",
     subtitle=(
         "Authenticate to unlock the 9-agent autonomous pipeline, Mission Control, "

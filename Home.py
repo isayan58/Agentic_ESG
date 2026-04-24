@@ -20,7 +20,7 @@ from utils.ui import (
 )
 
 st.set_page_config(
-    page_title="ESG Pilot — Autonomous ESG Intelligence",
+    page_title="ESG Intelligence Hub — Command Your ESG Strategy",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -953,7 +953,7 @@ st.markdown(
         <div class="quote-mark">&#8220;</div>
         <blockquote>
             ESG reporting used to take our team three weeks of spreadsheet wrangling.
-            ESG Pilot collapses that into a 60-second pipeline — and the numbers are
+            ESG Intelligence Hub collapses that into a 60-second pipeline — and the numbers are
             defensible because every signal traces back to a source of truth.
         </blockquote>
         <div class="quote-author">
@@ -1037,7 +1037,7 @@ st.markdown(
     f"""
     <div class="home-footer">
         <div>
-            <strong style="color:#0f172a;">ESG Pilot</strong> · Autonomous ESG intelligence ·
+            <strong style="color:#0f172a;">ESG Intelligence Hub</strong> · Command your ESG strategy with real-time intelligence and action ·
             © 2026 · Built for the sustainability leaders of modern enterprise.
         </div>
         <div>

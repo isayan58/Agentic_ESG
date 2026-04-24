@@ -21,7 +21,7 @@ except ImportError:
     _PLOTLY = False
 
 
-st.set_page_config(page_title="ESG ROI Agent | ESG Pilot", page_icon="⭐", layout="wide")
+st.set_page_config(page_title="ESG ROI Agent | ESG Intelligence Hub", page_icon="⭐", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()

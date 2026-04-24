@@ -237,7 +237,75 @@ _STATIC_CSS = """
     -webkit-mask-image: radial-gradient(1200px 600px at 50% 0%, rgba(0,0,0,0.75), transparent 70%);
 }
 [data-testid="stAppViewContainer"] { background: transparent !important; position: relative; z-index: 1; }
-[data-testid="stHeader"] { background: transparent !important; backdrop-filter: blur(8px); }
+/* Collapse Streamlit's translucent blurred app header — we render our own
+   branded top bar at the top of each page, so the default header only
+   contributes hazy dead space. Keep the hamburger/menu accessible via the
+   toolbar below it. */
+[data-testid="stHeader"] {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+}
+[data-testid="stHeader"] > * { display: none !important; }
+[data-testid="stToolbar"] { top: 0 !important; right: var(--space-3) !important; }
+/* Keep chat_input in the document flow so submitting a question doesn't
+   yank the page down to a sticky bottom bar. */
+[data-testid="stChatInput"] {
+    position: static !important;
+    bottom: auto !important;
+    max-width: 100% !important;
+    margin-top: var(--space-3);
+}
+[data-testid="stChatInputContainer"] {
+    position: static !important;
+    bottom: auto !important;
+}
+/* Branded top bar — first thing in main content on every page. */
+.esg-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-4);
+    padding: 14px var(--space-5);
+    margin: 0 0 var(--space-4) 0;
+    border-radius: var(--radius-lg);
+    background:
+        radial-gradient(600px 180px at 0% 0%, rgba(253, 81, 8, 0.14), transparent 60%),
+        linear-gradient(90deg, #ffffff 0%, #fffaf4 100%);
+    border: 1px solid rgba(253, 81, 8, 0.18);
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.04),
+        0 14px 32px rgba(253, 81, 8, 0.08);
+}
+.esg-topbar .esg-topbar-brand {
+    display: flex; align-items: center; gap: var(--space-3); min-width: 0;
+}
+.esg-topbar img.esg-topbar-logo { height: 34px; width: auto; display: block; }
+.esg-topbar .esg-topbar-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.esg-topbar .esg-topbar-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.25rem;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #C23A00 0%, #FD5108 45%, #E0301E 80%, #FFB600 130%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.esg-topbar .esg-topbar-tagline {
+    font-size: 0.82rem; color: var(--text-secondary);
+    font-weight: 500; letter-spacing: -0.005em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.esg-topbar .esg-topbar-accent {
+    height: 3px; width: 48px; border-radius: var(--radius-pill); flex-shrink: 0;
+    background: linear-gradient(90deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 100%);
+    box-shadow: 0 1px 3px rgba(253, 81, 8, 0.30);
+}
+@media (max-width: 720px) {
+    .esg-topbar .esg-topbar-tagline { display: none; }
+}
 [data-testid="stSidebar"] > div:first-child {
     background: linear-gradient(180deg, #ffffff 0%, var(--surface-muted) 85%) !important;
     border-right: 1px solid var(--border);
@@ -1028,23 +1096,52 @@ def _pwc_logo_data_uri() -> str:
     return ""
 
 
-def pwc_header(product: str = "ESG Pilot", tagline: str = "Powered by PwC India") -> None:
-    """Brand header — renders at the TOP of the sidebar (navbar).
+PRODUCT_NAME = "ESG Intelligence Hub"
+PRODUCT_TAGLINE = "Command your ESG strategy with real-time intelligence and action."
 
-    Every page calls ``pwc_header()`` as part of its boot sequence. Rendering
-    into ``st.sidebar`` puts the PwC logo + product name + tagline at the top
-    of the navbar — the first thing clients see, consistent across all pages.
+
+def pwc_header(
+    product: str = PRODUCT_NAME,
+    tagline: str = PRODUCT_TAGLINE,
+    sidebar_tagline: str = "Powered by PwC India",
+) -> None:
+    """Brand header — renders a top banner on the main page AND in the sidebar.
+
+    The main-area banner carries the product name + marketing tagline and
+    reclaims the vertical space that Streamlit's default translucent header
+    was leaving hazy. The sidebar block keeps the PwC brand lock-up.
+    Every page calls ``pwc_header()`` as part of its boot sequence.
     """
     inject_global_css()
     skip_link()
     logo_uri = _pwc_logo_data_uri()
-    logo_html = f'<img class="pwc-logo" src="{logo_uri}" alt="PwC"/>' if logo_uri else ""
+
+    # 1) Main-area top banner — first element in main content.
+    topbar_logo = (
+        f'<img class="esg-topbar-logo" src="{logo_uri}" alt="PwC"/>'
+        if logo_uri else ""
+    )
+    st.markdown(
+        f'<div class="esg-topbar" role="banner">'
+        f'  <div class="esg-topbar-brand">{topbar_logo}'
+        f'    <div class="esg-topbar-text">'
+        f'      <span class="esg-topbar-title">{html.escape(product)}</span>'
+        f'      <span class="esg-topbar-tagline">{html.escape(tagline)}</span>'
+        f'    </div>'
+        f'  </div>'
+        f'  <div class="esg-topbar-accent" aria-hidden="true"></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # 2) Sidebar brand block — keeps the PwC lock-up + product name.
+    sidebar_logo = f'<img class="pwc-logo" src="{logo_uri}" alt="PwC"/>' if logo_uri else ""
     st.sidebar.markdown(
         f'<div class="pwc-header pwc-header-sidebar" role="banner">'
-        f'  <div class="pwc-header-brand">{logo_html}'
+        f'  <div class="pwc-header-brand">{sidebar_logo}'
         f'    <div class="pwc-header-text">'
         f'      <span class="pwc-header-title">{html.escape(product)}</span>'
-        f'      <span class="pwc-header-sub">{html.escape(tagline)}</span>'
+        f'      <span class="pwc-header-sub">{html.escape(sidebar_tagline)}</span>'
         f'    </div>'
         f'  </div>'
         f'  <div class="pwc-accent-bar" aria-hidden="true"></div>'

@@ -17,7 +17,7 @@ from utils.source_store import SourcePayloadTooLarge
 from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, page_agent_header_live, pwc_header
 
-st.set_page_config(page_title="Data Collector | ESG Pilot", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Data Collector | ESG Intelligence Hub", page_icon="📊", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()

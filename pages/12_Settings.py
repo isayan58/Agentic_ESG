@@ -24,7 +24,7 @@ from utils.session import (
 from utils.ui import inject_global_css, pwc_header
 
 
-st.set_page_config(page_title="Settings | ESG Pilot", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Settings | ESG Intelligence Hub", page_icon="⚙️", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
