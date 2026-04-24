@@ -109,23 +109,23 @@ with fleet_head_r:
         live_badge("Live")
 
 cols = st.columns(4)
-for i, (key, config) in enumerate(AGENT_CONFIG.items()):
+for i, (key, agent_cfg) in enumerate(AGENT_CONFIG.items()):
     agent_status = statuses.get(key, {})
     with cols[i % 4]:
         agent_card(
-            name=config["name"],
-            icon=config["icon"],
+            name=agent_cfg["name"],
+            icon=agent_cfg["icon"],
             status=agent_status.get("status", "idle"),
             last_run=agent_status.get("last_run") or "Never",
-            color=config["color"],
+            color=agent_cfg["color"],
             runtime_seconds=agent_status.get("runtime_seconds"),
             last_error=agent_status.get("last_error"),
-            description=config.get("description"),
+            description=agent_cfg.get("description"),
             run_count=agent_status.get("run_count"),
         )
         if (agent_status.get("status") or "").lower() == "error":
             if retry_button("Retry agent", key=f"retry_{key}"):
-                with st.spinner(f"Retrying {config['name']}…"):
+                with st.spinner(f"Retrying {agent_cfg['name']}…"):
                     orch.run_single_agent(key)
                 st.rerun()
 
@@ -175,9 +175,9 @@ if run_pipeline:
 
     def progress_callback(agent_key, status, step, total):
         progress_bar.progress(step / total)
-        config = AGENT_CONFIG.get(agent_key, {})
-        name = config.get("name", agent_key)
-        icon = config.get("icon", "🤖")
+        agent_cfg = AGENT_CONFIG.get(agent_key, {})
+        name = agent_cfg.get("name", agent_key)
+        icon = agent_cfg.get("icon", "🤖")
         if status == "running":
             status_text.info(f"{icon} Running {name}... ({step}/{total})")
         elif status == "completed":
