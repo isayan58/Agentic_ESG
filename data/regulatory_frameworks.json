@@ -71,6 +71,33 @@
         {"id": "SASB-TC-SI-520a.1", "section": "IP & Competitive", "requirement": "Revenue from Ethical AI/IP", "data_fields": ["ethical_ai_revenue"], "priority": "low"},
         {"id": "SASB-TC-SI-550a.1", "section": "Supply Chain", "requirement": "Critical IP Supplier Dependency", "data_fields": ["supplier_dependency", "supply_risk"], "priority": "high"}
       ]
+    },
+    "SOX": {
+      "full_name": "Sarbanes-Oxley Act",
+      "jurisdiction": "United States (SEC / PCAOB)",
+      "mandatory": true,
+      "requirements": [
+        {"id": "SOX-302", "section": "Section 302", "requirement": "CEO/CFO Certification of Financial & ESG-Linked Disclosures", "data_fields": ["ceo_cfo_certification", "disclosure_controls"], "priority": "critical"},
+        {"id": "SOX-404", "section": "Section 404", "requirement": "Internal Controls over Financial Reporting (ICFR) — including ESG-linked metrics feeding financials", "data_fields": ["icfr_assessment", "internal_controls", "control_deficiencies"], "priority": "critical"},
+        {"id": "SOX-409", "section": "Section 409", "requirement": "Real-Time Disclosure of Material ESG-Linked Events", "data_fields": ["material_events_disclosure"], "priority": "high"},
+        {"id": "SOX-802", "section": "Section 802", "requirement": "Audit Trail & Document Retention for ESG Data", "data_fields": ["document_retention", "audit_trail"], "priority": "high"},
+        {"id": "SOX-906", "section": "Section 906", "requirement": "Criminal Certification — Accuracy of Financial & Non-Financial Statements", "data_fields": ["ceo_cfo_certification"], "priority": "critical"}
+      ]
+    },
+    "SEC": {
+      "full_name": "SEC Climate-Related Disclosure Rule (Regulation S-K Item 1500s / S-X Article 14)",
+      "jurisdiction": "United States (SEC)",
+      "mandatory": true,
+      "requirements": [
+        {"id": "SEC-CLIM-1500", "section": "S-K Item 1500", "requirement": "Definitions — Material Climate-Related Risks & Impacts", "data_fields": ["materiality_assessment", "climate_risk_assessment"], "priority": "critical"},
+        {"id": "SEC-CLIM-1501", "section": "S-K Item 1501", "requirement": "Governance of Climate-Related Risks (Board & Management Oversight)", "data_fields": ["board_governance", "climate_gov_structure"], "priority": "critical"},
+        {"id": "SEC-CLIM-1502", "section": "S-K Item 1502", "requirement": "Strategy, Business Model & Outlook — Material Climate Risks", "data_fields": ["climate_risk_assessment", "climate_strategy"], "priority": "critical"},
+        {"id": "SEC-CLIM-1503", "section": "S-K Item 1503", "requirement": "Risk Management Processes for Climate Risks", "data_fields": ["climate_risk_process"], "priority": "high"},
+        {"id": "SEC-CLIM-1504", "section": "S-K Item 1504", "requirement": "Targets, Goals & Transition Plans", "data_fields": ["climate_targets", "transition_plan"], "priority": "high"},
+        {"id": "SEC-CLIM-1505", "section": "S-K Item 1505", "requirement": "Scope 1 & Scope 2 GHG Emissions (Large Accelerated Filers)", "data_fields": ["emissions_scope1", "emissions_scope2"], "priority": "critical"},
+        {"id": "SEC-CLIM-1506", "section": "S-K Item 1506", "requirement": "Assurance — Limited then Reasonable Assurance over GHG Disclosures", "data_fields": ["emissions_assurance"], "priority": "high"},
+        {"id": "SEC-CLIM-SX-14", "section": "S-X Article 14", "requirement": "Financial Statement Effects — Severe Weather & Transition Activities", "data_fields": ["financial_climate_impact", "severe_weather_costs"], "priority": "critical"}
+      ]
     }
   }
 }

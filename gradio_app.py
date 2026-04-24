@@ -802,7 +802,7 @@ with gr.Blocks(title="ESG Pilot") as demo:
                 btn.click(run_data_collector, outputs=[out1, out2])
 
     with gr.Tab("📋 Regulatory Tracker"):
-        gr.Markdown("Monitors BRSR, CSRD, GRI, SASB compliance.")
+        gr.Markdown("Monitors BRSR, CSRD, GRI, SASB, SOX & SEC compliance.")
         btn = gr.Button("Run Compliance Analysis", variant="primary")
         out1 = gr.Markdown(label="Compliance")
         out2 = gr.Markdown(label="Gaps")

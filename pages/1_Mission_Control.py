@@ -1,6 +1,8 @@
 """Mission Control — Full pipeline overview with business impact, pipeline visualization, and transformation view."""
+import io
 import json
 import os
+from datetime import datetime
 import pandas as pd
 import streamlit as st
 import anthropic
@@ -46,7 +48,7 @@ hero(
     chips=[
         "9 Agents · Orchestrated",
         "Shared-state pub/sub",
-        "BRSR · CSRD · GRI · SASB",
+        "BRSR · CSRD · GRI · SASB · SOX · SEC",
         "AI-generated reports, dashboards, and insights",
     ],
 )
@@ -238,6 +240,25 @@ if st.session_state.pipeline_results:
     _gap_conn_mgr = st.session_state.get("conn_manager")
     gap_report = compute_data_gaps(_gap_conn_mgr, results)
 
+    # Stamp one generation timestamp for the whole advisory — reused in
+    # every downloadable artefact so filename + CSV header agree.
+    gap_generated_at = datetime.now()
+    gap_generated_iso = gap_generated_at.isoformat(timespec="seconds")
+    gap_filename_stamp = gap_generated_at.strftime("%Y%m%d_%H%M%S")
+
+    def _csv_with_metadata(df: pd.DataFrame, label: str) -> bytes:
+        """Prepend a two-line metadata header to a CSV so auditors can see
+        exactly when the advisory was generated and downloaded."""
+        buf = io.StringIO()
+        buf.write(f"# ESG Pilot — {label}\n")
+        buf.write(f"# Generated at: {gap_generated_iso}\n")
+        buf.write(f"# Downloaded at: {datetime.now().isoformat(timespec='seconds')}\n")
+        buf.write("#\n")
+        df.to_csv(buf, index=False)
+        return buf.getvalue().encode("utf-8")
+
+    st.caption(f"Advisory generated at **{gap_generated_iso}** (local time).")
+
     gc1, gc2, gc3, gc4 = st.columns(4)
     with gc1:
         kpi_card(
@@ -292,7 +313,15 @@ if st.session_state.pipeline_results:
                 }
                 for s in gap_report["sources"]
             ]
-            safe_dataframe(pd.DataFrame(src_rows), use_container_width=True, hide_index=True)
+            src_df = pd.DataFrame(src_rows)
+            safe_dataframe(src_df, use_container_width=True, hide_index=True)
+            st.download_button(
+                "⬇️ Download source discrepancies (CSV)",
+                data=_csv_with_metadata(src_df, "Source discrepancies — unmapped fields"),
+                file_name=f"esg_source_discrepancies_{gap_filename_stamp}.csv",
+                mime="text/csv",
+                key="mc_gap_dl_sources",
+            )
             any_req_missing = any(s["missing_required"] for s in gap_report["sources"])
             if any_req_missing:
                 st.warning(
@@ -316,7 +345,15 @@ if st.session_state.pipeline_results:
                 }
                 for m in gap_report["missing_schemas"]
             ]
-            safe_dataframe(pd.DataFrame(miss_rows), use_container_width=True, hide_index=True)
+            miss_df = pd.DataFrame(miss_rows)
+            safe_dataframe(miss_df, use_container_width=True, hide_index=True)
+            st.download_button(
+                "⬇️ Download data suggestions (CSV)",
+                data=_csv_with_metadata(miss_df, "Data suggestions — missing tables"),
+                file_name=f"esg_data_suggestions_{gap_filename_stamp}.csv",
+                mime="text/csv",
+                key="mc_gap_dl_missing",
+            )
         else:
             st.success("Every supported ESG data table is covered by at least one source.", icon="✅")
 
@@ -374,14 +411,31 @@ if st.session_state.pipeline_results:
 
     if cached:
         advice_slot.markdown(cached)
+        advice_text = cached
     else:
         advice_slot.markdown("_Generating prioritized recommendations from the gap report…_")
         try:
-            advice = _generate_gap_advice(gap_report, results)
+            advice_text = _generate_gap_advice(gap_report, results)
         except Exception as exc:
-            advice = f"⚠️ Recommendation generation failed: `{exc}`"
-        cache[cache_key] = advice
-        advice_slot.markdown(advice)
+            advice_text = f"⚠️ Recommendation generation failed: `{exc}`"
+        cache[cache_key] = advice_text
+        advice_slot.markdown(advice_text)
+
+    # Downloadable full advisory bundle — recommendations + both gap tables,
+    # with the same generation timestamp stamped into one CSV per row type.
+    advice_md = (
+        f"# ESG Pilot — Prioritized Recommendations\n"
+        f"Generated at: {gap_generated_iso}\n"
+        f"Downloaded at: {datetime.now().isoformat(timespec='seconds')}\n\n"
+        f"{advice_text}\n"
+    )
+    st.download_button(
+        "⬇️ Download recommendations (Markdown)",
+        data=advice_md.encode("utf-8"),
+        file_name=f"esg_recommendations_{gap_filename_stamp}.md",
+        mime="text/markdown",
+        key="mc_gap_dl_advice",
+    )
 
     st.markdown("---")
 
@@ -877,7 +931,7 @@ if st.session_state.pipeline_results:
             #### Enterprise Tier
             *For fully autonomous global ESG intelligence*
             - All 9 agents
-            - All 4+ frameworks (BRSR, CSRD, GRI, SASB)
+            - All 6+ frameworks (BRSR, CSRD, GRI, SASB, SOX, SEC)
             - 6+ sources + full connector suite
             - Real-time / 24/7 monitoring
             """)

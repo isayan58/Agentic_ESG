@@ -9,6 +9,17 @@ from utils.auth import require_login, sidebar_auth_widget
 from utils.ui import inject_global_css, page_agent_header_live, pwc_header
 from utils.pipeline_refresh import data_freshness_caption
 from utils.gap_suggestions import suggestions_for_gap, render_suggestion_block
+from utils.framework_refresh import (
+    TRACKED_FRAMEWORKS,
+    apply_update,
+    dismiss_update,
+    load_updates_store,
+    pending_updates,
+    applied_updates,
+    dismissed_updates,
+    refresh_and_store,
+    time_since_last_check,
+)
 
 st.set_page_config(page_title="Regulatory Tracker | ESG Pilot", page_icon="📋", layout="wide")
 inject_global_css()
@@ -41,11 +52,11 @@ def render_chart(fig):
     else:
         st.plotly_chart(fig, use_container_width=True)
 
-# Framework selection
+# Framework selection — includes US frameworks (SOX, SEC Climate Rule)
 frameworks_display = st.multiselect(
     "Frameworks to analyze",
-    ["BRSR", "CSRD", "GRI", "SASB"],
-    default=["BRSR", "CSRD", "GRI", "SASB"],
+    list(TRACKED_FRAMEWORKS),
+    default=list(TRACKED_FRAMEWORKS),
 )
 
 if st.button("🔄 Run Compliance Analysis", type="primary"):
@@ -68,13 +79,13 @@ if results and "error" not in results:
         total_gaps = sum(len(fr.get("gaps", [])) for fr in results.get("framework_results", {}).values())
         st.metric("Total Gaps", total_gaps)
     with k4:
-        updates = regulatory_updater.check_for_updates()
-        st.metric("Pending Updates", updates.get("pending", 0))
+        _store = load_updates_store()
+        st.metric("Pending Updates", len(pending_updates(_store)))
 
     st.markdown("---")
 
     tab1, tab2, tab3, tab4 = st.tabs([
-        "Compliance Radar", "Gap Analysis", "24h Auto-Updates", "AI Narrative"
+        "Compliance Radar", "Gap Analysis", "Global Framework Updates", "AI Narrative"
     ])
 
     with tab1:
@@ -170,22 +181,132 @@ if results and "error" not in results:
                         render_suggestion_block(st, sugg)
 
     with tab3:
-        update_data = regulatory_updater.check_for_updates()
-        st.markdown("#### Regulatory Auto-Update Engine")
-        st.markdown(f"**All updates detected within 24 hours:** {'✅ Yes' if update_data['within_24h'] else '❌ No'}")
-        st.markdown(f"**Average response time:** {update_data['avg_response_hours']} hours")
+        store = load_updates_store()
+        pending = pending_updates(store)
+        applied = applied_updates(store)
+        dismissed = dismissed_updates(store)
 
-        for update in update_data.get("updates", []):
-            status_icon = {"integrated": "✅", "analyzing": "🔄", "pending": "⏳"}.get(update["status"], "⚪")
-            impact_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(update["impact"], "⚪")
-            with st.expander(f"{status_icon} {update['framework']} — {update['update_type']}: {update['description'][:80]}"):
-                st.markdown(f"**Detected at:** {update['detected_at'][:19]}")
-                st.markdown(f"**Response time:** {update['response_time_hours']} hours")
-                st.markdown(f"**Impact:** {impact_icon} {update['impact'].capitalize()}")
-                st.markdown(f"**Status:** {update['status'].capitalize()}")
-                st.markdown("**Changes:**")
-                for change in update.get("changes", []):
-                    st.markdown(f"  - {change}")
+        st.markdown("#### Global Framework Updates")
+        st.caption(
+            "Claude searches authoritative sources (SEBI, EFRAG, SEC, PCAOB, "
+            "GRI, IFRS/SASB) for recent changes to the frameworks you track. "
+            "Every change lands here for human approval before it modifies the "
+            "live framework set."
+        )
+
+        ru1, ru2, ru3, ru4 = st.columns(4)
+        with ru1:
+            st.metric("Last checked", time_since_last_check(store))
+        with ru2:
+            st.metric("Pending review", len(pending))
+        with ru3:
+            st.metric("Applied", len(applied))
+        with ru4:
+            st.metric("Dismissed", len(dismissed))
+
+        refresh_col, status_col = st.columns([1, 3])
+        with refresh_col:
+            do_refresh = st.button("🌐 Check for global updates now", type="primary", use_container_width=True)
+        with status_col:
+            if store.get("last_error"):
+                st.error(f"Last refresh failed: {store['last_error']}", icon="⚠️")
+            elif store.get("last_checked"):
+                st.caption(f"Last successful refresh: {store['last_checked']}")
+
+        if do_refresh:
+            with st.spinner("Searching authoritative sources for framework updates…"):
+                store = refresh_and_store()
+            if store.get("last_error"):
+                st.error(f"Refresh failed: {store['last_error']}", icon="⚠️")
+            else:
+                added = store.get("last_added_count", 0)
+                if added:
+                    st.success(f"Found {added} new update(s) — review below.", icon="✅")
+                else:
+                    st.info("No new updates since last check.", icon="✨")
+            pending = pending_updates(store)
+            applied = applied_updates(store)
+            dismissed = dismissed_updates(store)
+
+        # ── Pending updates — approval queue ──
+        st.markdown("##### Pending review")
+        if not pending:
+            st.caption("No pending updates. Click **Check for global updates now** to refresh.")
+        else:
+            _impact_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+            for upd in sorted(pending, key=lambda u: u.get("detected_at", ""), reverse=True):
+                fw = upd.get("framework", "?")
+                title = upd.get("title", "(untitled)")
+                impact = upd.get("impact", "medium")
+                with st.expander(f"{_impact_icon.get(impact, '⚪')} {fw} — {title}"):
+                    st.markdown(f"**Type:** {upd.get('type', 'update')}")
+                    st.markdown(f"**Description:** {upd.get('description', '—')}")
+                    eff = upd.get("effective_date")
+                    if eff:
+                        st.markdown(f"**Effective date:** {eff}")
+                    src = upd.get("source_url")
+                    if src:
+                        st.markdown(f"**Source:** [{src}]({src})")
+                    st.markdown(f"**Detected at:** {upd.get('detected_at', '—')}")
+                    prop = upd.get("proposed_requirement")
+                    if prop:
+                        st.markdown("**Proposed new requirement:**")
+                        safe_dataframe(
+                            pd.DataFrame([{
+                                "ID": prop.get("id"),
+                                "Section": prop.get("section"),
+                                "Requirement": prop.get("requirement"),
+                                "Data fields": ", ".join(prop.get("data_fields") or []),
+                                "Priority": prop.get("priority"),
+                            }]),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    else:
+                        st.caption("No new requirement proposed — this is a guidance / deadline update for awareness only.")
+
+                    ac, dc = st.columns(2)
+                    with ac:
+                        if st.button("✅ Apply update", key=f"apply_{upd['id']}", type="primary", use_container_width=True):
+                            result = apply_update(upd["id"])
+                            if result.get("ok"):
+                                st.success("Applied. The framework set has been updated.", icon="✅")
+                                st.rerun()
+                            else:
+                                st.error(result.get("reason", "Apply failed."), icon="⚠️")
+                    with dc:
+                        if st.button("🗑️ Dismiss", key=f"dismiss_{upd['id']}", use_container_width=True):
+                            dismiss_update(upd["id"], reason="Dismissed by reviewer")
+                            st.rerun()
+
+        # ── Applied history ──
+        if applied:
+            with st.expander(f"📘 Applied updates ({len(applied)})", expanded=False):
+                safe_dataframe(
+                    pd.DataFrame([{
+                        "Framework": u.get("framework"),
+                        "Title": u.get("title"),
+                        "Applied at": u.get("applied_at"),
+                        "Source": u.get("source_url"),
+                    } for u in sorted(applied, key=lambda u: u.get("applied_at", ""), reverse=True)]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        # ── Dismissed audit trail ──
+        if dismissed:
+            with st.expander(f"🗑️ Dismissed updates ({len(dismissed)})", expanded=False):
+                safe_dataframe(
+                    pd.DataFrame([{
+                        "Framework": u.get("framework"),
+                        "Title": u.get("title"),
+                        "Dismissed at": u.get("dismissed_at"),
+                        "Reason": u.get("dismiss_reason", ""),
+                        "Source": u.get("source_url"),
+                    } for u in sorted(dismissed, key=lambda u: u.get("dismissed_at", ""), reverse=True)]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     with tab4:
         narrative = results.get("gap_narrative", "")

@@ -606,7 +606,7 @@ hero(
     eyebrow=eyebrow,
     subtitle=subtitle,
     chips=[
-        "BRSR · CSRD · GRI · SASB",
+        "BRSR · CSRD · GRI · SASB · SOX · SEC",
         "Top-line · Bottom-line · Risk",
         "HuggingFace-native AI",
         "SOC-2-ready architecture",
@@ -701,8 +701,8 @@ features = [
      "Connect cloud storage, warehouses, and enterprise systems. Auto-detect schemas, "
      "map columns, and land everything on one trusted base."),
     ("📜", "Regulation-aware compliance",
-     "Always-on monitoring for BRSR, CSRD, GRI, SASB. Surface mandate shifts within "
-     "24 hours and keep disclosures audit-ready."),
+     "Always-on monitoring for BRSR, CSRD, GRI, SASB, SOX, and the SEC Climate Rule. "
+     "Surface mandate shifts within 24 hours and keep disclosures audit-ready."),
     ("🌱", "Scope 1-2-3 carbon accounting",
      "Track direct, indirect, and supply-chain emissions. AI-assisted hotspot "
      "detection across the tier network."),
@@ -848,7 +848,7 @@ st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
 # Icon, title, Active pill, description, and a sparkline signal — one glance.
 other_agents = [
     ("📊", "data_collector",      "Data Collector",      "Auto-discovers and validates ESG data with quality scoring.",   [12, 18, 15, 22, 28, 26, 32, 35]),
-    ("📋", "regulatory_tracker",  "Regulatory Tracker",  "Monitors BRSR, CSRD, GRI, SASB compliance in real time.",        [22, 25, 23, 28, 31, 34, 30, 36]),
+    ("📋", "regulatory_tracker",  "Regulatory Tracker",  "Monitors BRSR, CSRD, GRI, SASB, SOX & SEC in real time.",        [22, 25, 23, 28, 31, 34, 30, 36]),
     ("🌱", "carbon_accountant",   "Carbon Accountant",   "Tracks Scope 1/2/3 emissions with supply-chain hotspots.",      [42, 40, 38, 36, 33, 31, 28, 26]),
     ("📄", "report_generator",    "Report Generator",    "Creates multi-framework audit-ready reports.",                   [ 6, 12, 18, 24, 30, 36, 42, 48]),
     ("⚠️",  "risk_predictor",      "Risk Predictor",      "Forecasts climate risks and predicts ESG ratings.",              [48, 44, 46, 42, 38, 40, 36, 34]),
