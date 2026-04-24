@@ -567,24 +567,41 @@ def require_login(message: str = "Please sign in to access this page.") -> dict:
 #   1) Home        2) Sign In        3+) page routes
 # Signed-in users see only the app pages (Home + Sign In hidden);
 # signed-out users see only Home + Sign In.
+#
+# Streamlit's sidebar-nav DOM shape shifts across minor versions (sometimes
+# `ul > li`, sometimes `stSidebarNavItems` directly, sometimes nav-link
+# anchors as flat siblings), so each rule has a href-based fallback and
+# targets every wrapper we've seen in the wild.
 _HIDE_SIGNIN_NAV_CSS = """
 <style>
-    /* Also hide Home when signed in — the canonical entry point is
-       Mission Control. Belt-and-braces: href match + nth-child. */
+    /* Home — hidden when signed in. Match by href (empty / root), by
+       position (first li / first nav-link), and by Streamlit's labeled
+       nav-item testid. */
+    [data-testid="stSidebarNav"] a[href="./"],
+    [data-testid="stSidebarNav"] a[href="/"],
+    [data-testid="stSidebarNav"] li:has(a[href="./"]),
+    [data-testid="stSidebarNav"] li:has(a[href="/"]),
+    [data-testid="stSidebarNav"] ul > li:first-child,
+    [data-testid="stSidebarNav"] ul > li:nth-child(1),
+    [data-testid="stSidebarNavItems"] > li:first-child,
+    [data-testid="stSidebarNavItems"] > li:nth-child(1),
+    [data-testid="stSidebarNav"] > ul > li:first-child,
+    /* Sign In — hidden when signed in. */
     [data-testid="stSidebarNav"] a[href$="/Sign_In"],
     [data-testid="stSidebarNav"] li:has(a[href$="/Sign_In"]),
-    [data-testid="stSidebarNav"] ul > li:nth-child(1),
-    [data-testid="stSidebarNav"] ul > li:nth-child(2) {
+    [data-testid="stSidebarNav"] ul > li:nth-child(2),
+    [data-testid="stSidebarNavItems"] > li:nth-child(2) {
         display: none !important;
     }
 </style>
 """
 
 # Applied on every page when there's no user in session — only Home +
-# Sign In remain visible in the sidebar nav.
+# Sign In remain visible in the sidebar nav; everything else is hidden.
 _HIDE_AUTHED_NAV_CSS = """
 <style>
-    [data-testid="stSidebarNav"] ul > li:nth-child(n+3) {
+    [data-testid="stSidebarNav"] ul > li:nth-child(n+3),
+    [data-testid="stSidebarNavItems"] > li:nth-child(n+3) {
         display: none !important;
     }
 </style>

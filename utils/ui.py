@@ -263,46 +263,49 @@ _STATIC_CSS = """
     position: static !important;
     bottom: auto !important;
 }
-/* Brand lock-up at the top of the sidebar (above the page-nav). */
-.esg-sidebrand {
-    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-3);
-    margin: 0 calc(var(--space-2) * -1) var(--space-3) calc(var(--space-2) * -1);
-    border-bottom: 1px solid rgba(253, 81, 8, 0.22);
-    background: linear-gradient(135deg, #ffffff 0%, #fffaf4 100%);
+/* Branded top bar — first thing in main content on every page. */
+.esg-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-4);
+    padding: 12px var(--space-5);
+    margin: 0 0 var(--space-3) 0;
+    border-radius: var(--radius-lg);
+    background:
+        radial-gradient(600px 180px at 0% 0%, rgba(253, 81, 8, 0.14), transparent 60%),
+        linear-gradient(90deg, #ffffff 0%, #fffaf4 100%);
+    border: 1px solid rgba(253, 81, 8, 0.18);
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.04),
+        0 12px 28px rgba(253, 81, 8, 0.08);
 }
-.esg-sidebrand .esg-sidebrand-row {
+.esg-topbar .esg-topbar-brand {
     display: flex; align-items: center; gap: var(--space-3); min-width: 0;
 }
-.esg-sidebrand img.esg-sidebrand-logo { height: 36px; width: auto; display: block; flex-shrink: 0; }
-.esg-sidebrand .esg-sidebrand-text {
-    display: flex; flex-direction: column; line-height: 1.15; min-width: 0;
-}
-.esg-sidebrand .esg-sidebrand-title {
+.esg-topbar img.esg-topbar-logo { height: 34px; width: auto; display: block; flex-shrink: 0; }
+.esg-topbar .esg-topbar-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.esg-topbar .esg-topbar-title {
     font-family: var(--font-display);
     font-weight: 800;
-    font-size: 1.05rem;
+    font-size: 1.25rem;
     letter-spacing: -0.02em;
     background: linear-gradient(135deg, #C23A00 0%, #FD5108 45%, #E0301E 80%, #FFB600 130%);
     -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.esg-sidebrand .esg-sidebrand-tagline {
-    font-size: 0.74rem; color: var(--text-secondary);
-    font-weight: 500; letter-spacing: -0.005em; margin-top: 2px;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-    overflow: hidden;
+.esg-topbar .esg-topbar-tagline {
+    font-size: 0.82rem; color: var(--text-secondary);
+    font-weight: 500; letter-spacing: -0.005em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.esg-sidebrand .esg-sidebrand-accent {
-    margin-top: var(--space-2);
-    height: 3px; width: 48px; border-radius: var(--radius-pill);
+.esg-topbar .esg-topbar-accent {
+    height: 3px; width: 48px; border-radius: var(--radius-pill); flex-shrink: 0;
     background: linear-gradient(90deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 100%);
     box-shadow: 0 1px 3px rgba(253, 81, 8, 0.30);
 }
-/* Tighten the top of the sidebar's user-content area so the brand sits at
-   the true top of the navbar (no translucent gap above it). */
-[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding-top: 0 !important; }
-[data-testid="stSidebar"] > div:first-child { padding-top: var(--space-2) !important; }
+@media (max-width: 720px) {
+    .esg-topbar .esg-topbar-tagline { display: none; }
+}
 [data-testid="stSidebar"] > div:first-child {
     background: linear-gradient(180deg, #ffffff 0%, var(--surface-muted) 85%) !important;
     border-right: 1px solid var(--border);
@@ -1103,28 +1106,28 @@ def pwc_header(
     tagline: str = PRODUCT_TAGLINE,
     sidebar_tagline: str = "Powered by PwC India",  # kept for API compat; unused
 ) -> None:
-    """Brand header — renders the PwC lock-up + product name + tagline at the
-    top of the sidebar (above the page-nav).
+    """Brand header — renders the PwC lock-up + product name + tagline as a
+    top banner on every page's main content area.
 
-    The sidebar is the new home for the brand; the main content area starts
-    immediately with the page hero so there's no tall dead space up top.
+    The sidebar stays reserved for navigation + auth widgets; the brand
+    lives at the top of the page so it's the first thing a user reads.
     """
     inject_global_css()
     skip_link()
     logo_uri = _pwc_logo_data_uri()
-    sidebar_logo = (
-        f'<img class="esg-sidebrand-logo" src="{logo_uri}" alt="PwC"/>'
+    topbar_logo = (
+        f'<img class="esg-topbar-logo" src="{logo_uri}" alt="PwC"/>'
         if logo_uri else ""
     )
-    st.sidebar.markdown(
-        f'<div class="esg-sidebrand" role="banner">'
-        f'  <div class="esg-sidebrand-row">{sidebar_logo}'
-        f'    <div class="esg-sidebrand-text">'
-        f'      <span class="esg-sidebrand-title">{html.escape(product)}</span>'
-        f'      <span class="esg-sidebrand-tagline">{html.escape(tagline)}</span>'
+    st.markdown(
+        f'<div class="esg-topbar" role="banner">'
+        f'  <div class="esg-topbar-brand">{topbar_logo}'
+        f'    <div class="esg-topbar-text">'
+        f'      <span class="esg-topbar-title">{html.escape(product)}</span>'
+        f'      <span class="esg-topbar-tagline">{html.escape(tagline)}</span>'
         f'    </div>'
         f'  </div>'
-        f'  <div class="esg-sidebrand-accent" aria-hidden="true"></div>'
+        f'  <div class="esg-topbar-accent" aria-hidden="true"></div>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -2110,12 +2113,13 @@ def esg_roi_featured_card(
       0 32px 72px rgba(253, 81, 8, 0.45),
       inset 0 1px 0 rgba(255, 255, 255, 0.40);
   }}
-  /* Mode-specific treatments */
+  /* Mode-specific treatments — keep the PwC orange palette in empty /
+     teaser states too; the "NO ROI RUN YET" badge already signals state. */
   .roi-wrap.mode-empty {{
     background:
-      radial-gradient(600px 340px at 0% 0%, rgba(255, 182, 0, 0.22), transparent 60%),
-      radial-gradient(700px 380px at 100% 120%, rgba(100, 45, 20, 0.45), transparent 70%),
-      linear-gradient(135deg, #7A2E0C 0%, #4B1A05 100%);
+      radial-gradient(600px 340px at 0% 0%, rgba(255, 182, 0, 0.30), transparent 60%),
+      radial-gradient(700px 380px at 100% 120%, rgba(194, 58, 0, 0.55), transparent 70%),
+      linear-gradient(135deg, #E0301E 0%, #C23A00 55%, #8A2A00 120%);
   }}
   .roi-wrap.mode-teaser {{ filter: saturate(1.05); }}
   .mode-badge {{
