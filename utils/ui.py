@@ -221,12 +221,22 @@ _STATIC_CSS = """
 /* App shell ----------------------------------------------------------- */
 .stApp {
     background:
-        radial-gradient(900px 280px at 0% 0%,    rgba(208, 74, 2, 0.10), transparent 70%),
-        radial-gradient(900px 280px at 100% 0%,  rgba(255, 182, 0, 0.08), transparent 70%),
+        radial-gradient(1100px 360px at 12% -4%,   rgba(208, 74, 2, 0.14), transparent 65%),
+        radial-gradient(1000px 340px at 88% -4%,   rgba(255, 182, 0, 0.12), transparent 65%),
+        radial-gradient(720px 540px at 50% 120%,   rgba(224, 48, 30, 0.07), transparent 70%),
         linear-gradient(180deg, #fffaf4 0%, #ffffff 32%, #ffffff 100%) !important;
     background-attachment: fixed !important;
 }
-[data-testid="stAppViewContainer"] { background: transparent !important; }
+.stApp::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+        linear-gradient(to right,  rgba(208, 74, 2, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(208, 74, 2, 0.04) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(1200px 600px at 50% 0%, rgba(0,0,0,0.75), transparent 70%);
+    -webkit-mask-image: radial-gradient(1200px 600px at 50% 0%, rgba(0,0,0,0.75), transparent 70%);
+}
+[data-testid="stAppViewContainer"] { background: transparent !important; position: relative; z-index: 1; }
 [data-testid="stHeader"] { background: transparent !important; backdrop-filter: blur(8px); }
 [data-testid="stSidebar"] > div:first-child {
     background: linear-gradient(180deg, var(--surface-muted) 0%, #ffffff 80%) !important;
@@ -332,13 +342,31 @@ div.stButton > button {
     font-weight: 600;
 }
 div.stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, var(--pwc-orange) 0%, var(--pwc-tomato) 100%);
+    position: relative;
+    background: linear-gradient(135deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 120%);
+    background-size: 180% 180%;
+    background-position: 0% 0%;
     border: none; color: #fff;
-    box-shadow: var(--shadow-brand);
+    box-shadow: var(--shadow-brand), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    overflow: hidden;
+    transition: transform var(--dur-fast) var(--ease-standard),
+                box-shadow var(--dur-fast) var(--ease-standard),
+                background-position 600ms var(--ease-standard);
+}
+div.stButton > button[kind="primary"]::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+    transform: translateX(-120%);
+    transition: transform 700ms var(--ease-standard);
+    pointer-events: none;
 }
 div.stButton > button[kind="primary"]:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 10px 26px rgba(208, 74, 2, 0.42);
+    background-position: 100% 0%;
+    box-shadow: 0 14px 32px rgba(208, 74, 2, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+div.stButton > button[kind="primary"]:hover:not(:disabled)::after {
+    transform: translateX(120%);
 }
 div.stButton > button[kind="primary"]:active:not(:disabled) {
     transform: translateY(0); box-shadow: var(--shadow-sm);
@@ -398,47 +426,95 @@ button[data-baseweb="tab"][aria-selected="true"] {
 .esg-hero {
     position: relative;
     background:
-        radial-gradient(1200px 380px at 0% 0%, rgba(208, 74, 2, 0.16), transparent 60%),
-        radial-gradient(1000px 360px at 100% 0%, rgba(255, 182, 0, 0.14), transparent 60%),
+        radial-gradient(1200px 380px at 0% 0%,   rgba(208, 74, 2, 0.18), transparent 60%),
+        radial-gradient(1000px 360px at 100% 0%, rgba(255, 182, 0, 0.16), transparent 60%),
+        radial-gradient(700px 280px at 50% 120%, rgba(224, 48, 30, 0.10), transparent 70%),
         linear-gradient(180deg, #fffaf4 0%, #ffffff 100%);
     border: 1px solid var(--border);
     border-radius: var(--radius-xl);
-    padding: var(--space-8) var(--space-8) var(--space-7);
+    padding: calc(var(--space-8) + 8px) var(--space-8) var(--space-7);
     margin-bottom: var(--space-6);
     overflow: hidden;
-    box-shadow: var(--shadow-xs), 0 12px 32px rgba(208, 74, 2, 0.07);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.8),
+        0 1px 2px rgba(15, 23, 42, 0.04),
+        0 24px 60px rgba(208, 74, 2, 0.12);
 }
 .esg-hero::before {
-    content: ""; position: absolute; inset: 0; pointer-events: none;
+    content: ""; position: absolute; inset: -40% -10% auto -10%; height: 80%;
+    pointer-events: none; z-index: 0;
     background:
-        linear-gradient(to right, rgba(208, 74, 2, 0) 90%, rgba(208, 74, 2, 0.08) 100%),
-        linear-gradient(to left,  rgba(255, 182, 0, 0) 90%, rgba(255, 182, 0, 0.08) 100%);
+        radial-gradient(360px 220px at 18% 40%, rgba(208, 74, 2, 0.22), transparent 70%),
+        radial-gradient(380px 220px at 82% 30%, rgba(255, 182, 0, 0.22), transparent 70%),
+        radial-gradient(320px 200px at 52% 80%, rgba(224, 48, 30, 0.18), transparent 70%);
+    filter: blur(10px);
+    animation: esg-aurora 14s ease-in-out infinite alternate;
+}
+.esg-hero::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+        linear-gradient(to right,  rgba(208, 74, 2, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(208, 74, 2, 0.05) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(700px 320px at 50% 40%, rgba(0,0,0,0.35), transparent 75%);
+    -webkit-mask-image: radial-gradient(700px 320px at 50% 40%, rgba(0,0,0,0.35), transparent 75%);
+    opacity: 0.7;
+}
+.esg-hero > * { position: relative; z-index: 1; }
+@keyframes esg-aurora {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    50%  { transform: translate3d(-2%, 1%, 0) scale(1.04); }
+    100% { transform: translate3d(2%, -1%, 0) scale(1.06); }
 }
 .esg-hero h1 {
-    margin: 0 0 var(--space-2) 0;
-    font-size: var(--text-3xl);
-    background: linear-gradient(135deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 100%);
+    margin: 0 0 var(--space-3) 0;
+    font-size: calc(var(--text-3xl) + 0.35rem);
+    line-height: 1.08;
+    letter-spacing: -0.028em;
+    background: linear-gradient(100deg,
+        var(--pwc-orange-dark) 0%,
+        var(--pwc-orange) 35%,
+        var(--pwc-tomato) 55%,
+        var(--pwc-amber) 95%);
+    background-size: 200% 100%;
     -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent;
+    animation: esg-hero-shine 8s ease-in-out infinite;
+}
+@keyframes esg-hero-shine {
+    0%, 100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
 }
 .esg-hero p.esg-subtitle {
-    margin: 2px 0 0 0; font-size: var(--text-md);
+    margin: 2px 0 0 0; font-size: calc(var(--text-md) + 0.04rem);
     color: var(--text-secondary); line-height: var(--lh-relaxed); max-width: 920px;
 }
 .esg-hero .esg-eyebrow {
     display: inline-flex; align-items: center; gap: var(--space-2);
-    padding: 4px var(--space-3); border-radius: var(--radius-pill);
-    background: rgba(208, 74, 2, 0.10);
-    border: 1px solid rgba(208, 74, 2, 0.28);
+    padding: 6px var(--space-4); border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(208, 74, 2, 0.30);
     color: var(--pwc-orange-dark);
-    font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em;
-    text-transform: uppercase; margin-bottom: var(--space-3);
+    font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; margin-bottom: var(--space-4);
+    box-shadow: 0 4px 14px rgba(208, 74, 2, 0.14);
 }
 .esg-hero .esg-eyebrow-dot {
-    width: 6px; height: 6px; border-radius: 50%;
+    width: 7px; height: 7px; border-radius: 50%;
     background: var(--pwc-orange);
-    box-shadow: 0 0 0 3px rgba(208, 74, 2, 0.20);
+    box-shadow: 0 0 0 3px rgba(208, 74, 2, 0.22);
     animation: esg-pulse 2.4s var(--ease-standard) infinite;
+}
+.esg-hero .esg-chip {
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    border-color: rgba(208, 74, 2, 0.22);
+    font-weight: 600;
+}
+.esg-hero .esg-chip:hover {
+    border-color: rgba(208, 74, 2, 0.45);
+    box-shadow: 0 6px 18px rgba(208, 74, 2, 0.14);
 }
 @media (max-width: 768px) {
     .esg-hero { padding: var(--space-6) var(--space-5); border-radius: var(--radius-lg); }
@@ -489,13 +565,24 @@ button[data-baseweb="tab"][aria-selected="true"] {
 
 /* Section header ------------------------------------------------------ */
 .esg-section {
+    position: relative;
     display: flex; align-items: baseline; justify-content: space-between;
     gap: var(--space-4);
-    margin: var(--space-7) 0 var(--space-3) 0;
-    padding-bottom: var(--space-2);
+    margin: var(--space-8) 0 var(--space-4) 0;
+    padding-bottom: var(--space-3);
     border-bottom: 1px solid var(--border);
 }
-.esg-section .esg-section-title { font-size: var(--text-lg); font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.esg-section::after {
+    content: ""; position: absolute; left: 0; bottom: -1px;
+    width: 72px; height: 3px; border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 100%);
+    box-shadow: 0 2px 8px rgba(208, 74, 2, 0.35);
+}
+.esg-section .esg-section-title {
+    font-family: var(--font-display);
+    font-size: calc(var(--text-lg) + 0.08rem);
+    font-weight: 700; color: var(--text); letter-spacing: -0.018em;
+}
 .esg-section .esg-section-caption { font-size: var(--text-sm); color: var(--text-muted); }
 @media (max-width: 768px) { .esg-section { flex-direction: column; align-items: flex-start; gap: var(--space-1); } }
 
