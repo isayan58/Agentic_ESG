@@ -469,13 +469,13 @@ def before_after_comparison():
         name="After (ESG CoPilot)", marker_color=COLORS["accent"],
         text=[f"{v}%" for v in after], textposition="inside",
     ))
+    fig.update_layout(**LAYOUT_DEFAULTS)
     fig.update_layout(
         title="Real-World Transformation — Before vs. After",
         xaxis_title="Score / Coverage (%)",
         barmode="group",
         height=350,
         legend=dict(orientation="h", y=1.12),
-        **LAYOUT_DEFAULTS,
     )
     return fig
 

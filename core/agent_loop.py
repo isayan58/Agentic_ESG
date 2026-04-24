@@ -225,10 +225,27 @@ class AnthropicAgentLoop:
             tool_use_blocks = [
                 b for b in response.content if getattr(b, "type", None) == "tool_use"
             ]
+            text_blocks = [
+                b.text for b in response.content if getattr(b, "type", None) == "text"
+            ]
+            tool_names = [b.name for b in tool_use_blocks]
+            if tool_names:
+                agent_label = ", ".join(n[len("run_"):] if n.startswith("run_") else n
+                                        for n in tool_names)
+                reason_text = (
+                    f"Called {len(tool_names)} tool(s) "
+                    f"{'in parallel' if len(tool_names) > 1 else 'sequentially'}."
+                )
+            else:
+                agent_label = "claude-orchestrator"
+                reason_text = (" ".join(text_blocks).strip()[:240]
+                               or f"Stopped: {response.stop_reason}")
             self.orchestrator.planning_log.append({
                 "step": iteration,
+                "agent": agent_label,
+                "reason": reason_text,
                 "stop_reason": response.stop_reason,
-                "tool_calls": [b.name for b in tool_use_blocks],
+                "tool_calls": tool_names,
                 "usage": {
                     "input_tokens": response.usage.input_tokens,
                     "output_tokens": response.usage.output_tokens,

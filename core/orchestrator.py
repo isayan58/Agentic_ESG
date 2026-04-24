@@ -99,6 +99,8 @@ class Orchestrator:
             })
             self.planning_log.append({
                 "step": len(self.planning_log) + 1,
+                "agent": "planner",
+                "reason": f"Agent loop failed: {exc}",
                 "error": str(exc),
             })
 
