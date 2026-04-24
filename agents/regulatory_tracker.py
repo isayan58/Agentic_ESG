@@ -175,15 +175,29 @@ class RegulatoryTrackerAgent(BaseAgent):
             self.background_thread.join(timeout=5)
 
     def execute(self, orchestrator=None, **kwargs):
-        self.log("Loading regulatory frameworks")
-        # Use cached frameworks if available, otherwise load fresh
+        self.log("Loading regulatory frameworks from disk (live)")
+        # Always reload from disk so updates applied via "Global Framework
+        # Updates" are reflected immediately in the next compliance analysis.
+        frameworks_data = load_regulatory_frameworks()
+        self.last_updated = datetime.now().isoformat()
+
+        # Preserve any in-memory external_updates metadata that the background
+        # thread has accumulated (these are not persisted to disk).
         if self.frameworks_cache:
-            frameworks_data = self.frameworks_cache
-            self.log(f"Using cached regulatory frameworks (last updated: {self.last_updated})")
-        else:
-            frameworks_data = load_regulatory_frameworks()
-            self.frameworks_cache = frameworks_data
-            self.last_updated = datetime.now().isoformat()
+            cached_ext = self.frameworks_cache.get("external_updates") or []
+            if cached_ext:
+                merged = list(frameworks_data.get("external_updates") or [])
+                seen = {u.get("description") for u in merged}
+                for u in cached_ext:
+                    if u.get("description") not in seen:
+                        merged.append(u)
+                frameworks_data["external_updates"] = merged
+            if self.frameworks_cache.get("last_external_update"):
+                frameworks_data.setdefault(
+                    "last_external_update",
+                    self.frameworks_cache["last_external_update"],
+                )
+        self.frameworks_cache = frameworks_data
         
         metrics_df = get_dataset("esg_metrics", load_esg_metrics)
 

@@ -323,32 +323,54 @@ if st.session_state.pipeline_results:
     with gap_left:
         st.markdown("##### Registered sources — unmapped fields")
         if gap_report["sources"]:
-            src_rows = [
-                {
-                    "Source": s["display_name"],
-                    "Type": s["connector_type"],
-                    "Schema": s["target_schema"],
-                    "Missing required": ", ".join(s["missing_required"]) or "—",
-                    "Missing optional": ", ".join(s["missing_optional"]) or "—",
-                }
-                for s in gap_report["sources"]
+            # Only surface sources that actually have something missing.
+            # Fully-mapped sources are quality data — don't ask the client
+            # to look at them.
+            flagged_sources = [
+                s for s in gap_report["sources"]
+                if s["missing_required"] or s["missing_optional"]
             ]
-            src_df = pd.DataFrame(src_rows)
-            safe_dataframe(src_df, use_container_width=True, hide_index=True)
-            st.download_button(
-                "⬇️ Download source discrepancies (CSV)",
-                data=_csv_with_metadata(src_df, "Source discrepancies — unmapped fields"),
-                file_name=f"esg_source_discrepancies_{gap_filename_stamp}.csv",
-                mime="text/csv",
-                key="mc_gap_dl_sources",
-            )
-            any_req_missing = any(s["missing_required"] for s in gap_report["sources"])
-            if any_req_missing:
-                st.warning(
-                    "One or more registered sources is missing required columns. "
-                    "Re-open the source on the **Data Collector** page and map "
-                    "those columns before the next run.",
-                    icon="⚠️",
+            clean_count = len(gap_report["sources"]) - len(flagged_sources)
+
+            if flagged_sources:
+                src_rows = [
+                    {
+                        "Source": s["display_name"],
+                        "Type": s["connector_type"],
+                        "Schema": s["target_schema"],
+                        "Missing required": ", ".join(s["missing_required"]) or "—",
+                        "Missing optional": ", ".join(s["missing_optional"]) or "—",
+                    }
+                    for s in flagged_sources
+                ]
+                src_df = pd.DataFrame(src_rows)
+                safe_dataframe(src_df, use_container_width=True, hide_index=True)
+                if clean_count:
+                    st.caption(
+                        f"Hiding {clean_count} fully-mapped source"
+                        f"{'s' if clean_count != 1 else ''} with no gaps."
+                    )
+                st.download_button(
+                    "⬇️ Download source discrepancies (CSV)",
+                    data=_csv_with_metadata(src_df, "Source discrepancies — unmapped fields"),
+                    file_name=f"esg_source_discrepancies_{gap_filename_stamp}.csv",
+                    mime="text/csv",
+                    key="mc_gap_dl_sources",
+                )
+                any_req_missing = any(s["missing_required"] for s in flagged_sources)
+                if any_req_missing:
+                    st.warning(
+                        "One or more registered sources is missing required columns. "
+                        "Re-open the source on the **Data Collector** page and map "
+                        "those columns before the next run.",
+                        icon="⚠️",
+                    )
+            else:
+                st.success(
+                    f"All {len(gap_report['sources'])} registered source"
+                    f"{'s are' if len(gap_report['sources']) != 1 else ' is'} "
+                    "fully mapped — no gaps to address.",
+                    icon="✅",
                 )
         else:
             st.caption("No sources registered yet — nothing to audit here.")
