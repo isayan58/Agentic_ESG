@@ -671,7 +671,7 @@ st.markdown(
             <div class="home-stat-label">Autonomous agents</div>
         </div>
         <div class="home-stat">
-            <div class="home-stat-value">4</div>
+            <div class="home-stat-value">6</div>
             <div class="home-stat-label">Global frameworks</div>
         </div>
         <div class="home-stat">
