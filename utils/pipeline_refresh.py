@@ -122,6 +122,16 @@ def refresh_real_data(only_changed: bool = False,
     # current registered sources produce.
     _clear_stale_state_datasets()
 
+    # Full-refresh mode (default): drop per-source DataFrame caches so a
+    # remote change is always visible on the next fetch. When the caller
+    # explicitly asked for ``only_changed`` we keep caches — the signature
+    # check is what skips unchanged sources in that mode.
+    if not only_changed:
+        try:
+            conn_mgr.invalidate_cache()
+        except AttributeError:
+            pass
+
     try:
         result = agent.run(
             connection_manager=conn_mgr,

@@ -216,6 +216,12 @@ if run_pipeline:
             if conn_mgr and conn_mgr.has_sources()
             else {}
         )
+        # Defence-in-depth: wipe any per-source DataFrame cache before the
+        # pipeline fires so a remote change (e.g. Snowflake row delete) is
+        # always visible on the next run, regardless of what use_cache flag
+        # flows through the agent stack.
+        if conn_mgr and conn_mgr.has_sources():
+            conn_mgr.invalidate_cache()
         results = orch.run_full_pipeline(
             progress_callback=progress_callback,
             data_collector_kwargs=dc_kwargs or None,

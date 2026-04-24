@@ -523,17 +523,71 @@ with main_tab1:
         # click actually invokes ConnectionManager.remove_source(). This
         # avoids an accidental destructive click without needing a modal.
         _pending_key = "_source_delete_pending"
+        _replace_key = "_source_replace_pending"
         pending = st.session_state.get(_pending_key)
+        replace_pending = st.session_state.get(_replace_key)
+
+        def _format_last_fetch(iso: str | None) -> str:
+            if not iso:
+                return "never fetched"
+            from datetime import datetime as _dt
+            try:
+                secs = int((_dt.now() - _dt.fromisoformat(iso)).total_seconds())
+            except Exception:
+                return "recently"
+            if secs < 60:
+                return f"{secs}s ago"
+            if secs < 3600:
+                return f"{secs // 60} min ago"
+            if secs < 86400:
+                return f"{secs // 3600}h ago"
+            return f"{secs // 86400}d ago"
+
         for src in sources:
             src_id = src["id"]
+            is_file_upload = src["connector_type"] == "file_upload"
             _ci = _icon_map.get(src["connector_type"], "🔌")
-            _info_col, _btn_col = st.columns([5, 1])
+            _info_col, _refresh_col, _del_col = st.columns([5, 1, 1])
             with _info_col:
                 st.markdown(
                     f"{_ci} **{src['display_name']}** → `{src['target_schema']}` "
                     f"· {src['connector_type']} · {src.get('last_row_count', '?')} rows"
                 )
-            with _btn_col:
+                st.caption(f"Last fetched: {_format_last_fetch(src.get('last_fetch'))}")
+            with _refresh_col:
+                refresh_label = "📤 Replace" if is_file_upload else "🔄 Refresh"
+                refresh_help = (
+                    "Upload a new version of this file. Schema & mapping are preserved."
+                    if is_file_upload
+                    else "Re-fetch from the remote source right now and update the row count."
+                )
+                if st.button(refresh_label, key=f"refresh_src_{src_id}",
+                             help=refresh_help, type="secondary"):
+                    if is_file_upload:
+                        # Toggle the inline uploader visibility.
+                        st.session_state[_replace_key] = (
+                            None if replace_pending == src_id else src_id
+                        )
+                        st.rerun()
+                    else:
+                        # Re-query the remote system immediately. Cache is
+                        # explicitly bypassed so the row count reflects the
+                        # current remote state, not a cached snapshot.
+                        try:
+                            conn_mgr.invalidate_cache(src_id)
+                            df = conn_mgr.fetch_source(src_id, use_cache=False)
+                            st.success(
+                                f"Refreshed **{src['display_name']}** — "
+                                f"{len(df):,} rows.",
+                                icon="✅",
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            st.error(
+                                f"Refresh failed for **{src['display_name']}**: {exc}",
+                                icon="⚠️",
+                            )
+                        st.rerun()
+            with _del_col:
                 armed = pending == src_id
                 btn_label = "✅ Confirm" if armed else "🗑️ Delete"
                 btn_help = (
@@ -570,9 +624,69 @@ with main_tab1:
                     else:
                         st.session_state[_pending_key] = src_id
                         st.rerun()
+
+            # Inline file-replace uploader (file_upload sources only, armed).
+            if is_file_upload and replace_pending == src_id:
+                with st.container():
+                    new_file = st.file_uploader(
+                        f"Upload new version of **{src['display_name']}**",
+                        type=["csv", "xlsx", "xls", "json"],
+                        key=f"replace_uploader_{src_id}",
+                    )
+                    c1, c2 = st.columns([1, 1])
+                    with c1:
+                        if st.button("✅ Apply replacement",
+                                     key=f"replace_apply_{src_id}",
+                                     type="primary",
+                                     disabled=new_file is None,
+                                     use_container_width=True):
+                            try:
+                                file_bytes = new_file.read()
+                                file_name = new_file.name
+                                connector = get_connector("file_upload")
+                                new_df = connector.fetch(
+                                    file_bytes=file_bytes, file_name=file_name,
+                                )
+                                # Preserve display_name + target_schema; re-run
+                                # column-mapping against the new columns so a
+                                # renamed or reordered header is handled
+                                # gracefully instead of silently breaking.
+                                new_mapping = suggest_column_mapping(
+                                    new_df, src["target_schema"],
+                                )
+                                ok = _safely_add_source(
+                                    source_id=src_id,
+                                    connector_type="file_upload",
+                                    config={"file_bytes": file_bytes,
+                                            "file_name": file_name},
+                                    target_schema=src["target_schema"],
+                                    column_mapping=new_mapping,
+                                    display_name=src["display_name"],
+                                )
+                                if ok:
+                                    st.session_state.pop(_replace_key, None)
+                                    st.success(
+                                        f"Replaced **{src['display_name']}** "
+                                        f"with {file_name} ({len(new_df):,} rows).",
+                                        icon="✅",
+                                    )
+                                    st.rerun()
+                            except Exception as exc:  # noqa: BLE001
+                                st.error(
+                                    f"Could not replace file: {exc}",
+                                    icon="⚠️",
+                                )
+                    with c2:
+                        if st.button("Cancel", key=f"replace_cancel_{src_id}",
+                                     use_container_width=True):
+                            st.session_state.pop(_replace_key, None)
+                            st.rerun()
+
         if pending and pending not in {s["id"] for s in sources}:
             # Clean up a stale "pending" for a source that's already gone.
             st.session_state.pop(_pending_key, None)
+        if replace_pending and replace_pending not in {s["id"] for s in sources}:
+            st.session_state.pop(_replace_key, None)
         st.markdown("")
 
     st.markdown("### Override Schema / Rename Source")
