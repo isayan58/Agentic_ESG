@@ -10,7 +10,7 @@ import config
 from core.orchestrator import Orchestrator
 from config import AGENT_CONFIG
 from utils.charts import (
-    pipeline_flow_diagram, business_impact_gauges,
+    pipeline_flow_diagram,
     before_after_comparison, enterprise_stack_layers, tier_comparison_chart,
     chart_unavailable_message, apply_chart_theme,
 )
@@ -20,7 +20,7 @@ from utils.ui import (
     hero, section_header, kpi_card, agent_card, pipeline_chips,
     badge, grade_pill, inject_global_css, pwc_header,
     log_panel, retry_button, drilldown, live_badge, collect_audit_trail,
-    format_relative_time,
+    format_relative_time, esg_roi_featured_card,
 )
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
@@ -83,21 +83,41 @@ def signal_label(value, good_threshold, watch_threshold=None):
     return "Needs attention"
 
 
-section_header("How to Read This Page",
-               "Plain-English guide to the business lens, ROI, and hypothesis tracking.")
-intro1, intro2, intro3 = st.columns(3)
-with intro1:
-    st.info("**Top line** means growth: revenue, brand strength, and market momentum.")
-with intro2:
-    st.info("**Bottom line** means profit impact: margins, savings, payback, and ROI.")
-with intro3:
-    st.info("**Hypotheses** mean business ideas being tested, like whether ESG reduces risk or improves returns.")
+# ── Featured ESG ROI Agent card ──
+# Mission Control is the new home — surface the headline investment-quality
+# card at the top so signed-in users see their live numbers first.
+_roi_results = None
+try:
+    _roi_agent_obj = getattr(orch, "agents", {}).get("roi_agent")
+    if _roi_agent_obj is not None:
+        _r = getattr(_roi_agent_obj, "results", None)
+        if _r:
+            _roi_results = _r
+except Exception:
+    _roi_results = None
 
-# ── Business Impact KPIs (Slide 12) ──
-section_header("Proven Business Impact",
-               "Slide-12 gauges rendered from live agent outputs.")
-fig = business_impact_gauges()
-render_chart(fig)
+_mc_user = st.session_state.get("user") or {}
+_mc_user_name = (_mc_user.get("full_name") or _mc_user.get("username") or "").strip() or None
+
+esg_roi_featured_card(
+    results=_roi_results,
+    mode="auto",
+    user_name=_mc_user_name,
+    height=440,
+)
+
+roi_cta_cols = st.columns([1.2, 1, 3])
+with roi_cta_cols[0]:
+    if st.button(
+        "⭐  Open ROI Dashboard  →",
+        type="primary",
+        use_container_width=True,
+        key="mc_featured_roi_open",
+    ):
+        try:
+            st.switch_page("pages/11_ESG_ROI_Agent.py")
+        except Exception:
+            st.info("Open ESG ROI Agent from the sidebar.")
 
 # ── Agent Fleet Status ──
 section_header("Agent Fleet Status",

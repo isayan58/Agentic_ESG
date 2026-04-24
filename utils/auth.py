@@ -562,13 +562,29 @@ def require_login(message: str = "Please sign in to access this page.") -> dict:
     st.stop()
 
 
-# CSS that hides the "Sign In" sidebar nav entry when the user is logged in.
-# We inject this at the top of every page via sidebar_auth_widget() so it
-# runs before Streamlit's nav renders.
+# Sidebar nav gating — injected once per render by sidebar_auth_widget().
+# Streamlit renders the sidebar nav in this order (filename sort, Home first):
+#   1) Home        2) Sign In        3+) page routes
+# Signed-in users see only the app pages (Home + Sign In hidden);
+# signed-out users see only Home + Sign In.
 _HIDE_SIGNIN_NAV_CSS = """
 <style>
+    /* Also hide Home when signed in — the canonical entry point is
+       Mission Control. Belt-and-braces: href match + nth-child. */
     [data-testid="stSidebarNav"] a[href$="/Sign_In"],
-    [data-testid="stSidebarNav"] li:has(a[href$="/Sign_In"]) {
+    [data-testid="stSidebarNav"] li:has(a[href$="/Sign_In"]),
+    [data-testid="stSidebarNav"] ul > li:nth-child(1),
+    [data-testid="stSidebarNav"] ul > li:nth-child(2) {
+        display: none !important;
+    }
+</style>
+"""
+
+# Applied on every page when there's no user in session — only Home +
+# Sign In remain visible in the sidebar nav.
+_HIDE_AUTHED_NAV_CSS = """
+<style>
+    [data-testid="stSidebarNav"] ul > li:nth-child(n+3) {
         display: none !important;
     }
 </style>
@@ -623,9 +639,12 @@ def _render_storage_diagnostic() -> None:
 def sidebar_auth_widget() -> None:
     """Render a compact auth widget in the sidebar on every page."""
     user = current_user()
-    # When authenticated, hide the Sign In entry from the sidebar nav.
+    # Gate the sidebar nav based on auth: signed-in users never see
+    # Home / Sign In; signed-out users only ever see those two.
     if user:
         st.markdown(_HIDE_SIGNIN_NAV_CSS, unsafe_allow_html=True)
+    else:
+        st.markdown(_HIDE_AUTHED_NAV_CSS, unsafe_allow_html=True)
     with st.sidebar:
         st.markdown("---")
         _render_storage_diagnostic()

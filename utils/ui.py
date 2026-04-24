@@ -263,49 +263,46 @@ _STATIC_CSS = """
     position: static !important;
     bottom: auto !important;
 }
-/* Branded top bar — first thing in main content on every page. */
-.esg-topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: var(--space-4);
-    padding: 14px var(--space-5);
-    margin: 0 0 var(--space-4) 0;
-    border-radius: var(--radius-lg);
-    background:
-        radial-gradient(600px 180px at 0% 0%, rgba(253, 81, 8, 0.14), transparent 60%),
-        linear-gradient(90deg, #ffffff 0%, #fffaf4 100%);
-    border: 1px solid rgba(253, 81, 8, 0.18);
-    box-shadow:
-        0 1px 2px rgba(15, 23, 42, 0.04),
-        0 14px 32px rgba(253, 81, 8, 0.08);
+/* Brand lock-up at the top of the sidebar (above the page-nav). */
+.esg-sidebrand {
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-3);
+    margin: 0 calc(var(--space-2) * -1) var(--space-3) calc(var(--space-2) * -1);
+    border-bottom: 1px solid rgba(253, 81, 8, 0.22);
+    background: linear-gradient(135deg, #ffffff 0%, #fffaf4 100%);
 }
-.esg-topbar .esg-topbar-brand {
+.esg-sidebrand .esg-sidebrand-row {
     display: flex; align-items: center; gap: var(--space-3); min-width: 0;
 }
-.esg-topbar img.esg-topbar-logo { height: 34px; width: auto; display: block; }
-.esg-topbar .esg-topbar-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
-.esg-topbar .esg-topbar-title {
+.esg-sidebrand img.esg-sidebrand-logo { height: 36px; width: auto; display: block; flex-shrink: 0; }
+.esg-sidebrand .esg-sidebrand-text {
+    display: flex; flex-direction: column; line-height: 1.15; min-width: 0;
+}
+.esg-sidebrand .esg-sidebrand-title {
     font-family: var(--font-display);
     font-weight: 800;
-    font-size: 1.25rem;
+    font-size: 1.05rem;
     letter-spacing: -0.02em;
     background: linear-gradient(135deg, #C23A00 0%, #FD5108 45%, #E0301E 80%, #FFB600 130%);
     -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.esg-topbar .esg-topbar-tagline {
-    font-size: 0.82rem; color: var(--text-secondary);
-    font-weight: 500; letter-spacing: -0.005em;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.esg-sidebrand .esg-sidebrand-tagline {
+    font-size: 0.74rem; color: var(--text-secondary);
+    font-weight: 500; letter-spacing: -0.005em; margin-top: 2px;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden;
 }
-.esg-topbar .esg-topbar-accent {
-    height: 3px; width: 48px; border-radius: var(--radius-pill); flex-shrink: 0;
+.esg-sidebrand .esg-sidebrand-accent {
+    margin-top: var(--space-2);
+    height: 3px; width: 48px; border-radius: var(--radius-pill);
     background: linear-gradient(90deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%, var(--pwc-amber) 100%);
     box-shadow: 0 1px 3px rgba(253, 81, 8, 0.30);
 }
-@media (max-width: 720px) {
-    .esg-topbar .esg-topbar-tagline { display: none; }
-}
+/* Tighten the top of the sidebar's user-content area so the brand sits at
+   the true top of the navbar (no translucent gap above it). */
+[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding-top: 0 !important; }
+[data-testid="stSidebar"] > div:first-child { padding-top: var(--space-2) !important; }
 [data-testid="stSidebar"] > div:first-child {
     background: linear-gradient(180deg, #ffffff 0%, var(--surface-muted) 85%) !important;
     border-right: 1px solid var(--border);
@@ -397,8 +394,9 @@ code, pre, kbd { font-family: var(--font-mono); }
 p, li, .stMarkdown p { color: var(--text-secondary); line-height: var(--lh-relaxed); }
 
 /* Layout container — responsive ---------------------------------------- */
-section.main > div.block-container {
-    padding-top: var(--space-6);
+section.main > div.block-container,
+[data-testid="stMainBlockContainer"] {
+    padding-top: var(--space-3) !important;
     padding-bottom: var(--space-10);
     max-width: 1380px;
 }
@@ -1103,48 +1101,30 @@ PRODUCT_TAGLINE = "Command your ESG strategy with real-time intelligence and act
 def pwc_header(
     product: str = PRODUCT_NAME,
     tagline: str = PRODUCT_TAGLINE,
-    sidebar_tagline: str = "Powered by PwC India",
+    sidebar_tagline: str = "Powered by PwC India",  # kept for API compat; unused
 ) -> None:
-    """Brand header — renders a top banner on the main page AND in the sidebar.
+    """Brand header — renders the PwC lock-up + product name + tagline at the
+    top of the sidebar (above the page-nav).
 
-    The main-area banner carries the product name + marketing tagline and
-    reclaims the vertical space that Streamlit's default translucent header
-    was leaving hazy. The sidebar block keeps the PwC brand lock-up.
-    Every page calls ``pwc_header()`` as part of its boot sequence.
+    The sidebar is the new home for the brand; the main content area starts
+    immediately with the page hero so there's no tall dead space up top.
     """
     inject_global_css()
     skip_link()
     logo_uri = _pwc_logo_data_uri()
-
-    # 1) Main-area top banner — first element in main content.
-    topbar_logo = (
-        f'<img class="esg-topbar-logo" src="{logo_uri}" alt="PwC"/>'
+    sidebar_logo = (
+        f'<img class="esg-sidebrand-logo" src="{logo_uri}" alt="PwC"/>'
         if logo_uri else ""
     )
-    st.markdown(
-        f'<div class="esg-topbar" role="banner">'
-        f'  <div class="esg-topbar-brand">{topbar_logo}'
-        f'    <div class="esg-topbar-text">'
-        f'      <span class="esg-topbar-title">{html.escape(product)}</span>'
-        f'      <span class="esg-topbar-tagline">{html.escape(tagline)}</span>'
-        f'    </div>'
-        f'  </div>'
-        f'  <div class="esg-topbar-accent" aria-hidden="true"></div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # 2) Sidebar brand block — keeps the PwC lock-up + product name.
-    sidebar_logo = f'<img class="pwc-logo" src="{logo_uri}" alt="PwC"/>' if logo_uri else ""
     st.sidebar.markdown(
-        f'<div class="pwc-header pwc-header-sidebar" role="banner">'
-        f'  <div class="pwc-header-brand">{sidebar_logo}'
-        f'    <div class="pwc-header-text">'
-        f'      <span class="pwc-header-title">{html.escape(product)}</span>'
-        f'      <span class="pwc-header-sub">{html.escape(sidebar_tagline)}</span>'
+        f'<div class="esg-sidebrand" role="banner">'
+        f'  <div class="esg-sidebrand-row">{sidebar_logo}'
+        f'    <div class="esg-sidebrand-text">'
+        f'      <span class="esg-sidebrand-title">{html.escape(product)}</span>'
+        f'      <span class="esg-sidebrand-tagline">{html.escape(tagline)}</span>'
         f'    </div>'
         f'  </div>'
-        f'  <div class="pwc-accent-bar" aria-hidden="true"></div>'
+        f'  <div class="esg-sidebrand-accent" aria-hidden="true"></div>'
         f'</div>',
         unsafe_allow_html=True,
     )
