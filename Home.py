@@ -813,7 +813,7 @@ esg_roi_featured_card(
     results=_roi_results,
     mode="auto",                   # auto → live / empty / teaser
     user_name=_user_display_name,
-    height=360,
+    height=440,                     # fits the IQS ring + label + sparkline
 )
 
 # Streamlit button sits outside the iframe so navigation stays clean.

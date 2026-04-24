@@ -617,10 +617,29 @@ button[data-baseweb="tab"][aria-selected="true"] {
 }
 
 /* PwC brand header — sidebar variant (navbar top) --------------------- */
-/* Renders at the top of the sidebar as the product's identity anchor.  */
+/* We render pwc_header() into st.sidebar; Streamlit's default layout     */
+/* puts user content BELOW the auto-generated page-nav. To get the brand  */
+/* to the true top of the navbar, we flip sibling order with flexbox so   */
+/* user content (first child = brand) renders above the nav links.        */
+[data-testid="stSidebar"] > div:first-child > div:first-child,
+[data-testid="stSidebar"] section[data-testid="stSidebar"] > div:first-child {
+    display: flex !important;
+    flex-direction: column !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+    order: 1 !important;                /* brand + HF + auth ABOVE nav   */
+    padding-top: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] {
+    order: 2 !important;                /* page links BELOW brand        */
+    padding-top: var(--space-3) !important;
+    border-top: 1px solid rgba(253, 81, 8, 0.18);
+    margin-top: var(--space-2);
+}
+
 [data-testid="stSidebar"] .pwc-header-sidebar {
     flex-direction: column; align-items: flex-start;
-    padding: var(--space-3) var(--space-3) var(--space-4) var(--space-3);
+    padding: var(--space-4) var(--space-3) var(--space-4) var(--space-3);
     margin: 0 calc(var(--space-2) * -1) var(--space-3) calc(var(--space-2) * -1);
     border-bottom: 1px solid rgba(253, 81, 8, 0.22);
     background: linear-gradient(135deg, #ffffff 0%, var(--surface-muted) 100%);
@@ -641,22 +660,21 @@ button[data-baseweb="tab"][aria-selected="true"] {
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.025em;
 }
+/* Tagline in the sidebar: keep the literal string "Powered by PwC India"
+   so PwC's brand style (lowercase 'w' in "PwC") is preserved. No
+   text-transform or letter-spacing — this is a wordmark, not a label. */
 [data-testid="stSidebar"] .pwc-header-sidebar .pwc-header-sub {
-    font-size: 0.68rem;
-    font-weight: 700;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.10em;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: none !important;
+    letter-spacing: 0;
     margin-top: 3px;
 }
 [data-testid="stSidebar"] .pwc-header-sidebar .pwc-accent-bar {
     margin-top: var(--space-3);
     width: 48px; height: 3px;
 }
-/* Kill Streamlit's default top padding in the sidebar so our brand sits
-   flush at the very top of the navbar. */
-[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding-top: var(--space-2) !important; }
-[data-testid="stSidebar"] > div:first-child > div:first-child > div:first-child { padding-top: 0 !important; }
 
 /* Chips (status, info) ------------------------------------------------ */
 .esg-chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
@@ -1847,7 +1865,7 @@ def esg_roi_featured_card(
     results: Optional[dict] = None,
     mode: str = "auto",
     user_name: Optional[str] = None,
-    height: int = 360,
+    height: int = 440,
 ) -> None:
     """Render the ESG ROI agent as a featured dashboard hero card.
 
@@ -2106,10 +2124,13 @@ def esg_roi_featured_card(
     margin-top: 4px; line-height: 1.1;
     text-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
   }}
-  /* Right column: large animated score */
-  .iqs-stack {{ display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }}
+  /* Right column: large animated score.
+     Sized so the full stack (pill + ring + label + delta + sparkline)
+     fits comfortably inside the 440px iframe on the shortest reasonable
+     viewport without the ring clipping. */
+  .iqs-stack {{ display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }}
   .iqs-ring {{
-    position: relative; width: 150px; height: 150px;
+    position: relative; width: 128px; height: 128px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
     border-radius: 50%;
     background:
@@ -2120,7 +2141,7 @@ def esg_roi_featured_card(
     animation: ring-fill 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
   }}
   .iqs-ring::before {{
-    content: ""; position: absolute; inset: 10px; border-radius: 50%;
+    content: ""; position: absolute; inset: 9px; border-radius: 50%;
     background: linear-gradient(135deg, #B02800 0%, #7A1C00 100%);
   }}
   @keyframes ring-fill {{
@@ -2129,7 +2150,7 @@ def esg_roi_featured_card(
   .iqs-num {{
     position: relative; z-index: 1;
     font-family: 'Plus Jakarta Sans', sans-serif;
-    font-weight: 800; font-size: 2.8rem; letter-spacing: -0.035em;
+    font-weight: 800; font-size: 2.3rem; letter-spacing: -0.035em;
     color: #fff;
     text-shadow: 0 3px 14px rgba(0, 0, 0, 0.30);
   }}
