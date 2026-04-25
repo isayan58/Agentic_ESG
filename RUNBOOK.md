@@ -355,10 +355,26 @@ When the user clicks "Run Full Pipeline" in Mission Control:
 | Stage | Storage location | Scope |
 |-------|-----------------|-------|
 | After Test & Preview | `st.session_state.preview_df`, `st.session_state.preview_config` | RAM, session |
-| After auto-registration | `st.session_state.conn_manager._sources[real_{schema}]` | RAM, session |
-| After pipeline run | `state_manager` pub/sub channels | RAM, process-wide |
+| After auto-registration | `st.session_state.conn_manager._sources[real_{schema}]` | RAM, session (also persisted to per-user HF Dataset via `utils.source_store`) |
+| After pipeline run | `state_manager` pub/sub channels | RAM, process-wide (per-user partitioned) |
 
-All storage is RAM-only. Data is lost on browser refresh or process restart.
+The signed-in user's source registry is durable across Space rebuilds when `HF_TOKEN` is set — see [Per-user persistence](#per-user-persistence). Pipeline results in `state_manager` remain RAM-only and are recomputed on each Run.
+
+---
+
+### Per-source actions on the Registered Sources list
+
+Each row in *Data Collector → Registered Data Sources* exposes three actions: **🔄 Refresh** (or **📤 Replace** for file-upload sources), **🗑️ Delete**, plus a *Last fetched: N min ago* caption underneath the source title.
+
+| Action | Connector types | What it does |
+|---|---|---|
+| **🔄 Refresh** | All non-file connectors (Snowflake, BigQuery, S3, Google Sheets, REST, Azure Blob, Delta Lake, GCS, SQL) | Calls `conn_mgr.invalidate_cache(src_id)` then `conn_mgr.fetch_source(src_id, use_cache=False)`. Re-queries the remote system live, updates the source's `last_row_count` and `last_fetch` fields, and surfaces a green success toast (or red error with the connector message). |
+| **📤 Replace** | `file_upload` only | Opens an inline `st.file_uploader`. On Apply, the new bytes overwrite `config["file_bytes"]`; `display_name` and `target_schema` are preserved; `column_mapping` is re-derived against the new columns via `suggest_column_mapping(new_df, schema)` so a renamed or reordered header is handled gracefully. |
+| **🗑️ Delete** | All | Two-click arm/confirm. Calls `conn_mgr.remove_source(src_id)`, fires the persistence callback, and clears stale `dataset_*` channels via `_clear_stale_state_datasets()` so removed-source data can't leak through. |
+
+The *Last fetched* caption reads from `meta["last_fetch"]` (an ISO-8601 timestamp set inside `ConnectionManager.fetch_source`) and renders as `"42s ago"` / `"12 min ago"` / `"3h ago"` / `"2d ago"`. Sources that have not been fetched yet display `"never fetched"`.
+
+**Why this matters operationally.** Before this UI existed, the only way to verify that a Snowflake table change was visible was to run the full pipeline and check the gap report. Now any user can click 🔄 next to a source, see the new row count in under a second, and confirm before triggering the orchestrator.
 
 ---
 
@@ -458,6 +474,26 @@ state_manager.publish("dataset_emissions", emissions_df, "Data Collector")
 | CSRD | Corporate Sustainability Reporting Directive | EU | Mandatory |
 | GRI | Global Reporting Initiative | Global | Voluntary |
 | SASB | Sustainability Accounting Standards Board | Global | Investor-focused |
+| SOX | Sarbanes-Oxley (ESG-relevant internal controls) | US | Mandatory |
+| SEC Climate Rule | SEC Climate-Related Disclosures | US | Mandatory |
+
+### Live Framework Reload
+
+`execute()` reloads `data/regulatory_frameworks.json` from disk on every call. There is **no in-memory cache short-circuit** — when a user approves an update through *Global Framework Updates* (which writes the new requirement to disk via `utils.framework_refresh.apply_update`), the very next click of **Run Compliance Analysis** sees the new requirement in its gap calculation. The Compliance Radar percentage shifts immediately; no page reload, no session restart.
+
+The agent retains a `frameworks_cache` field — but its only purpose is to preserve in-memory `external_updates` metadata accumulated by the 24-hour background updater thread (`_fetch_external_regulatory_data`). Those entries are merged on top of the freshly-loaded disk data on every `execute()`, so live disk updates and synthetic background alerts coexist.
+
+### Framework refresh & LLM-JSON tolerance
+
+`utils/framework_refresh.fetch_framework_updates()` calls Claude with the `web_search_20250305` tool against authoritative regulator pages (SEBI, EFRAG, SEC, PCAOB, GRI, IFRS/SASB) and parses the response back into a JSON array. Real-world LLM output is not always RFC-strict — Claude routinely emits literal newlines or tabs inside string values, which `json.loads()` rejects in strict mode.
+
+**Parsing fallback ladder** (`utils/framework_refresh.py`):
+
+1. `json.loads(raw, strict=False)` — Python's built-in tolerance for control characters in string values (the bytes `\x00`–`\x1f`, including raw `\n`, `\t`, `\r`).
+2. If that still fails: scrub remaining truly-disallowed control bytes (`\x00–\x08`, `\x0b`, `\x0c`, `\x0e–\x1f`) via regex and retry `json.loads(strict=False)`.
+3. Only if both passes fail, the original `JSONDecodeError` is re-raised as a `RuntimeError` and surfaced in the UI as *"Refresh failed: …"*.
+
+Operational impact: a single unescaped whitespace character in Claude's response no longer drops the entire batch of detected regulatory updates.
 
 ### Compliance Calculation
 
@@ -1486,8 +1522,10 @@ Every agent is a pure function of what the Data Collector last published to `sta
 ### Guarantees
 
 - **Edit any source → next Run sees it.** Every single-agent page (Regulatory, Carbon, Report, Risk, Audit, Action, Stakeholder, ESG ROI) calls `refresh_real_data()` *before* its agent runs. Mission Control's full-pipeline run does the equivalent by forwarding the `ConnectionManager` into the Data Collector and stamping the same session-state keys afterwards.
+- **Remote-side data changes are always visible on the next full Run.** In full-refresh mode (the default — `only_changed=False`), `refresh_real_data()` calls `conn_mgr.invalidate_cache()` *before* the Data Collector fetches, and Mission Control invalidates before `run_full_pipeline()`. So a row delete in a Snowflake table, an edit to a Google Sheet, or an updated S3 object is reflected on the very next click — no signature-collision footgun, no stale `_cached_df` reuse.
 - **Removed sources leave no residue.** Stale `dataset_*` / `validated_*` channels in `state_manager` are cleared before the Data Collector republishes.
-- **Unchanged sources are free.** With `only_changed=True`, sources whose config signature matches the last successful fetch reuse a cached DataFrame; the remote system is not hit.
+- **Unchanged sources are free.** With `only_changed=True`, sources whose config signature matches the last successful fetch reuse a cached DataFrame; the remote system is not hit. (`invalidate_cache()` is *not* called in this mode — that's the whole point of the optimisation.)
+- **Per-source live-refresh, no full pipeline needed.** Each row in *Registered Data Sources* has a 🔄 Refresh button that calls `invalidate_cache(src_id)` then `fetch_source(src_id, use_cache=False)` — re-queries the remote system right now, updates `last_row_count` + `last_fetch`, and surfaces success/error inline. See [Per-source actions on the Registered Sources list](#per-source-actions-on-the-registered-sources-list).
 - **Errors are visible.** A failed fetch (bad Snowflake credential, revoked S3 key, 404 on a Sheet) is surfaced as `st.warning()` plus a second line on the freshness caption — no silent fallback to sample data.
 
 ### Component map
@@ -1560,18 +1598,23 @@ Before the Data Collector re-publishes, `refresh_real_data()` drops every key in
 | User action | Next Run behaviour |
 |---|---|
 | Edits a Snowflake query and clicks Run on any agent page | Helper fires → signature changes → connector re-executes → fresh DataFrame → agent runs on fresh data. |
-| Clicks Run a second time without touching anything | Default: full re-fetch (safest). With `only_changed=True`: cache hit, no remote traffic. |
+| **Reduces row count of a Snowflake table without changing the query** | Default full mode: `invalidate_cache()` runs before fetch → connector re-executes → new row count visible on the next Run. With `only_changed=True`: signature unchanged, cached DF reused — use the per-source 🔄 button or run the full pipeline to force a fresh fetch. |
+| Clicks Run a second time without touching anything | Default: full re-fetch (safest, cache invalidated up front). With `only_changed=True`: cache hit, no remote traffic. |
+| **Clicks the per-source 🔄 Refresh button** | `invalidate_cache(src_id)` then `fetch_source(src_id, use_cache=False)` — re-queries the one source immediately, updates `last_row_count` + `last_fetch`, no other sources or agents touched. Used to verify a remote change without running the orchestrator. |
+| **Clicks the per-source 📤 Replace button (file_upload only)** | Inline `st.file_uploader` opens. On Apply: `add_source` overwrites `config["file_bytes"]` (and re-derives `column_mapping` against the new columns), preserving `display_name` and `target_schema`. Cache is wiped because `add_source` resets `_cached_df`. |
 | Removes a registered source, clicks Run | Stale `dataset_{schema}` channel cleared → Data Collector re-publishes without it → downstream agents read via `core.data_access.get_dataset(...)` which falls back to sample data for that schema. |
 | Re-uploads a CSV with identical bytes | Signature stable (full SHA-256 over the bytes) → cache hit when `only_changed=True`. |
 | Re-uploads a CSV with different bytes | Signature changes (length differs, or hash differs) → connector re-parses. |
-| Runs the full pipeline from Mission Control | `Orchestrator.run_full_pipeline()` calls the Data Collector with the active `ConnectionManager`; Mission Control then calls `stamp_refresh_from_pipeline()` so every agent page's "N sec ago" caption is accurate. |
+| Runs the full pipeline from Mission Control | Mission Control calls `conn_mgr.invalidate_cache()` first, then `Orchestrator.run_full_pipeline()` invokes the Data Collector with the active `ConnectionManager`; afterwards `stamp_refresh_from_pipeline()` updates every agent page's "N sec ago" caption. |
+| **Approves a regulatory framework update** | `apply_update()` writes the new requirement to `data/regulatory_frameworks.json`. The Regulatory Tracker reloads from disk on every `execute()` (no in-memory cache short-circuit), so the next *Run Compliance Analysis* sees the new requirement and the Compliance Radar shifts immediately. |
 | Snowflake credential expires mid-session | `source_errors()` contains the failure → `st.warning()` on the page → caption grows a "Last refresh had errors on `snow_fin` — sample data used for affected schemas." line. |
 | Opens a second browser tab | `st.session_state` is per-tab. Each tab has its own `conn_manager` and its own freshness timestamps. By design. |
 
 ### Caveats that still apply
 
-- The signature does **not** hash remote data content — only config. With the default `only_changed=False`, this doesn't matter because we always re-fetch. With `only_changed=True`, a Snowflake table whose rows change while the query string stays identical will return cached data until the user edits the query or calls `invalidate_cache()`.
+- The signature does **not** hash remote data content — only config. With the default `only_changed=False`, this doesn't matter: full mode now invalidates the cache before fetching, so remote-side row changes are always visible. With `only_changed=True`, a Snowflake table whose rows change while the query string stays identical will return cached data until either: (a) the user clicks the per-source 🔄 Refresh button (which calls `invalidate_cache(src_id)` directly), (b) the user runs the full pipeline (full-mode invalidation), or (c) the source config is edited (signature changes).
 - `state_manager` is still a module-level singleton. All current agents re-read on `.run()`, so the clearing step is sufficient; future agents that cache a reference at `__init__` would bypass it.
+- The `_cached_df` field is still maintained inside `ConnectionManager._sources[sid]` even in full-refresh mode — full mode wipes it *before* fetching, then repopulates it after a successful fetch. This preserves the optimisation for any downstream caller that does opt into `use_cache=True`.
 
 ---
 

@@ -10,25 +10,54 @@ pinned: false
 license: mit
 ---
 
-# ESG Pilot: Autonomous ESG Intelligence
+# ESG Pilot — Autonomous ESG Intelligence
 
-> From manual compliance to autonomous ESG excellence.
+> **Continuous ESG intelligence, not quarterly spreadsheet rituals.**
+> Nine specialised AI agents, one orchestrator, six regulatory frameworks, every number traceable back to its source.
 
-ESG Pilot is an agentic AI platform for enterprise ESG intelligence. It connects fragmented enterprise data, monitors changing regulations, automates carbon accounting, predicts ESG risk, and generates audit-ready reporting — all from one coordinated multi-agent system.
+ESG Pilot is an agentic AI platform for enterprise ESG intelligence. It connects fragmented enterprise data, watches authoritative regulators for live mandate changes, automates Scope 1/2/3 carbon accounting, predicts climate and rating risk, and produces audit-ready reporting — all from one coordinated multi-agent pipeline that runs in-process on a single Streamlit replica.
 
 | | |
 | --- | --- |
 | **Product** | Agentic AI platform for ESG intelligence |
 | **Users** | Enterprise ESG, compliance, sustainability, audit, and reporting teams |
 | **Core promise** | Turn fragmented data into predictive, audit-ready ESG outputs |
-| **Operating model** | Continuous monitoring instead of periodic manual reporting |
+| **Operating model** | Continuous monitoring, not periodic manual reporting |
+| **Architecture** | 9 agents · 6 frameworks · 9 connector types · per-user isolation · zero external scheduler |
 
-**Live Demos:**
+**Live demos:**
 
 | Interface | URL |
 | --- | --- |
-| Gradio (Interactive) | [huggingface.co/spaces/isayan58/ESG-CoPilot](https://huggingface.co/spaces/isayan58/ESG-CoPilot) |
 | Streamlit (Dashboard) | [huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard](https://huggingface.co/spaces/isayan58/ESG-CoPilot-Dashboard) |
+| Gradio (Interactive) | [huggingface.co/spaces/isayan58/ESG-CoPilot](https://huggingface.co/spaces/isayan58/ESG-CoPilot) |
+
+---
+
+## ✨ Why ESG Pilot Stands Out
+
+The ESG tooling market is full of dashboards. ESG Pilot is built differently — every design choice below is something competing tools either don't have or punt on.
+
+> **🧠 Coordinated multi-agent pipeline, not a chat wrapper.**
+> Nine specialised agents (Data Collector, Regulatory Tracker, Carbon Accountant, Risk Predictor, Audit, ESG ROI, Report, Action, Stakeholder) run in dependency order under a single orchestrator, each publishing canonical state that the next one consumes — auditable handoffs, no LLM "magic black box."
+
+> **📡 Live regulatory tracking with human-in-the-loop approvals.**
+> The Regulatory Tracker uses Claude with web-search to continuously monitor SEBI, EFRAG, SEC, PCAOB, GRI, and IFRS/SASB for real mandate changes. Every detected change lands in an approval queue with the source URL — humans approve, the live framework set updates, and the next Compliance Analysis run reflects the change immediately (no cache lag, no re-registration).
+
+> **💸 Dual ROI Framework with five value-creation channels.**
+> Most ESG tools stop at compliance. ESG Pilot quantifies *return*: financial ROI + strategic ROI, an Investment Quality Score (A+ to D letter grade), a J-Curve payback model that names the trough depth and break-even quarter, and an ESG Integrity Gap Detector that flags greenwashing-style mismatches between self-reported metrics and operational data.
+
+> **🔌 Nine first-class data connectors with live refresh, no re-registration.**
+> File upload (CSV/Excel/JSON), Google Sheets, REST API, AWS S3, Google BigQuery, Google Cloud Storage, Azure Blob, Delta Lake, Snowflake — all unified through one schema-mapping layer. Every registered source has a one-click **🔄 Refresh** to re-query the remote system live, and file uploads have a **📤 Replace** button that swaps bytes in place without redoing the registration wizard.
+
+> **🛡️ Per-user isolation by construction.**
+> The state bus and the source registry are partitioned per signed-in user, persisted to a private HuggingFace Dataset, and bound to the active thread via a `CompanyConfig` proxy. Two analysts on the same Space replica each run their own pipeline, on their own data, against their own thresholds — no cross-contamination.
+
+> **📜 "Show your working" by default.**
+> Every formula, weight, and threshold is documented in [CALCULATIONS.md](CALCULATIONS.md) with `file:line` citations into the agent code. The Audit Agent produces an A–D readiness grade against the same evidence map. If a regulator asks "where did this number come from?", the answer is one search away.
+
+> **🧯 Defensive by design — fallbacks everywhere.**
+> No HuggingFace token? Rule-based fallbacks keep every agent running. No `pyarrow`? HTML table renderer kicks in. No `plotly`? Charts degrade to placeholders, the data still flows. Caches invalidated before every full pipeline run, so a remote table change is always visible on the next click. Errors are surfaced loudly, never swallowed.
 
 ---
 
@@ -167,7 +196,7 @@ See `RUNBOOK.md` → *Data ETL & freshness* for deeper internals including cache
 
 ```
 .
-├── app.py                              # Main Streamlit entry point
+├── Home.py                             # Main Streamlit entry point (landing page)
 ├── config.py                           # HF API config, model names, company profile
 ├── gradio_app.py                       # Gradio tabbed interface (all agents)
 ├── requirements.txt
@@ -256,7 +285,7 @@ cd Agentic_ESG
 pip install -r requirements.txt
 
 # Run Streamlit dashboard (port 8501)
-streamlit run app.py
+streamlit run Home.py
 
 # OR run Gradio interface (port 7860)
 python gradio_app.py
@@ -306,12 +335,16 @@ pip install deltalake                # Delta Lake tables
 
 ## ESG Frameworks Supported
 
-| Framework | Full Name | Jurisdiction |
-| --- | --- | --- |
-| **BRSR** | Business Responsibility and Sustainability Reporting | India (SEBI) |
-| **CSRD** | Corporate Sustainability Reporting Directive | European Union |
-| **GRI** | Global Reporting Initiative | Global |
-| **SASB** | Sustainability Accounting Standards Board | Global |
+| Framework | Full Name | Jurisdiction | Type |
+| --- | --- | --- | --- |
+| **BRSR** | Business Responsibility and Sustainability Reporting | India (SEBI) | Mandatory |
+| **CSRD** | Corporate Sustainability Reporting Directive | European Union | Mandatory |
+| **GRI** | Global Reporting Initiative | Global | Voluntary |
+| **SASB** | Sustainability Accounting Standards Board | Global | Investor-focused |
+| **SOX** | Sarbanes-Oxley Act (ESG-relevant internal controls) | United States | Mandatory |
+| **SEC Climate Rule** | SEC Climate-Related Disclosures (Reg S-K, Reg S-X) | United States | Mandatory |
+
+The Regulatory Tracker monitors all six frameworks live — see *Live regulatory tracking* in the [Selling Points](#-why-esg-pilot-stands-out) above.
 
 ---
 
@@ -370,8 +403,9 @@ This section documents verified functional and operational changes introduced in
 | Area | Entry |
 | --- | --- |
 | Identity & isolation | [Authentication](#authentication--access-control) · [Per-user state isolation](#per-user-state-isolation) · [Per-user persistence](#per-user-persistence-profile--source-store) |
-| Data flow | [Pipeline refresh & data freshness](#pipeline-refresh--data-freshness) · [Snowflake connector](#snowflake-connector-promoted-to-first-class) · [Data Upload → Pipeline wiring](#data-upload--pipeline-wiring) |
-| UI / theming | [Home page & design system](#home-page--design-system) · [PwC orange theming](#pwc-orange-theming--tagline) · [Material Symbols icon ligatures](#material-symbols-icon-ligatures-fixed) |
+| Data flow | [Pipeline refresh & data freshness](#pipeline-refresh--data-freshness) · [Live source refresh & file replace](#live-source-refresh--file-replace) · [Snowflake connector](#snowflake-connector-promoted-to-first-class) · [Data Upload → Pipeline wiring](#data-upload--pipeline-wiring) |
+| Regulatory | [Live framework reloads](#live-regulatory-framework-reloads) · [LLM-JSON parser tolerance](#llm-json-parser-tolerance-for-framework-updates) |
+| UI / theming | [Home page & design system](#home-page--design-system) · [PwC orange theming](#pwc-orange-theming--tagline) · [Material Symbols icon ligatures](#material-symbols-icon-ligatures-fixed) · [Cleaner gap table](#cleaner-gap-table-only-show-what-needs-attention) |
 | Deploy / CI | [HF Space push guard (pre-push hook)](#hf-space-push-guard-pre-push-hook) · [CI matrix (Python 3.12 + 3.13)](#ci-matrix-python-312--313) · [`.pptx` history scrub](#pptx-history-scrub) |
 | Reliability | [Data Collector init guard split (`AttributeError` fix)](#data-collector-init-guard-split-attributeerror-fix) · [HF persistence error surfacing](#hf-persistence-errors-now-surfaced-not-swallowed) |
 
@@ -506,6 +540,7 @@ There is currently no option to persist data to a database or download session s
 - Mission Control (`pages/1_Mission_Control.py`) calls `refresh_real_data()` inside the Run handler, then `stamp_refresh_from_pipeline(...)` after `orchestrator.run_full_pipeline(...)` completes, so the per-page "Refreshed N min ago" caption is accurate.
 - Agent pages 3–9 and 11 each call `refresh_real_data()` in a spinner before invoking their `.run()`, then render `data_freshness_caption()` so the user can see when the data was last fetched.
 - `refresh_real_data(only_changed=True)` reuses the per-source SHA-256 config-signature cache (in `utils/connection_manager.py`) to skip the remote round-trip when nothing changed — useful for slow Snowflake / BigQuery sources.
+- **Full-refresh mode now wipes the per-source DataFrame cache before fetching** (`conn_mgr.invalidate_cache()` is called inside `refresh_real_data()` whenever `only_changed=False`, and Mission Control invalidates before `run_full_pipeline()`). This guarantees a remote-side row change — e.g. rows deleted from a Snowflake table — is always visible on the next Run, regardless of what `use_cache` flag flows through the agent stack. The signature-based cache reuse for `only_changed=True` is unchanged.
 - Stale `dataset_*` / `validated_*` channels in `state_manager` are cleared before the Data Collector republishes, so removing a source actually removes its contribution from downstream totals.
 - `conn_mgr.source_errors()` is rendered as `st.warning()` by the helper, so a connector that silently returns an empty DataFrame is now visible to the user.
 
@@ -604,6 +639,43 @@ The hook's diagnostic prints the offending SHA, the expected `origin/dev` tip, a
 A one-pager `.pptx` deck added to the repo earlier had since been deleted, but HuggingFace's xet/LFS pre-receive hook scans the **full history** of every pushed branch, not just the diff. That meant every standard deploy to the Space was rejected with `pre-receive hook declined`, forcing the use of the `git commit-tree` recovery flow.
 
 **Permanent fix:** `git filter-repo --invert-paths --path <file>` scrubbed the binary from history. Standard deploys (`git push hf-streamlit dev:main`) now work without the recovery dance. The recovery flow is still documented in the RUNBOOK as a fallback for future similar incidents.
+
+---
+
+### Live regulatory framework reloads
+
+The Regulatory Tracker (`agents/regulatory_tracker.py`) used to memoise `regulatory_frameworks.json` into an in-memory cache on the first `execute()` and reuse that snapshot for the rest of the session. Approving an update via *Global Framework Updates* correctly wrote the new requirement to disk, but the next Compliance Analysis served the stale cached version — users had to restart the page to see their own change.
+
+**Fix:** `execute()` now reloads `regulatory_frameworks.json` from disk on every run. Background-thread `external_updates` metadata (which is in-memory only) is merged on top, so the awareness alerts feature still works. The Compliance Radar reflects an applied framework update on the very next click of **Run Compliance Analysis** — no page reload, no cache clear, no re-registration.
+
+---
+
+### LLM-JSON parser tolerance for framework updates
+
+`utils/framework_refresh.py` calls Claude with web-search to find recent regulatory changes. The model's response is post-processed back into a JSON array, and `json.loads()` was used in strict mode. Whenever Claude emitted a literal newline or tab inside a string value (RFC-disallowed but common in real-world LLM output), the entire refresh failed with *"Invalid control character at: line 6 column 21"* and zero pending updates were surfaced — even when most of the array was valid.
+
+**Fix:** the parse path now uses `json.loads(strict=False)` (Python's built-in tolerance for control characters in string values) and falls back to a scrubbed-and-retry pass for the remaining disallowed bytes (NULs, etc.) before surfacing the original error. Real regulatory updates are no longer dropped because of one unescaped whitespace character.
+
+---
+
+### Live source refresh & file replace
+
+The Data Collector's *Registered Data Sources* list now exposes two per-source actions next to **🗑️ Delete**:
+
+- **🔄 Refresh** (Snowflake, BigQuery, S3, Google Sheets, REST, Azure Blob, Delta Lake, GCS) — re-queries the remote system immediately, bypasses the per-source cache, and updates the displayed row count + *Last fetched: N min ago* caption. Gives users instant verification that a remote-side change is visible *without* running the full pipeline.
+- **📤 Replace** (file upload sources only) — opens an inline file uploader so a user with an edited CSV can swap the bytes in place; `display_name` and `target_schema` are preserved, and `column_mapping` is re-derived against the new columns so a renamed or reordered header is handled gracefully. Users no longer have to repeat the full registration wizard to pick up a local edit.
+
+Each source card also now shows a *Last fetched: N min ago* caption (or *never fetched* before its first refresh), so staleness is always visible at a glance.
+
+This entry pairs with the [Pipeline refresh & data freshness](#pipeline-refresh--data-freshness) update — together they make data-freshness deterministic regardless of source type.
+
+---
+
+### Cleaner gap table: only show what needs attention
+
+The *Registered sources — unmapped fields* table on Mission Control used to render a row for every registered source, including fully-mapped ones whose "Missing required" / "Missing optional" columns just said `—`. Clients reported the visual noise made it hard to spot the actual gaps.
+
+**Fix in `pages/1_Mission_Control.py`:** the table now lists only sources that have at least one missing required or optional column. Fully-mapped sources collapse into a single green ✅ success line ("All 4 registered sources are fully mapped — no gaps to address"), and a small *"Hiding N fully-mapped sources with no gaps"* caption keeps the filter transparent. The CSV export is filtered the same way.
 
 ---
 
