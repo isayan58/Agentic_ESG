@@ -28,6 +28,13 @@ logs/
 .idea/
 .vscode/
 
+# Sales / demo decks — never commit binary .pptx into the repo
+# (HuggingFace's xet/LFS pre-receive hook scans full history;
+# a stray .pptx blocks every subsequent Space deploy until the
+# history is scrubbed with git filter-repo).
+decks/
+*.pptx
+
 # Node / React frontend
 node_modules/
 dist/
