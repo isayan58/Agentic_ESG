@@ -185,10 +185,22 @@ def fetch_framework_updates(
     if not body:
         return []
     raw = _strip_to_json_array(body)
+    # ``strict=False`` tolerates raw control characters (literal \n, \t, …)
+    # inside string values — LLM output is frequently not RFC-strict, and
+    # rejecting the whole payload because of one unescaped newline loses
+    # real regulatory updates. If that still fails, strip the remaining
+    # disallowed control chars (NULs, etc.) and try once more before
+    # giving up with the original error.
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(raw, strict=False)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Model did not return parseable JSON: {exc}") from exc
+        scrubbed = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", raw)
+        try:
+            parsed = json.loads(scrubbed, strict=False)
+        except json.JSONDecodeError:
+            raise RuntimeError(
+                f"Model did not return parseable JSON: {exc}"
+            ) from exc
     if not isinstance(parsed, list):
         raise RuntimeError("Expected a JSON array from the model.")
 
