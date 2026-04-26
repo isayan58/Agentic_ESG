@@ -278,11 +278,33 @@ goal = st.text_input(
     ),
     max_chars=240,
 )
-col1, col2 = st.columns([1, 3])
+col1, col1b, col2 = st.columns([1, 1, 2])
 with col1:
     run_pipeline = st.button("🚀 Run Full Pipeline", type="primary", use_container_width=True)
+with col1b:
+    # Force-full clears the orchestrator's incremental cache, so every
+    # agent re-runs from scratch even if its inputs are unchanged.
+    # Used for "I changed something the cache can't see (like the
+    # bundled regulatory_frameworks.json)" or simply to verify outputs.
+    force_full = st.button(
+        "♻️ Force full re-run",
+        use_container_width=True,
+        help=(
+            "Drop the incremental cache so every agent re-executes. "
+            "Use this if you've edited a config file the cache "
+            "doesn't fingerprint."
+        ),
+    )
 with col2:
-    st.caption("An LLM plans the next agent(s) to execute based on your goal and the available ESG intelligence modules.")
+    st.caption(
+        "An LLM plans the next agent(s) to execute based on your goal. "
+        "Agents whose inputs are unchanged since the last run are reused "
+        "from cache automatically — click *Force full re-run* to bypass."
+    )
+
+if force_full:
+    orch.invalidate_incremental_cache()
+    st.toast("Incremental cache cleared — next run will be full.", icon="♻️")
 
 if run_pipeline:
     progress_bar = st.progress(0)
@@ -340,6 +362,14 @@ if run_pipeline:
     else:
         status_text.success("✅ Full pipeline completed successfully!")
 
+    _hits = orch.cache_hits_last_run()
+    if _hits:
+        st.info(
+            f"♻️ Reused {len(_hits)} cached agent result(s) — "
+            f"{', '.join(AGENT_CONFIG.get(k, {}).get('name', k) for k in _hits)}. "
+            "Click *Force full re-run* to bypass the cache.",
+            icon="ℹ️",
+        )
 # ── Save / Load Run ──
 # Closes the README-flagged "session-scoped storage" gap: instead of every
 # pipeline run vanishing on browser refresh, the signed-in user can stash

@@ -6,7 +6,19 @@ agent's ``execute()`` as an Anthropic tool. Claude decides which tools to
 call (sequential or parallel), respects the dependency graph baked into the
 tool descriptions, and stops when the goal is satisfied. Calculations stay
 deterministic — only orchestration decisions are LLM-driven.
+
+Incremental runs
+----------------
+The orchestrator memoises each agent's result inside the live process,
+keyed on a fingerprint of its dependency inputs. When the user clicks
+*Run* a second time without changing data or upstream agents, the loop
+short-circuits any agent whose dep-fingerprint matches its prior run and
+returns the cached result. Force-full mode clears the cache before the
+next run.
 """
+import hashlib
+import json
+
 from agents.action_agent import ActionAgent
 from agents.audit_agent import AuditAgent
 from agents.carbon_accountant import CarbonAccountantAgent
@@ -48,6 +60,15 @@ class Orchestrator:
         self.execution_log = []
         self.planning_log = []
         self.message_board = {}
+
+        # Incremental-run memo: per-agent dep fingerprint → cached result.
+        # Stays valid for the life of the orchestrator instance (one
+        # signed-in user's Streamlit session). Cleared by
+        # ``invalidate_incremental_cache()``.
+        self._incremental_cache: dict[str, tuple[str, dict]] = {}
+        # Tally of agents reused on the most recent run, for the UI's
+        # "Reused N cached agents" status line.
+        self._last_cache_hits: list[str] = []
 
         for key, agent_cls, _ in PIPELINE_ORDER:
             agent = agent_cls()
@@ -93,6 +114,7 @@ class Orchestrator:
         results = {}
         self.execution_log = []
         self.planning_log = []
+        self._last_cache_hits = []
 
         try:
             self._get_loop().run(
@@ -138,3 +160,98 @@ class Orchestrator:
     def post_message(self, agent_key, message):
         """Allow agents to post messages for inter-agent communication."""
         self.message_board[agent_key] = message
+
+    # ── Incremental-run cache ────────────────────────────────────────────
+    def compute_dep_fingerprint(self, agent_key, results,
+                                data_collector_kwargs=None) -> str:
+        """Stable fingerprint of an agent's *inputs* — not its outputs.
+
+        The fingerprint is what the loop hashes "what would change the
+        next run's result" down to. For ``data_collector`` that's the
+        connection-manager source signature (or the kwargs surface for
+        tests with no manager). For every downstream agent it's the
+        chain of upstream result-fingerprints — identical chain ⇒ same
+        downstream output, so we can short-circuit.
+        """
+        if agent_key == "data_collector":
+            cm = (data_collector_kwargs or {}).get("connection_manager")
+            sources_sig = ""
+            if cm is not None:
+                try:
+                    sources_sig = cm.sources_signature() or ""
+                except AttributeError:
+                    sources_sig = ""
+                except Exception:
+                    sources_sig = ""
+            payload: dict = {
+                "sources": sources_sig,
+                "kwargs": sorted((data_collector_kwargs or {}).keys()),
+            }
+        else:
+            deps = self.agent_dependencies.get(agent_key, [])
+            payload = {dep: self._fingerprint_for(dep, results) for dep in deps}
+        try:
+            serialised = json.dumps(payload, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            serialised = repr(payload)
+        return hashlib.sha256(serialised.encode("utf-8")).hexdigest()[:16]
+
+    def _fingerprint_for(self, agent_key, results) -> str:
+        """Return the fingerprint of ``agent_key``'s most recent result.
+
+        Falls back to a hash of the result dict when no entry exists in
+        the incremental cache (e.g. when an upstream agent ran
+        end-to-end this session for the first time).
+        """
+        cached = self._incremental_cache.get(agent_key)
+        if cached is not None:
+            return cached[0]
+        result = results.get(agent_key)
+        if result is None:
+            return ""
+        try:
+            serialised = json.dumps(result, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            serialised = repr(result)
+        return hashlib.sha256(serialised.encode("utf-8")).hexdigest()[:16]
+
+    def lookup_incremental_cache(self, agent_key, dep_fingerprint):
+        """Return ``(True, cached_result)`` if the cache hits, else ``(False, None)``.
+
+        The first element is a boolean rather than ``cached_result is None`` so
+        callers can distinguish "we have a cached empty dict" from "we have
+        nothing".
+        """
+        entry = self._incremental_cache.get(agent_key)
+        if entry is None:
+            return False, None
+        cached_fp, cached_result = entry
+        if cached_fp == dep_fingerprint and dep_fingerprint:
+            return True, cached_result
+        return False, None
+
+    def store_incremental_cache(self, agent_key, dep_fingerprint, result):
+        """Memoise an agent's result under its dep fingerprint.
+
+        Errored runs are *not* cached — we don't want a transient
+        upstream failure to be reused on subsequent runs once the user
+        fixes the cause.
+        """
+        if not dep_fingerprint:
+            return
+        if isinstance(result, dict) and "error" in result:
+            return
+        self._incremental_cache[agent_key] = (dep_fingerprint, result)
+
+    def record_cache_hit(self, agent_key) -> None:
+        """Record a per-run cache hit so the UI can summarise reuse."""
+        self._last_cache_hits.append(agent_key)
+
+    def invalidate_incremental_cache(self) -> None:
+        """Drop every memoised result. Use before a "force full re-run"."""
+        self._incremental_cache.clear()
+        self._last_cache_hits = []
+
+    def cache_hits_last_run(self) -> list[str]:
+        """List of agent keys reused from cache on the most recent run."""
+        return list(self._last_cache_hits)
