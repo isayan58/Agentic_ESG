@@ -1,7 +1,91 @@
 {
-  "report_generator": {
-    "finished_at": "2026-04-27T01:35:52.706208",
+  "data_collector": {
+    "finished_at": "2026-04-27T02:50:33.015633",
     "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.032463,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:33.015633"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031068,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.971951"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.033263,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.924841"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031185,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.880178"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.03227,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.838874"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031576,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.795865"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.033127,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.752376"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.03058,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.710262"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.029832,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.670429"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.030869,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.631684"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.040067,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:32.590822"
+      }
+    ],
+    "last_run": "2026-04-27T02:50:33.015633",
+    "name": "Data Collector",
+    "run_count": 11,
+    "runtime_seconds": 0.032463,
+    "started_at": "2026-04-27T02:50:32.983170",
+    "status": "completed",
+    "updated_at": "2026-04-26T21:20:33.015644+00:00"
+  },
+  "report_generator": {
+    "finished_at": "2026-04-27T02:50:33.132688",
+    "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.011882,
+        "status": "completed",
+        "timestamp": "2026-04-27T02:50:33.132688"
+      },
       {
         "error": null,
         "runtime_seconds": 0.34256,
@@ -9,12 +93,12 @@
         "timestamp": "2026-04-27T01:35:52.706208"
       }
     ],
-    "last_run": "2026-04-27T01:35:52.706208",
+    "last_run": "2026-04-27T02:50:33.132688",
     "name": "Report Generator",
-    "run_count": 1,
-    "runtime_seconds": 0.34256,
-    "started_at": "2026-04-27T01:35:52.363648",
+    "run_count": 2,
+    "runtime_seconds": 0.011882,
+    "started_at": "2026-04-27T02:50:33.120806",
     "status": "completed",
-    "updated_at": "2026-04-26T20:05:52.706226+00:00"
+    "updated_at": "2026-04-26T21:20:33.132699+00:00"
   }
 }
