@@ -62,6 +62,39 @@ if "pipeline_results" not in st.session_state:
 
 orch = st.session_state.orchestrator
 
+# Auto-rehydrate the most recent saved run for the signed-in user so
+# coming back from a refresh doesn't show "no run yet". Only runs once
+# per session (guarded by ``_mc_autoloaded``) so we don't override a
+# fresher in-session result with the older saved snapshot.
+if (not st.session_state.pipeline_results
+        and not st.session_state.get("_mc_autoloaded")):
+    _autoload_user = ((st.session_state.get("user") or {}).get("username") or "").strip()
+    if _autoload_user:
+        try:
+            _snap = get_run_store().latest_run(_autoload_user)
+        except Exception:
+            _snap = None
+        if _snap and isinstance(_snap.get("results"), dict):
+            st.session_state.pipeline_results = _snap["results"]
+            # Republish each agent's result so the per-agent pages
+            # (ESG ROI, Carbon, Audit, …) read live numbers from the
+            # state bus on first render too — not just Mission Control.
+            try:
+                from core.state_manager import state_manager as _sm
+                for _agent_key, _agent_result in _snap["results"].items():
+                    if not isinstance(_agent_result, dict):
+                        continue
+                    if "error" in _agent_result:
+                        continue
+                    _sm.publish(f"{_agent_key}_results", _agent_result, "auto-rehydrate")
+                # The ESG ROI page reads st.session_state.roi_results
+                # directly (not the bus), so seed that too.
+                if isinstance(_snap["results"].get("roi_agent"), dict):
+                    st.session_state.roi_results = _snap["results"]["roi_agent"]
+            except Exception:
+                pass
+    st.session_state["_mc_autoloaded"] = True
+
 
 def render_chart(fig):
     """Render Plotly charts when available, otherwise show a fallback note.
@@ -361,6 +394,25 @@ if run_pipeline:
         status_text.warning(f"⚠️ Pipeline completed with issues in: {', '.join(errored)}")
     else:
         status_text.success("✅ Full pipeline completed successfully!")
+
+    # Auto-snapshot every successful run so a later refresh (or logging
+    # back in tomorrow) shows the user their last computed numbers
+    # without making them rerun. Errored runs are skipped — we don't
+    # want a half-finished pipeline pinned as the "latest".
+    if not errored:
+        _autosave_user = ((st.session_state.get("user") or {}).get("username") or "").strip()
+        if _autosave_user:
+            try:
+                get_run_store().save_run(
+                    _autosave_user,
+                    results=results,
+                    label=f"Auto · {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    goal=goal,
+                    saved_by=_autosave_user,
+                )
+            except Exception:
+                # Auto-save is best-effort; never let it break the run.
+                pass
 
     _hits = orch.cache_hits_last_run()
     if _hits:

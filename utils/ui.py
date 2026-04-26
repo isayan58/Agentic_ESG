@@ -391,6 +391,23 @@ _STATIC_CSS = """
     opacity: 1;
 }
 
+/* Pin the sidebar — hide the collapse / hamburger toggle so users can't
+   accidentally hide the navbar. Streamlit's collapse button has shifted
+   data-testids across versions, so we cover the common variants. The
+   sidebar itself stays visible by force, even if its aria-expanded
+   attribute were flipped externally.                                   */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+button[kind="headerNoPadding"][aria-label*="sidebar" i] {
+    display: none !important;
+}
+[data-testid="stSidebar"][aria-expanded="false"] {
+    transform: translateX(0) !important;
+    visibility: visible !important;
+    margin-left: 0 !important;
+}
+
 /* Layout-ratio locks --------------------------------------------------
    Two things were drifting between viewports and making the page look
    inconsistent:

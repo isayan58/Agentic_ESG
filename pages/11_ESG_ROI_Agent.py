@@ -58,6 +58,27 @@ if "orchestrator" not in st.session_state:
 
 orch = st.session_state.orchestrator
 
+# Auto-rehydrate the user's last ROI result so reloading the page
+# doesn't show a blank dashboard. Only on the first render of this
+# session (guarded) so we don't trample a fresh single-agent rerun.
+if (st.session_state.get("roi_results") is None
+        and not st.session_state.get("_roi_autoloaded")):
+    _autoload_user = ((st.session_state.get("user") or {}).get("username") or "").strip()
+    if _autoload_user:
+        try:
+            from utils.run_store import get_run_store as _get_run_store
+            _snap = _get_run_store().latest_run(_autoload_user)
+        except Exception:
+            _snap = None
+        if _snap and isinstance(_snap.get("results"), dict):
+            _roi_block = _snap["results"].get("roi_agent")
+            if isinstance(_roi_block, dict) and "error" not in _roi_block:
+                st.session_state.roi_results = _roi_block
+            # Also seed Mission Control's bag in case the user navigates
+            # there next — keeps both pages consistent.
+            st.session_state.pipeline_results = _snap["results"]
+    st.session_state["_roi_autoloaded"] = True
+
 run_roi = st.button("Run ESG ROI Analysis", type="primary", use_container_width=True)
 
 # Banner: show registered data sources so the user knows what feeds the analysis

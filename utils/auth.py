@@ -160,21 +160,134 @@ def _check_rate_limit(bucket: dict[str, deque], key: str,
         dq.append(now)
 
 
+_HF_SECRET_DATASET = os.getenv("ESG_AUTH_DATASET", "isayan58/esg-copilot-auth")
+_HF_SECRET_PATH_IN_REPO = "auth/.session_secret"
+
+
+def _resolve_hf_token() -> Optional[str]:
+    """Same token lookup the other stores use — keeps secret resolution
+    aligned with profile / source / run / user stores.
+    """
+    for name in ("HF_TOKEN", "HF_API_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        value = os.getenv(name)
+        if value:
+            return value.strip()
+    try:
+        from pathlib import Path
+
+        candidate = Path.home() / ".cache" / "huggingface" / "token"
+        if candidate.is_file():
+            text = candidate.read_text().strip()
+            if text:
+                return text
+    except Exception:
+        pass
+    return None
+
+
+def _load_secret_from_hf() -> Optional[str]:
+    """Read the persisted session secret from the auth HF Dataset.
+
+    Returns None on any failure — callers fall back to the local file or
+    an ephemeral key. This is the path that survives HF Space rebuilds:
+    every restart used to mint a new ephemeral secret, invalidating all
+    user cookies and forcing a re-login on every refresh.
+    """
+    token = _resolve_hf_token()
+    if not token:
+        return None
+    try:
+        from huggingface_hub import hf_hub_download
+    except Exception:  # pragma: no cover - SDK not installed
+        return None
+    try:
+        local_path = hf_hub_download(
+            repo_id=_HF_SECRET_DATASET,
+            repo_type="dataset",
+            filename=_HF_SECRET_PATH_IN_REPO,
+            token=token,
+        )
+    except Exception:
+        return None
+    try:
+        from pathlib import Path
+
+        text = Path(local_path).read_text().strip()
+        return text or None
+    except Exception:
+        return None
+
+
+def _save_secret_to_hf(secret: str) -> None:
+    """Best-effort write of the session secret to the auth HF Dataset.
+
+    Failures are swallowed — the secret still works for this run via
+    the in-memory ``_SECRET`` value; the worst case is that the *next*
+    Space rebuild has to mint a fresh secret again.
+    """
+    token = _resolve_hf_token()
+    if not token:
+        return
+    try:
+        import io as _io
+        from huggingface_hub import HfApi
+    except Exception:  # pragma: no cover - SDK not installed
+        return
+    try:
+        api = HfApi(token=token)
+        try:
+            api.create_repo(
+                repo_id=_HF_SECRET_DATASET,
+                repo_type="dataset",
+                private=True,
+                exist_ok=True,
+            )
+        except Exception:
+            pass
+        api.upload_file(
+            path_or_fileobj=_io.BytesIO(secret.encode("utf-8")),
+            path_in_repo=_HF_SECRET_PATH_IN_REPO,
+            repo_id=_HF_SECRET_DATASET,
+            repo_type="dataset",
+            commit_message="Initialise session secret",
+        )
+    except Exception:
+        return
+
+
 def _resolve_secret() -> str:
     """Resolve a stable secret for signing session cookies.
 
     Preference order:
       1. ``SESSION_SECRET`` environment variable (recommended for prod)
       2. ``STREAMLIT_SESSION_SECRET`` (alternative name)
-      3. A file at ``.streamlit/.session_secret`` (auto-created & .gitignored)
-      4. Process-ephemeral random key (invalidates all cookies on restart)
+      3. The auth HF Dataset (``auth/.session_secret``) — persists across
+         HF Space rebuilds when ``HF_TOKEN`` is set. This is what keeps
+         users signed in when we redeploy the Space.
+      4. A file at ``.streamlit/.session_secret`` (auto-created &
+         .gitignored). Local-dev only — ephemeral on Spaces.
+      5. Process-ephemeral random key (invalidates all cookies on
+         restart). Last resort.
+
+    Path 3 was added because every Space deploy used to rotate the
+    secret (fall through to path 4 → path 5 since the local file
+    doesn't survive container rebuilds), kicking every signed-in user
+    back to the login screen on the next refresh after a deploy.
     """
     for name in ("SESSION_SECRET", "STREAMLIT_SESSION_SECRET"):
         val = os.getenv(name)
         if val:
             return val
 
-    # Dev convenience — persist a random key next to the streamlit config
+    # HF Dataset — persists across Space rebuilds.
+    hf_secret = _load_secret_from_hf()
+    if hf_secret:
+        return hf_secret
+
+    # Dev convenience — persist a random key next to the streamlit config.
+    # If the file exists locally, prefer it (so dev re-runs share the key
+    # without a network round-trip), otherwise generate-and-also-write
+    # to HF so the *next* Space restart finds it.
     try:
         from pathlib import Path
 
@@ -183,6 +296,9 @@ def _resolve_secret() -> str:
         if secret_path.is_file():
             text = secret_path.read_text().strip()
             if text:
+                # Mirror to HF if we haven't already, so a Space deploy
+                # from this machine seeds the persisted slot.
+                _save_secret_to_hf(text)
                 return text
         generated = secrets.token_urlsafe(48)
         secret_path.write_text(generated)
@@ -190,6 +306,7 @@ def _resolve_secret() -> str:
             os.chmod(secret_path, 0o600)
         except OSError:  # pragma: no cover
             pass
+        _save_secret_to_hf(generated)
         return generated
     except Exception:  # pragma: no cover
         return secrets.token_urlsafe(48)

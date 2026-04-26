@@ -242,12 +242,32 @@ class TestJCurve:
 
     def test_breakeven_set_when_benefit_overtakes_cost(self, agent, kpi_results,
                                                         fin_df):
-        # Inflate margins so cumulative benefit overtakes cost mid-frame.
-        big_benefit = fin_df.copy()
-        big_benefit["ebitda_margin_pct"] = [60, 62, 64, 66]
-        out = agent._compute_j_curve(kpi_results, big_benefit)
+        # Build a real J-curve: early quarters spend heavily with low
+        # margin (underwater), late quarters earn enough to recover.
+        # Breakeven only fires once net_position climbs back to >= 0
+        # *after* having been negative — pure positive trajectories
+        # don't have a J-curve to break even on.
+        j_frame = fin_df.copy()
+        j_frame["esg_linked_capex_inr_crores"] = [30.0, 30.0, 5.0, 5.0]
+        j_frame["ebitda_margin_pct"] = [21.0, 21.0, 60.0, 70.0]
+        j_frame["revenue_inr_crores"] = [1000.0, 1000.0, 2000.0, 2500.0]
+        out = agent._compute_j_curve(kpi_results, j_frame)
         assert out["breakeven_quarter"] is not None
         assert "Q" in str(out["breakeven_quarter"])
+
+    def test_no_breakeven_when_position_starts_positive(self, agent, kpi_results,
+                                                        fin_df):
+        # Pure-positive trajectory (benefits >= costs from quarter 1) is
+        # not a J-curve — there's no breakeven to report. Pins the bug
+        # the production page hit: early all-zero quarters were being
+        # falsely reported as breakeven (e.g. "Breakeven: 2021 Q2"
+        # when capex / benefit were both 0).
+        always_positive = fin_df.copy()
+        always_positive["esg_linked_capex_inr_crores"] = [0.0, 0.0, 0.0, 0.0]
+        always_positive["ebitda_margin_pct"] = [60.0, 62.0, 64.0, 66.0]
+        always_positive["revenue_inr_crores"] = [2000.0, 2000.0, 2000.0, 2000.0]
+        out = agent._compute_j_curve(kpi_results, always_positive)
+        assert out["breakeven_quarter"] is None
 
     def test_no_breakeven_when_costs_dominate(self, agent, kpi_results, fin_df):
         sad_frame = fin_df.copy()

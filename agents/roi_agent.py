@@ -210,10 +210,25 @@ class ROIAgent(BaseAgent):
                 "net_position": round(cum_benefit - cum_cost, 2),
             })
 
-        # Find breakeven
+        # Find breakeven — the J-Curve is "broken even" only after the
+        # cumulative benefit climbs back to non-negative *after going
+        # underwater*. The earlier check (`net_position >= 0 and i > 0`)
+        # matched the all-zero pre-investment quarters where net_position
+        # is trivially 0, so a 4-quarter run with no spend yet would
+        # falsely report breakeven at the second quarter. Require both
+        # (a) cumulative_cost > 0 (some investment has actually happened)
+        # and (b) the position has been negative at some prior point.
         breakeven = None
-        for i, q in enumerate(quarters):
-            if q["net_position"] >= 0 and i > 0:
+        went_underwater = False
+        for q in quarters:
+            if q["cumulative_cost"] <= 0:
+                # No investment yet — there is no J-curve to break even on.
+                continue
+            if q["net_position"] < 0:
+                went_underwater = True
+                continue
+            # net_position >= 0 here, with non-zero cumulative_cost.
+            if went_underwater:
                 breakeven = q["period"]
                 break
 

@@ -268,6 +268,22 @@ class RunStore:
         with self._lock:
             return self._load_snapshot_raw(username, run_id)
 
+    def latest_run(self, username: str) -> dict | None:
+        """Return the full snapshot of the most recent saved run, or ``None``.
+
+        Convenience over ``list_runs`` + ``load_run`` for the auto-rehydrate
+        path: pages call this on first render so the user sees their last
+        computed numbers on login without an explicit "Load" click. Cheap
+        when nothing is saved (single index read, no snapshot fetch).
+        """
+        runs = self.list_runs(username)
+        if not runs:
+            return None
+        latest_id = runs[0].get("id")
+        if not latest_id:
+            return None
+        return self.load_run(username, latest_id)
+
     def delete_run(self, username: str, run_id: str) -> bool:
         """Drop a single saved run. Returns True if it existed."""
         username = _safe_username(username)
