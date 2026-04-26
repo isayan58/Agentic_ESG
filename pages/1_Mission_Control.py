@@ -667,16 +667,26 @@ if st.session_state.pipeline_results:
             if getattr(block, "type", None) == "text"
         ).strip() or "(no recommendations generated)"
 
-    if cached:
+    # Don't reuse a cached *failure* — earlier code path stored the error
+    # string itself under cache_key, so a transient 4xx/5xx (rate limit,
+    # brief credit gap, network blip) would stay pinned on the page until
+    # the gap report changed. Treat any cached entry that begins with the
+    # failure marker as a cache miss so the next render retries.
+    _FAILURE_PREFIX = "⚠️ Recommendation generation failed"
+    if cached and not (isinstance(cached, str) and cached.lstrip().startswith(_FAILURE_PREFIX)):
         advice_slot.markdown(cached)
         advice_text = cached
     else:
         advice_slot.markdown("_Generating prioritized recommendations from the gap report…_")
         try:
             advice_text = _generate_gap_advice(gap_report, results)
+            # Only cache successes — see the comment block above.
+            cache[cache_key] = advice_text
         except Exception as exc:
-            advice_text = f"⚠️ Recommendation generation failed: `{exc}`"
-        cache[cache_key] = advice_text
+            advice_text = f"{_FAILURE_PREFIX}: `{exc}`"
+            # Drop any prior failure entry under this key so a fresh
+            # render retries instead of re-displaying yesterday's error.
+            cache.pop(cache_key, None)
         advice_slot.markdown(advice_text)
 
     # Downloadable full advisory bundle — recommendations + both gap tables,
