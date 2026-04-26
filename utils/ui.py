@@ -357,6 +357,62 @@ _STATIC_CSS = """
 }
 [data-testid="stSidebarNav"] span, [data-testid="stSidebarNav"] p { font-weight: inherit !important; }
 
+/* Sidebar nav hierarchy — Mission Control & ESG ROI Agent are the two
+   primary surfaces the product is sold on (overview + headline value
+   number); every other page is a supporting agent. Style them
+   accordingly so the sidebar reads as "command centre + investment
+   thesis · then the agents that feed them" rather than ten equal
+   peers. Targeting via href[*=…] survives page reorderings.        */
+[data-testid="stSidebarNav"] a[href*="Mission_Control"],
+[data-testid="stSidebarNav"] a[href*="ESG_ROI_Agent"] {
+    font-size: 1.02rem !important;
+    font-weight: 700 !important;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+    letter-spacing: -0.01em;
+}
+/* Subtle accent rail on the primary items so they read as "main"
+   even when not currently active.                                    */
+[data-testid="stSidebarNav"] a[href*="Mission_Control"]:not([aria-current="page"]),
+[data-testid="stSidebarNav"] a[href*="ESG_ROI_Agent"]:not([aria-current="page"]) {
+    border-left: 3px solid var(--pwc-orange) !important;
+    padding-left: calc(var(--space-3) - 3px) !important;
+}
+/* Everything else (the supporting agent pages + Settings) reads as
+   secondary: tighter, smaller, slightly muted. Sign In is hidden
+   post-login by an existing rule, so it doesn't need shrinking.      */
+[data-testid="stSidebarNav"] a:not([href*="Mission_Control"]):not([href*="ESG_ROI_Agent"]) {
+    font-size: 0.84rem !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+    opacity: 0.86;
+}
+[data-testid="stSidebarNav"] a:not([href*="Mission_Control"]):not([href*="ESG_ROI_Agent"]):hover {
+    opacity: 1;
+}
+
+/* Layout-ratio locks --------------------------------------------------
+   Two things were drifting between viewports and making the page look
+   inconsistent:
+     1. The sidebar would auto-resize on Streamlit's whim, occasionally
+        snapping narrower and squashing nav labels.
+     2. The Mission Control hero card (rendered via components.v1.html
+        into an iframe at fixed height=440px) stretched to whatever the
+        viewport offered, which on 27"+ monitors made the IQS gauge
+        look isolated in a sea of orange.
+   Lock the sidebar to a stable width and cap the main content's max
+   width so the proportions match the deployed screenshot regardless of
+   monitor size.                                                       */
+[data-testid="stSidebar"] {
+    min-width: 280px !important;
+    max-width: 280px !important;
+}
+.stApp .block-container {
+    max-width: 1440px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
 /* Typography ---------------------------------------------------------- */
 html, body, .stApp,
 .stMarkdown, .stText, .stCaption,
