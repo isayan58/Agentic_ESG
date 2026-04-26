@@ -42,6 +42,12 @@ def _empty_store() -> dict:
         "updates": [],  # each: {id, framework, type, title, description,
                         # source_url, detected_at, impact, status,
                         # proposed_requirement?}
+        # Append-only event log for every apply / revert / dismiss action.
+        # Lets operators answer "who approved this requirement and when?"
+        # and gives revert_update something to read when undoing a change.
+        # Each entry: {action, update_id, framework, requirement_id,
+        #              timestamp, actor?, snapshot?}
+        "audit_log": [],
     }
 
 
@@ -264,12 +270,41 @@ def _find_update(store: dict, update_id: str) -> dict | None:
     return None
 
 
-def apply_update(update_id: str) -> dict:
+def _append_audit(store: dict, action: str, update: dict, *,
+                  actor: str | None = None,
+                  requirement_id: str | None = None,
+                  extra: dict | None = None) -> None:
+    """Append one entry to the audit log.
+
+    Mutates ``store`` in place; callers must :func:`save_updates_store`
+    afterwards. Kept tiny on purpose — the audit log is append-only and
+    the schema is intentionally permissive so we can grow new action
+    types without breaking older entries.
+    """
+    entry = {
+        "action": action,
+        "update_id": update.get("id"),
+        "framework": update.get("framework"),
+        "title": update.get("title"),
+        "requirement_id": requirement_id,
+        "actor": actor,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+    }
+    if extra:
+        entry.update(extra)
+    store.setdefault("audit_log", []).append(entry)
+
+
+def apply_update(update_id: str, *, actor: str | None = None) -> dict:
     """Apply a pending update to regulatory_frameworks.json.
 
     If the update carries a `proposed_requirement`, append it under the
     matching framework's `requirements` list. Marks the update as applied
     with the timestamp. Idempotent — re-applying has no extra effect.
+
+    Records an entry in ``store["audit_log"]`` so the action can be
+    attributed and reverted later. ``actor`` is the signed-in username
+    (when available) so the log answers "who approved this?".
     """
     store = load_updates_store()
     update = _find_update(store, update_id)
@@ -281,6 +316,7 @@ def apply_update(update_id: str) -> dict:
     proposed = update.get("proposed_requirement")
     frameworks = load_frameworks()
     fw_name = update.get("framework")
+    appended_requirement_id: str | None = None
 
     if proposed and fw_name in frameworks.get("frameworks", {}):
         reqs = frameworks["frameworks"][fw_name].setdefault("requirements", [])
@@ -294,32 +330,133 @@ def apply_update(update_id: str) -> dict:
             or (proposed.get("section"), proposed.get("requirement")) in existing_pairs
         )
         if not already:
-            reqs.append({
+            new_req = {
                 "id": proposed.get("id"),
                 "section": proposed.get("section"),
                 "requirement": proposed.get("requirement"),
                 "data_fields": proposed.get("data_fields") or [],
                 "priority": proposed.get("priority") or "medium",
-            })
+            }
+            reqs.append(new_req)
             save_frameworks(frameworks)
+            appended_requirement_id = new_req["id"]
 
     update["status"] = "applied"
     update["applied_at"] = datetime.now().isoformat(timespec="seconds")
+    if actor:
+        update["applied_by"] = actor
+    # Record on the update itself so a later revert knows what to remove
+    # even if the audit log gets truncated.
+    if appended_requirement_id:
+        update["applied_requirement_id"] = appended_requirement_id
+    _append_audit(
+        store, "apply", update,
+        actor=actor,
+        requirement_id=appended_requirement_id,
+    )
     save_updates_store(store)
-    return {"ok": True}
+    return {"ok": True, "requirement_id": appended_requirement_id}
 
 
-def dismiss_update(update_id: str, reason: str = "") -> dict:
+def revert_update(update_id: str, *, actor: str | None = None,
+                  reason: str = "") -> dict:
+    """Undo a previously-applied update.
+
+    Removes the requirement that ``apply_update`` appended (matched on
+    ``applied_requirement_id`` first, falling back to the
+    ``proposed_requirement.id`` for entries written before the audit log
+    landed) and flips the update's status back to ``pending`` so a human
+    can re-decide. The original audit-log entry is preserved; a new
+    ``revert`` entry is appended.
+
+    Idempotent: reverting an already-reverted update is a no-op that
+    still records the attempt in the audit log so the operator's intent
+    is captured.
+    """
+    store = load_updates_store()
+    update = _find_update(store, update_id)
+    if update is None:
+        return {"ok": False, "reason": f"No update with id {update_id}."}
+    if update.get("status") != "applied":
+        # Record the no-op so "I tried to revert this" is still visible.
+        _append_audit(
+            store, "revert_skipped", update, actor=actor,
+            extra={"reason": reason or f"status was {update.get('status')!r}"},
+        )
+        save_updates_store(store)
+        return {"ok": False, "already_reverted": True,
+                "reason": f"Update status is {update.get('status')!r}; nothing to revert."}
+
+    requirement_id = (
+        update.get("applied_requirement_id")
+        or (update.get("proposed_requirement") or {}).get("id")
+    )
+
+    frameworks = load_frameworks()
+    fw_name = update.get("framework")
+    removed = False
+    if requirement_id and fw_name in frameworks.get("frameworks", {}):
+        reqs = frameworks["frameworks"][fw_name].get("requirements") or []
+        new_reqs = [r for r in reqs if r.get("id") != requirement_id]
+        if len(new_reqs) != len(reqs):
+            frameworks["frameworks"][fw_name]["requirements"] = new_reqs
+            save_frameworks(frameworks)
+            removed = True
+
+    update["status"] = "pending"
+    update["reverted_at"] = datetime.now().isoformat(timespec="seconds")
+    if actor:
+        update["reverted_by"] = actor
+    if reason:
+        update["revert_reason"] = reason
+    # Drop the apply markers so a re-apply re-runs cleanly.
+    update.pop("applied_at", None)
+    update.pop("applied_by", None)
+    update.pop("applied_requirement_id", None)
+    _append_audit(
+        store, "revert", update, actor=actor,
+        requirement_id=requirement_id,
+        extra={"reason": reason, "requirement_removed": removed},
+    )
+    save_updates_store(store)
+    return {"ok": True, "requirement_id": requirement_id,
+            "requirement_removed": removed}
+
+
+def dismiss_update(update_id: str, reason: str = "",
+                   *, actor: str | None = None) -> dict:
     store = load_updates_store()
     update = _find_update(store, update_id)
     if update is None:
         return {"ok": False, "reason": f"No update with id {update_id}."}
     update["status"] = "dismissed"
     update["dismissed_at"] = datetime.now().isoformat(timespec="seconds")
+    if actor:
+        update["dismissed_by"] = actor
     if reason:
         update["dismiss_reason"] = reason
+    _append_audit(store, "dismiss", update, actor=actor,
+                  extra={"reason": reason} if reason else None)
     save_updates_store(store)
     return {"ok": True}
+
+
+def audit_log(store: dict | None = None,
+              *, framework: str | None = None,
+              limit: int | None = None) -> list[dict]:
+    """Return audit-log entries, newest first.
+
+    Filters by framework when supplied (case-sensitive — matches
+    ``TRACKED_FRAMEWORKS``). ``limit`` truncates the head of the list.
+    """
+    s = store or load_updates_store()
+    entries = list(s.get("audit_log") or [])
+    if framework:
+        entries = [e for e in entries if e.get("framework") == framework]
+    entries.sort(key=lambda e: e.get("timestamp") or "", reverse=True)
+    if limit is not None and limit >= 0:
+        entries = entries[:limit]
+    return entries
 
 
 # ── Convenience filters for the UI ──────────────────────────────────────
@@ -366,7 +503,9 @@ __all__ = [
     "fetch_framework_updates",
     "refresh_and_store",
     "apply_update",
+    "revert_update",
     "dismiss_update",
+    "audit_log",
     "pending_updates",
     "applied_updates",
     "dismissed_updates",
