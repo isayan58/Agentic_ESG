@@ -12,6 +12,7 @@ import pandas as pd
 from datetime import datetime
 from utils.real_connectors import get_connector
 from utils.schema_mapper import apply_column_mapping
+from utils.connector_retry import with_retry
 
 
 def _signature(*parts) -> str:
@@ -187,7 +188,16 @@ class ConnectionManager:
             return source["_cached_df"].copy()
 
         connector = get_connector(source["connector_type"])
-        raw_df = connector.fetch(**source["config"])
+        # Wrap the connector's fetch in the shared retry policy so a
+        # transient HTTP 5xx / network blip doesn't fail the whole
+        # pipeline run. Fatal errors (auth, bad config, missing
+        # dependency) bypass retries and surface immediately. See
+        # ``utils.connector_retry`` for the full policy.
+        raw_df = with_retry(
+            connector.fetch,
+            description=f"{source['connector_type']} fetch ({source_id})",
+            **source["config"],
+        )
 
         # Apply column mapping
         mapped_df = apply_column_mapping(
