@@ -161,6 +161,34 @@ class AnthropicAgentLoop:
                 ),
             }
 
+        # Incremental cache: if every upstream input fingerprints to
+        # the same value as last time we ran this agent, reuse the
+        # cached output instead of paying the runtime again. Falls
+        # through cleanly when the cache is empty.
+        dep_fingerprint = self.orchestrator.compute_dep_fingerprint(
+            agent_key, results, data_collector_kwargs=data_collector_kwargs,
+        )
+        hit, cached_result = self.orchestrator.lookup_incremental_cache(
+            agent_key, dep_fingerprint,
+        )
+        if hit:
+            results[agent_key] = cached_result
+            self.orchestrator.record_cache_hit(agent_key)
+            self.orchestrator.execution_log.append({
+                "agent": agent_key, "status": "cached", "step": step,
+                "details": "Inputs unchanged — reused cached result.",
+            })
+            if progress_callback:
+                progress_callback(agent_key, "completed", step,
+                                  len(self.orchestrator.agent_order))
+            return {
+                "is_error": False,
+                "content": (
+                    f"{agent_key}: reused cached result (inputs unchanged). "
+                    f"{_summarize_result(agent_key, cached_result)}"
+                ),
+            }
+
         if progress_callback:
             progress_callback(agent_key, "running", step,
                               len(self.orchestrator.agent_order))
@@ -172,6 +200,10 @@ class AnthropicAgentLoop:
         results[agent_key] = agent_results
         status = ("completed" if self.orchestrator.agents[agent_key].status == "completed"
                   else "error")
+        if status == "completed":
+            self.orchestrator.store_incremental_cache(
+                agent_key, dep_fingerprint, agent_results,
+            )
         self.orchestrator.execution_log.append({
             "agent": agent_key, "status": status, "step": step,
         })
