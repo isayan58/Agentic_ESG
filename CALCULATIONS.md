@@ -803,10 +803,24 @@ cum_benefit += margin_benefit + energy_benefit
 ```
 **Constants:** `20` EBITDA margin baseline %; `30` energy-cost baseline (INR crores). Neither is source-cited.
 
-**Breakeven (`:207-212`):**
+**Breakeven (`agents/roi_agent.py:213-232`):**
 ```
-first quarter i > 0 with net_position >= 0  →  breakeven period
+breakeven       = None
+went_underwater = False
+for q in quarters:
+    if q["cumulative_cost"] <= 0:
+        continue                       # no investment yet
+    if q["net_position"] < 0:
+        went_underwater = True
+        continue
+    # net_position >= 0 here, with cumulative_cost > 0
+    if went_underwater:
+        breakeven = q["period"]
+        break
 ```
+Breakeven is reported *only* when the J-Curve actually went underwater (some investment + a prior negative position) and then climbed back. Pure-positive trajectories return `breakeven_quarter = None` — there's no J-Curve to break even on.
+
+**Why the guard exists.** An earlier version used `q["net_position"] >= 0 and i > 0`, which trivially fired on the all-zero pre-investment quarters (where `cumulative_cost == 0` and `cumulative_benefit == 0`). The deployed Space showed *"Breakeven: 2021 Q2 | Current net position: INR -187.83 Cr"* — a falsely-reported breakeven despite a still-deeply-negative position. Pinned by `tests/test_roi_agent.py::TestJCurve::test_no_breakeven_when_position_starts_positive` and `test_breakeven_set_when_benefit_overtakes_cost` (which constructs a real J-Curve: heavy spend early → recovery late).
 
 ### Investment Quality Score (IQS)
 
@@ -1082,10 +1096,38 @@ Powers the ROI Agent's five value-creation channels (Growth, Cost, Risk, Human C
 ### Financial summary
 
 **File:** `core/kpi_engine.py:85-115`
+
+Aggregates quarterly financials into a flat per-FY summary. With one exception (`revenue_growth_pct`) every field is read directly from a CSV column on the latest quarterly row — the platform does not derive ROA/ROE/EBITDA-margin from primitives, it expects the user's data to ship with those ratios already computed. The relevant column names are intentionally rigid so canonical schema mapping (see `utils/schema_mapper.py`) catches drift before the KPI engine sees it.
+
 ```
-rev_growth = round( (rev_curr - rev_prev) / rev_prev × 100, 1 )
+rev_curr        = sum(curr_year_rows.revenue_inr_crores)
+rev_prev        = sum(prev_year_rows.revenue_inr_crores)
+revenue_growth_pct = round( (rev_curr - rev_prev) / rev_prev × 100, 1 )    # 0 if rev_prev == 0
 ```
-Plus a flat dictionary of latest/prior values (all rounded to 1 dp except `debt_equity_latest` which is 2 dp): `revenue_current_fy`, `revenue_previous_fy`, `ebitda_margin_latest`, `roa_latest`, `roe_latest`, `debt_equity_latest`, `cost_of_capital_latest`, `pe_ratio_latest`, `carbon_tax_exposure_latest`, `energy_cost_latest`, `employee_turnover_latest`, `brand_value_index`, `talent_retention_score`, `esg_capex_current_fy`, `esg_capex_previous_fy`.
+
+| Field | Source column | Aggregation | Decimals |
+| --- | --- | --- | --- |
+| `revenue_current_fy` | `revenue_inr_crores` | sum over `curr_year` rows | 1 |
+| `revenue_previous_fy` | `revenue_inr_crores` | sum over `prev_year` rows | 1 |
+| `revenue_growth_pct` | derived (formula above) | — | 1 |
+| `ebitda_margin_latest` | `ebitda_margin_pct` | latest quarterly row | 1 |
+| `roa_latest` | `roa_pct` | latest quarterly row | 1 |
+| `roe_latest` | `roe_pct` | latest quarterly row | 1 |
+| `debt_equity_latest` | `debt_equity_ratio` | latest quarterly row | 2 |
+| `cost_of_capital_latest` | `cost_of_capital_pct` | latest quarterly row | 1 |
+| `pe_ratio_latest` | `pe_ratio` | latest quarterly row | 1 |
+| `carbon_tax_exposure_latest` | `carbon_tax_exposure_lakhs` | latest quarterly row | 1 |
+| `energy_cost_latest` | `energy_cost_inr_crores` | latest quarterly row | 1 |
+| `employee_turnover_latest` | `employee_turnover_pct` | latest quarterly row | 1 |
+| `brand_value_index` | `brand_value_index` | latest quarterly row | 1 |
+| `talent_retention_score` | `talent_retention_score` | latest quarterly row | 1 |
+| `esg_capex_current_fy` | `esg_linked_capex_inr_crores` | sum over `curr_year` rows | 1 |
+| `esg_capex_previous_fy` | `esg_linked_capex_inr_crores` | sum over `prev_year` rows | 1 |
+| `latest_quarter` | `year` + `quarter` | label only | — |
+
+**Empty-frame guard:** an empty `financials` DataFrame returns `{}`, propagating to ROI agent which short-circuits with `{"error": "No financial data available — upload sample_financials.csv"}` (see `agents/roi_agent.py:42-44`).
+
+> **Note on ROA / ROE / EBITDA Margin.** ESG Pilot does not derive these from primitives (net profit, total assets, equity, EBITDA). The user's quarterly financials file is expected to include the pre-computed ratios. If a re-uploaded file changes the underlying numbers but the ratio columns are missing or unmapped, downstream metrics (ROI%, IQS, J-Curve) will not reflect the new data. See **F8** in *Known integrity flags*.
 
 ### ESG ↔ financial correlations (heuristic, not Pearson)
 
@@ -1229,6 +1271,125 @@ Falls back to the supplied loader function or an empty DataFrame.
 
 ---
 
+## Incremental Run Cache (`core/orchestrator.py`)
+
+The orchestrator memoises each agent's result keyed on a fingerprint of its **inputs** (not outputs), so a second click of *Run Full Pipeline* with no upstream changes short-circuits every agent that already ran.
+
+### Dependency fingerprint
+
+**File:** `core/orchestrator.py:compute_dep_fingerprint`
+
+For `data_collector` (the leaf):
+```
+sources_sig = connection_manager.sources_signature()    # SHA-256 of every source's
+                                                        # connector_type + target_schema
+                                                        # + column_mapping + config
+                                                        # (bytes hashed via SHA-256)
+payload     = {"sources": sources_sig,
+               "kwargs": sorted(data_collector_kwargs.keys())}
+dep_fp      = first 16 hex chars of sha256(json(payload))
+```
+
+For every downstream agent:
+```
+deps    = agent_dependencies[agent_key]    # e.g. roi_agent → [data_collector,
+                                           #                  carbon_accountant,
+                                           #                  risk_predictor]
+payload = { dep: _fingerprint_for(dep, results)  for dep in deps }
+dep_fp  = first 16 hex chars of sha256(json(payload))
+```
+
+`_fingerprint_for(dep)` returns the dep's **stored** fingerprint (from the cache entry written when it last ran), so a change at any layer propagates all the way to the root.
+
+### Lookup & store
+
+```
+lookup_incremental_cache(agent_key, dep_fp)
+  → returns the cached result if (cached_fp == dep_fp and dep_fp != "")
+  → otherwise miss
+
+store_incremental_cache(agent_key, dep_fp, result)
+  → no-op if dep_fp == ""
+  → no-op if isinstance(result, dict) and "error" in result
+                                          # never cache failures
+```
+
+Errored runs are deliberately *not* cached so a transient upstream failure doesn't get pinned as the "latest" output.
+
+### Invalidation triggers
+
+The cache busts on:
+
+* **Source mutation** — `ConnectionManager.on_change` → `_build_on_change()` calls `orchestrator.invalidate_incremental_cache()` after every add / remove / replace, so changing data always forces a full re-run on the next click.
+* **Force full re-run button** on the ESG Command Center — explicit user invalidation.
+* **Fingerprint mismatch** — the natural propagation path described above.
+
+Pinned by `tests/test_orchestrator_cache.py` (13 tests).
+
+---
+
+## Run Snapshot Auto-Save / Auto-Load (`utils/run_store.py`)
+
+No numeric calculations, but a deterministic policy that affects what users see on first render:
+
+| Trigger | Action |
+| --- | --- |
+| Successful pipeline run on ESG Command Center (`pages/1_ESG_Command_Center.py`) | Auto-saves snapshot with label `Auto · YYYY-MM-DD HH:MM` |
+| First page render with empty `st.session_state.pipeline_results` | Auto-loads `run_store.latest_run(username)` → republishes each agent's result onto `state_manager` so per-agent pages see live numbers without a Run |
+| ESG ROI page render with empty `st.session_state.roi_results` | Same auto-load, gated by `_roi_autoloaded` session flag |
+| **Errored** pipeline run | Auto-save is **skipped** — partial / broken runs don't get pinned as the latest snapshot |
+
+`history_cap = 25` per user; rotated-out snapshot files are deleted from the backend so orphans don't accumulate. Hard cap on a single snapshot's serialised size: `MAX_SNAPSHOT_BYTES = 4 MB` (configurable via `ESG_RUN_MAX_BYTES`).
+
+---
+
+## Connector Retry Policy (`utils/connector_retry.py`)
+
+Wraps every `ConnectionManager.fetch_source(…)` call.
+
+| Knob | Default | Override env |
+| --- | --- | --- |
+| `MAX_ATTEMPTS` | `3` | n/a |
+| `INITIAL_BACKOFF_SECONDS` | `0.4` | n/a |
+| `BACKOFF_MULTIPLIER` | `2.0` | n/a |
+| `MAX_BACKOFF_SECONDS` | `4.0` | n/a |
+| `JITTER_FRACTION` | `± 25 %` of computed backoff | n/a |
+| `DEADLINE_SECONDS` | `30.0` (wall-clock cap across attempts) | n/a |
+
+**Transient** (retryable): `requests.Timeout`, `requests.ConnectionError`, `requests.ChunkedEncodingError`, `socket.timeout`, `ConnectionError`, `TimeoutError`, exceptions whose class name contains `timeout` / `throttl` / `unavailable`, HTTP `408 / 425 / 429 / 500 / 502 / 503 / 504`.
+
+**Fatal** (no retry): `ImportError`, `ValueError`, `KeyError`, `NotImplementedError`, every other HTTP 4xx (`401 / 403 / 404 / 422 / …`).
+
+Backoff per failed attempt:
+```
+base   = min(INITIAL_BACKOFF_SECONDS × MULTIPLIER**(attempt-1), MAX_BACKOFF_SECONDS)
+jitter = base × JITTER_FRACTION × uniform(-1, 1)
+sleep  = max(0, base + jitter)        # capped at remaining deadline
+```
+
+Pinned by `tests/test_connector_retry.py` (30 tests).
+
+---
+
+## ROI Card Delta (`utils/ui.py:esg_roi_featured_card`)
+
+The featured card on the ESG Command Center renders an IQS delta against the user's previous saved run.
+
+```
+prev = run_store.list_runs(username)[1]  # runs[0] = current; runs[1] = the one before
+prev_iqs = prev.results["roi_agent"]["investment_quality_score"]["score"]
+diff     = current_iqs - prev_iqs
+
+|diff| < 0.5  →  "→ no change vs last run"
+diff   > 0    →  "↑ +N vs last run"
+diff   < 0    →  "↓ -N vs last run"
+otherwise     →  "✦ first computed run"        # < 2 saved runs
+```
+
+The earlier hardcoded `"↑ live · updated now"` string was removed because users couldn't tell whether their IQS had moved. Empty-mode falls back to `"no run yet"` with a `"·"` arrow.
+
+---
+
 ## Known integrity flags
 
 These are quirks discovered while extracting the formulas. They are **not** bugs blocking deploy, but they are worth knowing about when reading numbers off the dashboard.
@@ -1276,6 +1437,16 @@ These look like magic numbers in narrative text but are actually `company_cfg` a
 - Audit grade cutoffs `90 / 75 / 60` → `ThresholdConfig.audit_grade_*`.
 
 A customer-specific override should always edit the profile JSON, not the agent code.
+
+### F8. ROA / ROE / EBITDA Margin are read columns, not derived
+
+`_summarise_financials` reads `roa_pct`, `roe_pct`, `ebitda_margin_pct` directly from the latest quarterly row of the user's financials CSV. ESG Pilot does **not** compute them from the underlying primitives (net profit / total assets / equity / EBITDA / revenue). Practical implications:
+
+- A user who re-uploads a quarter's financials with a new revenue number but **without** updated ROA/ROE/EBITDA-margin columns will see those metrics stay flat in the Strategic ROI / IQS / Hypothesis Tracker views.
+- A user whose CSV uses a non-canonical column name (`ROA (%)` instead of `roa_pct`) gets `0.0` defaults — the schema mapper should catch this; if it doesn't, the column is silently ignored.
+- Any downstream signal the KPI engine derives from these (Cost channel, Risk channel, J-Curve `margin_benefit`) inherits the same staleness.
+
+**Fix path when this happens:** open *Data Collector → Edit source* and confirm the column-mapping table; the canonical names are the table keys in *Financial summary* above. Re-running the pipeline after a correct mapping will refresh every dependent metric (the orchestrator's incremental cache invalidates on source-mutation; see `utils/session.py:_build_on_change`).
 
 ---
 

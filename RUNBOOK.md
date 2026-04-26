@@ -294,6 +294,42 @@ Per-user files (`sources/{username}.json`, `profiles/{username}.json`) only coll
 
 Every store exposes `diagnostic()` returning `{backend, label, has_token, dataset, last_error, last_error_at}`. The sidebar auth widget reads these and shows a coloured indicator (green = HF persistent, amber = local ephemeral, red = no token / write failure) with an expandable error panel that walks the exception chain (`__cause__` → `__context__`) — this is how we caught the `ValueError` wrapping issue in `hf_hub_download` when first-time users appeared to fall back to local storage.
 
+### Connector retry/timeout policy (`utils/connector_retry.py`)
+
+Every `ConnectionManager.fetch_source(...)` call is wrapped in a shared retry helper so a transient network blip on Snowflake / S3 / BigQuery / GCS doesn't fail the whole pipeline run.
+
+**Knobs:**
+| Constant | Default | Meaning |
+| --- | --- | --- |
+| `MAX_ATTEMPTS` | `3` | Initial call + 2 retries |
+| `INITIAL_BACKOFF_SECONDS` | `0.4` | First failed attempt sleeps ~0.4 s |
+| `BACKOFF_MULTIPLIER` | `2.0` | Doubles per failed attempt up to `MAX_BACKOFF_SECONDS` |
+| `MAX_BACKOFF_SECONDS` | `4.0` | Sleep ceiling |
+| `JITTER_FRACTION` | `0.25` | ±25 % jitter on each computed backoff |
+| `DEADLINE_SECONDS` | `30.0` | Wall-clock cap across all attempts — prevents a pathological retry loop from hanging the ESG Command Center Run button |
+
+**Transient (retried):** `requests.Timeout`, `requests.ConnectionError`, `requests.ChunkedEncodingError`, `socket.timeout`, `ConnectionError`, `TimeoutError`, exceptions whose class name contains `timeout`/`throttl`/`unavailable`, HTTP 408 / 425 / 429 / 5xx.
+
+**Fatal (fail fast, no retry):** `ImportError`, `ValueError`, `KeyError`, `NotImplementedError`, every other HTTP 4xx (including 401 / 403 — auth failures should surface immediately, not keep hammering).
+
+Why this lives at the ConnectionManager boundary, not inside each connector: the underlying SDKs (`boto3`, `snowflake-connector-python`, `huggingface_hub`, `google-cloud-bigquery`, `requests`) all have different retry idioms. Wrapping the whole `fetch()` call gives us one knob, one log line, and one place to tune behaviour as we learn what fails in production. Pinned by `tests/test_connector_retry.py` (30 tests).
+
+### Incremental run cache (`core/orchestrator.py`)
+
+The orchestrator memoises each agent's result keyed on a fingerprint of its **inputs**, so a second click of *Run Full Pipeline* with no upstream changes short-circuits every agent that already ran.
+
+**Behaviour at a glance:**
+- After every successful agent run, `(dep_fingerprint, result)` is stored in `Orchestrator._incremental_cache[agent_key]`.
+- Errored runs are **not** cached so a transient failure doesn't get pinned.
+- On the next pipeline turn, `_execute_tool()` recomputes the dep fingerprint and serves from cache on a match. Cache-hit agents log under status `cached` in the execution log and are listed under *Reused N cached agent result(s)* on the post-run banner.
+- Force-bypass: the **♻️ Force full re-run** button on the ESG Command Center calls `invalidate_incremental_cache()` before the next run.
+
+**Source-mutation auto-invalidation:** `utils/session.py:_build_on_change()` invalidates the cache after every `add_source` / `remove_source` / `replace`. This is belt-and-suspenders insurance — the fingerprint chain *should* propagate the change naturally (data_collector's dep fingerprint is keyed on `connection_manager.sources_signature()`), but explicit invalidation guarantees a fresh end-to-end run on the next click regardless of fingerprint subtleties.
+
+**Post-pipeline `_ensure_complete()`:** the LLM-driven planner is goal-driven and may skip agents the goal doesn't strictly require. With `enforce_complete=True` (the default for `run_full_pipeline`), the orchestrator walks `agent_order` after the tool-use loop and runs any agent that was skipped (errored agents are not auto-retried). Each fill-in run is fingerprinted into the incremental cache so the next click correctly short-circuits.
+
+The full fingerprint formula is documented in `CALCULATIONS.md` → *Incremental Run Cache*. Pinned by `tests/test_orchestrator_cache.py` (13 tests).
+
 ---
 
 ## Agent 1: Data Collector
@@ -494,6 +530,23 @@ The agent retains a `frameworks_cache` field — but its only purpose is to pres
 3. Only if both passes fail, the original `JSONDecodeError` is re-raised as a `RuntimeError` and surfaced in the UI as *"Refresh failed: …"*.
 
 Operational impact: a single unescaped whitespace character in Claude's response no longer drops the entire batch of detected regulatory updates.
+
+### Approval audit log + revert
+
+Every approval / dismissal / revert action lands in an append-only `audit_log` array on the `regulatory_updates.json` overlay store. The Regulatory Tracker page renders the log under a **🔍 Audit log** expander and adds an **↩️ Revert** button on every Applied row.
+
+**API surface (`utils/framework_refresh.py`):**
+
+| Function | What it does |
+| --- | --- |
+| `apply_update(update_id, *, actor=None)` | Appends the proposed requirement to `regulatory_frameworks.json`, marks the update as `applied`, captures `applied_by` + `applied_requirement_id`, writes one `apply` entry to the audit log. Idempotent. |
+| `revert_update(update_id, *, actor=None, reason="")` | Removes the requirement that `apply_update` appended (matched on `applied_requirement_id` with a fallback to `proposed_requirement.id`), flips status back to `pending`, drops the apply markers so a re-apply runs cleanly. Writes a `revert` entry. Idempotent: reverting an already-reverted update is a no-op that still records the operator's intent under `revert_skipped`. |
+| `dismiss_update(update_id, reason="", *, actor=None)` | Marks the update `dismissed` with actor + reason, appends a `dismiss` entry. |
+| `audit_log(store=None, *, framework=None, limit=None)` | Reads the log; optional framework filter, optional head truncation. Returns newest-first. |
+
+**Audit-entry schema:** `{action, update_id, framework, title, requirement_id, actor, timestamp, … action-specific extras (reason, requirement_removed)}`. The schema is intentionally permissive so new action types don't break older entries.
+
+The Regulatory Tracker page captures the signed-in user (`st.session_state["user"]["username"]`) as `actor` on every apply / revert / dismiss button so the log answers *"who approved this?"*. Pinned by `tests/test_framework_audit.py` (10 tests including a full apply → revert → re-apply round-trip and a framework filter).
 
 ### Compliance Calculation
 
@@ -872,8 +925,17 @@ The J-curve models cumulative ESG cost vs cumulative benefit by quarter:
 
 ```
 net_position = cumulative_benefit - cumulative_cost
-breakeven_quarter = first quarter where net_position >= 0
+
+# Breakeven only counts when the curve actually went underwater first.
+breakeven_quarter = first quarter q where:
+    cumulative_cost(q) > 0           # some investment has happened
+    AND net_position(q) >= 0         # back above water
+    AND ∃ earlier quarter where net_position < 0    # was underwater before
 ```
+
+A pure-positive trajectory (benefits ≥ costs from the start) returns `breakeven_quarter = None` — there's no J-Curve to break even on.
+
+**Fix history.** An earlier version checked `net_position >= 0 and i > 0`, which trivially fired on the all-zero pre-investment quarters where `cumulative_cost == 0`. The deployed Space showed *"Breakeven: 2021 Q2 | Current net position: INR -187.83 Cr"* — a falsely-reported breakeven despite a still-negative position. Pinned by `tests/test_roi_agent.py::TestJCurve::test_no_breakeven_when_position_starts_positive`.
 
 ### Investment Quality Score (IQS)
 
@@ -1663,15 +1725,49 @@ The active user ID is resolved on each call from `st.session_state` via a thread
 | Auth (users) | `utils/user_store.py` | `hf_dataset` → `local_json` (ephemeral) |
 | Source registry | `utils/source_store.py` | `hf_dataset` → `local_json` (ephemeral) |
 | Company profile | `utils/profile_store.py` | `hf_dataset` → `local_json` (ephemeral) |
+| Pipeline run snapshots | `utils/run_store.py` | `hf_dataset` → `local_json` (ephemeral) |
+| Session-cookie signing secret | `utils/auth.py:_resolve_secret` | env var → `hf_dataset` → local file → ephemeral random |
 
-**HF Dataset format.** Each store writes JSON files into a private dataset (configured via `ESG_USERS_DATASET`, `ESG_SOURCES_DATASET`, `ESG_PROFILES_DATASET` env vars or the defaults baked into each module). One file per user, namespaced by user ID.
+**HF Dataset format.** Each store writes JSON files into a private dataset (configured via `ESG_USERS_DATASET`, `ESG_SOURCES_DATASET`, `ESG_PROFILES_DATASET`, `ESG_AUTH_DATASET` env vars or the defaults baked into each module). One file per user, namespaced by user ID.
 
 **Failure semantics.** On any HF API error (including `huggingface_hub` wrapping `EntryNotFoundError` as `ValueError`), the store:
 1. Captures the exception into `last_error`.
 2. Falls back to local-JSON storage so the app keeps working.
 3. Surfaces both the active backend and the captured error in the sidebar via `_render_storage_diagnostic()`.
 
-**Operator action: if the sidebar shows "Local JSON (ephemeral)" on the deployed Space, set `HF_TOKEN` as a Space secret.** Otherwise every Space rebuild loses all user-scoped data (accounts, sources, profiles).
+**Operator action: if the sidebar shows "Local JSON (ephemeral)" on the deployed Space, set `HF_TOKEN` as a Space secret.** Otherwise every Space rebuild loses all user-scoped data (accounts, sources, profiles, run snapshots, **and the session-cookie signing secret** — see below).
+
+### Session-cookie signing secret
+
+`utils/auth.py:_resolve_secret()` resolves the secret used by `itsdangerous` to sign session cookies. Resolution order:
+
+1. `SESSION_SECRET` env var (recommended for prod)
+2. `STREAMLIT_SESSION_SECRET` (alternative name)
+3. The auth HF Dataset, file `auth/.session_secret` — persists across HF Space rebuilds when `HF_TOKEN` is set
+4. Local file `.streamlit/.session_secret` — dev-only; does not survive container restarts
+5. Process-ephemeral `secrets.token_urlsafe(48)` — last resort, invalidates every cookie on restart
+
+**Why path 3 was added.** Before HF Dataset persistence, every Space deploy minted a new ephemeral secret (the local file doesn't survive HF container rebuilds), invalidating every browser's cookie and forcing a re-login on the next refresh. Now the secret is generated once, written to both the local file and the HF Dataset on first cold start, and re-used on subsequent rebuilds.
+
+**Operator note:** the first time a Space starts after this code shipped, all existing users still need to log in once — their cookies were signed with the prior ephemeral secret. From that point forward, deploys don't kick anyone out.
+
+### Pipeline run snapshots & auto-rehydrate
+
+`utils/run_store.py` persists full pipeline-run snapshots per user under `runs/{username}/index.json` + `runs/{username}/{run_id}.json` in the auth HF Dataset.
+
+**Save policy:**
+- A successful pipeline run on the ESG Command Center auto-saves with the label `Auto · YYYY-MM-DD HH:MM`. Errored runs are deliberately *not* saved (so a half-finished pipeline never gets pinned as the latest).
+- The user can also save manually via the **💾 Save / Load Pipeline Runs** expander, which accepts a custom label.
+
+**Load policy:**
+- ESG Command Center on first render in a session: if `st.session_state.pipeline_results` is empty, calls `run_store.latest_run(username)` and republishes each agent's result onto `state_manager` so per-agent pages see live numbers immediately. Gated by an `_mc_autoloaded` flag so this fires once per session.
+- ESG ROI Agent page: same auto-load pattern, gated by `_roi_autoloaded`. Seeds both `st.session_state.roi_results` and `st.session_state.pipeline_results` for cross-page consistency.
+
+**Limits:**
+- `DEFAULT_HISTORY_CAP = 25` snapshots per user. Older runs rotate out and their backend file is deleted to prevent orphans.
+- `MAX_SNAPSHOT_BYTES = 4 MB` (configurable via `ESG_RUN_MAX_BYTES`). Saves above that raise `ValueError` so the UI can surface a clear "snapshot too large" error rather than silently truncating.
+
+**Index schema** (one entry per run): `id`, `label`, `saved_at`, `saved_by`, `goal`, `agent_count`, `errored_agents`, `headline.{total_records, audit_grade, iqs_grade, emissions_total}`. The headline lets the **Load** picker render meaningful labels without fetching every snapshot.
 
 ### Concurrent-user invariants
 

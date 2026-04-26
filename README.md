@@ -53,6 +53,12 @@ The ESG tooling market is full of dashboards. ESG Pilot is built differently —
 > **🛡️ Per-user isolation by construction.**
 > The state bus and the source registry are partitioned per signed-in user, persisted to a private HuggingFace Dataset, and bound to the active thread via a `CompanyConfig` proxy. Two analysts on the same Space replica each run their own pipeline, on their own data, against their own thresholds — no cross-contamination.
 
+> **💾 Persistent runs that survive refreshes, deploys, and devices.**
+> Every successful pipeline run auto-saves to the user's private HF Dataset; on next login, the ESG Command Center and ESG ROI page auto-rehydrate the latest snapshot — last quarter's IQS, J-Curve, and ROI numbers are right there, no re-running required. The featured ROI card shows a real *"+5 vs last run"* delta against the previous saved IQS. History capped at 25 snapshots with orphan cleanup.
+
+> **♻️ Incremental pipeline runs that know what changed.**
+> The orchestrator memoises each agent's result keyed on a fingerprint of its inputs. Click *Run Full Pipeline* twice with no upstream changes and every cached agent short-circuits ("Reused 9 cached agent result(s)"). Mutate any source (replace a CSV, swap a Snowflake query) and the cache invalidates automatically — next run is end-to-end fresh. **♻️ Force full re-run** button bypasses the cache when you need it, plus `_ensure_complete()` guarantees every agent runs even when the LLM planner skipped some.
+
 > **📜 "Show your working" by default.**
 > Every formula, weight, and threshold is documented in [CALCULATIONS.md](CALCULATIONS.md) with `file:line` citations into the agent code. The Audit Agent produces an A–D readiness grade against the same evidence map. If a regulator asks "where did this number come from?", the answer is one search away.
 
@@ -402,10 +408,11 @@ This section documents verified functional and operational changes introduced in
 
 | Area | Entry |
 | --- | --- |
-| Identity & isolation | [Authentication](#authentication--access-control) · [Per-user state isolation](#per-user-state-isolation) · [Per-user persistence](#per-user-persistence-profile--source-store) |
-| Data flow | [Pipeline refresh & data freshness](#pipeline-refresh--data-freshness) · [Live source refresh & file replace](#live-source-refresh--file-replace) · [Snowflake connector](#snowflake-connector-promoted-to-first-class) · [Data Upload → Pipeline wiring](#data-upload--pipeline-wiring) |
-| Regulatory | [Live framework reloads](#live-regulatory-framework-reloads) · [LLM-JSON parser tolerance](#llm-json-parser-tolerance-for-framework-updates) |
-| UI / theming | [Home page & design system](#home-page--design-system) · [PwC orange theming](#pwc-orange-theming--tagline) · [Material Symbols icon ligatures](#material-symbols-icon-ligatures-fixed) · [Cleaner gap table](#cleaner-gap-table-only-show-what-needs-attention) |
+| Identity & isolation | [Authentication](#authentication--access-control) · [Per-user state isolation](#per-user-state-isolation) · [Per-user persistence](#per-user-persistence-profile--source-store) · [Session-cookie secret persistence](#session-cookie-secret-persistence) |
+| Data flow | [Pipeline refresh & data freshness](#pipeline-refresh--data-freshness) · [Live source refresh & file replace](#live-source-refresh--file-replace) · [Snowflake connector](#snowflake-connector-promoted-to-first-class) · [Data Upload → Pipeline wiring](#data-upload--pipeline-wiring) · [Connector retry/timeout policy](#connector-retrytimeout-policy) |
+| Reliability & state | [Persistent pipeline runs (auto-save + auto-load)](#persistent-pipeline-runs-auto-save--auto-load) · [Incremental run cache](#incremental-run-cache--ensure-complete) · [Featured ROI card stale-read fix](#featured-roi-card-no-longer-goes-stale-after-a-run) · [J-Curve breakeven repair](#j-curve-breakeven-repair) · [Recommendation cache: don't pin failures](#recommendation-cache-dont-pin-failures) |
+| Regulatory | [Live framework reloads](#live-regulatory-framework-reloads) · [LLM-JSON parser tolerance](#llm-json-parser-tolerance-for-framework-updates) · [Approval audit log + revert](#approval-audit-log--revert) |
+| UI / theming | [Mission Control → ESG Command Center rename](#mission-control--esg-command-center-rename) · [Sidebar hierarchy + layout-ratio lock](#sidebar-hierarchy--layout-ratio-lock) · [Per-agent observability panel](#per-agent-observability-panel) · [Home page & design system](#home-page--design-system) · [PwC orange theming](#pwc-orange-theming--tagline) · [Material Symbols icon ligatures](#material-symbols-icon-ligatures-fixed) · [Cleaner gap table](#cleaner-gap-table-only-show-what-needs-attention) |
 | Deploy / CI | [HF Space push guard (pre-push hook)](#hf-space-push-guard-pre-push-hook) · [CI matrix (Python 3.12 + 3.13)](#ci-matrix-python-312--313) · [`.pptx` history scrub](#pptx-history-scrub) |
 | Reliability | [Data Collector init guard split (`AttributeError` fix)](#data-collector-init-guard-split-attributeerror-fix) · [HF persistence error surfacing](#hf-persistence-errors-now-surfaced-not-swallowed) |
 
@@ -679,6 +686,68 @@ The *Registered sources — unmapped fields* table on ESG Command Center used to
 
 ---
 
+### Mission Control → ESG Command Center rename
+
+The original "Mission Control" page is now branded **ESG Command Center**, pairing it with **ESG ROI Agent** as the two primary surfaces in the sidebar. Renamed end-to-end: `pages/1_Mission_Control.py` → `pages/1_ESG_Command_Center.py` (URL slug becomes `/ESG_Command_Center`), every `st.switch_page(...)` call updated, every `[href*="Mission_Control"]` CSS selector retargeted, every user-visible string refreshed (Home greeting CTA, Sign In button, Data Collector hint, gradio tab, ROI featured-card greeting), every comment in tests / utils brought in line, and all four docs (README, RUNBOOK, SCHEMA, TESTS) updated. Old `/Mission_Control` bookmarks 404 — clean break, no redirect.
+
+### Sidebar hierarchy + layout-ratio lock
+
+The sidebar previously rendered all 10 pages as equal peers. Now ESG Command Center + ESG ROI Agent (the two surfaces the product is sold on) render larger / bolder / weight 700 with a 3px orange accent rail when inactive; the eight supporting agent pages + Settings render at 0.78 rem with 78% opacity (lifts to 100% on hover) so the visual hierarchy reads as "command centre + investment thesis · then the agents that feed them".
+
+Layout-ratio locks added at the same time:
+- Sidebar pinned to `min-width / max-width: 280px` so it stops auto-snapping narrower (and the **collapse/hamburger toggle is hidden** so users can't accidentally lose it).
+- Main `.block-container` capped at `max-width: 1440px` with auto margins, so on 27"+ monitors the hero card no longer sprawls into a wonky aspect ratio.
+
+### Per-agent observability panel
+
+The ESG Command Center renders a *Pipeline Observability* panel below the Activity Log: one row per agent with **Status · Last run · Last runtime (s) · Median runtime · p95 · Total runs · Errors (history) · Last error**. Plus five KPI cards summarising the most recent run's planner surface — **Planner Steps**, **Input Tokens**, **Output Tokens**, **Cache Hit %**, **Est. Cost (USD)** based on Opus 4.x list-price ratios. Reads from `utils/agent_telemetry.load_all()` and the orchestrator's `planning_log` — no schema changes required.
+
+### Persistent pipeline runs (auto-save + auto-load)
+
+Closes the README-flagged "session-scoped storage" gap: every successful pipeline run on the ESG Command Center is now auto-saved to a private HF Dataset (path 4 of the persistence stack: `runs/{username}/{run_id}.json`) with the label `Auto · YYYY-MM-DD HH:MM`. On the next session start, both the Command Center and the ESG ROI Agent page auto-load the latest snapshot — republishing each agent's result onto `state_manager` so per-agent pages see live numbers without re-running. Errored runs are deliberately *not* auto-saved (a half-finished pipeline never gets pinned as the latest). History capped at 25 snapshots per user with orphan cleanup; size cap at 4 MB per snapshot. New `💾 Save / Load Pipeline Runs` expander on the Command Center for explicit save / load / delete with custom labels.
+
+### Incremental run cache + ensure-complete
+
+The orchestrator memoises each agent's result keyed on a fingerprint of its inputs. On a second click of *Run Full Pipeline* with no upstream changes, every cached agent short-circuits and the post-run banner reads *"Reused N cached agent result(s)"*. A new **♻️ Force full re-run** button bypasses the cache when needed.
+
+The cache busts automatically on any source mutation (`add` / `remove` / `replace`) via `ConnectionManager.on_change` → `orchestrator.invalidate_incremental_cache()`. Belt-and-suspenders insurance: the fingerprint chain *should* propagate a source change naturally, but explicit invalidation guarantees a fresh end-to-end run on the next click regardless of fingerprint subtleties.
+
+The LLM-driven planner is goal-driven and may skip agents the goal doesn't require. New `Orchestrator._ensure_complete()` walks `agent_order` after the tool-use loop and runs any agent that was skipped (errored agents not auto-retried) — so *Run Full Pipeline* now always produces all 9 agents in the result dict.
+
+### Featured ROI card no longer goes stale after a Run
+
+Earlier the card on the Command Center read `orch.agents["roi_agent"].results` directly. That instance attribute is only updated when the orchestrator's tool-use loop actually executes the ROI agent — and the planner could skip it, plus the incremental cache could serve prior results without re-calling `agent.run()`. New read order: `state_manager.subscribe("roi_results")` (always populated by `ROIAgent.execute` on every successful run) → `st.session_state["roi_results"]` → `st.session_state["pipeline_results"]["roi_agent"]` → `agent.results` (final fallback). Plus the card now renders a real **"+5 vs last run"** delta against the user's previous saved IQS, replacing the previously-hardcoded `"↑ live · updated now"` string.
+
+### J-Curve breakeven repair
+
+The deployed Space showed *"Breakeven: 2021 Q2 | Current net position: INR -187.83 Cr"* — a falsely-reported breakeven despite a still-negative position. Root cause: the loop matched `net_position >= 0 and i > 0`, which trivially fired on the all-zero pre-investment quarters. Corrected semantics: breakeven requires (a) `cumulative_cost > 0` (some investment has happened) and (b) the position was negative at some prior point and has now climbed back. Pure-positive trajectories (benefits ≥ costs from quarter 1) return `breakeven_quarter = None`. Pinned by `tests/test_roi_agent.py::TestJCurve` (4 tests).
+
+### Recommendation cache: don't pin failures
+
+The Command Center's *Prioritized recommendations* block caches its result keyed on the gap report. Earlier code path stored the formatted error string under the same key as a successful response — so a transient 4xx/5xx (rate limit, brief credit gap, network blip) would stay pinned on the page until the gap report changed. Reproduced live after a recent Anthropic credit gap: even after credits were restored, the page kept serving the cached 400 error message until the user re-ran the full pipeline. Fix: cache successes only; on read, skip any entry starting with the failure marker; on write of a new failure, drop any prior cached entry under the same key.
+
+### Connector retry/timeout policy
+
+New `utils/connector_retry.py` adds an opinionated retry helper (3 attempts, exp backoff 0.4–4 s with jitter, 30 s wall-clock deadline) shared across all 10 connectors. `ConnectionManager.fetch_source` wraps `connector.fetch()` through `with_retry`, so a flaky 5xx on Snowflake / BigQuery / S3 / GCS no longer fails the pipeline run. Fatal errors (auth, bad config, missing optional dependency, 4xx client errors) bypass retries and surface immediately. 30 tests pin the contract.
+
+### Approval audit log + revert
+
+The Regulatory Tracker mutates `regulatory_frameworks.json` live when an operator approves a pending update. Previously there was no way to undo a bad approval and no record of who approved what. Now:
+
+- Every approval / dismissal / revert action lands in an append-only `audit_log` with actor + timestamp + requirement id touched.
+- New `revert_update()` removes the requirement that `apply_update` appended, flips status back to `pending`, and drops the apply markers so a re-apply runs cleanly. Idempotent (reverting an already-reverted update logs a `revert_skipped` entry).
+- Per-row **↩️ Revert** button on the Applied list. New **🔍 Audit log** expander shows the full event history.
+
+10 tests pin the apply → revert → re-apply round-trip.
+
+### Session-cookie secret persistence
+
+Login was being lost on every page refresh after a Space redeploy. Root cause: `utils/auth.py:_resolve_secret()` resolved the cookie-signing secret in this order: `SESSION_SECRET` env → local file → ephemeral random key. `SESSION_SECRET` wasn't set on the Space, the local file doesn't survive HF container rebuilds, so every restart minted a new ephemeral secret and invalidated every browser's cookie.
+
+Fix: persist the secret to the same private HF Dataset that backs the user / source / profile / run stores, under `auth/.session_secret`. New resolution order: env var → HF Dataset → local file → ephemeral. The HF Dataset path survives Space rebuilds, so cookies signed yesterday verify cleanly today. Best-effort writes (failures are swallowed; the secret still works for the current process). The first time a Space starts after this code shipped, all existing users still need to log in once — their cookies were signed with the prior ephemeral secret. From that point forward, deploys don't kick anyone out.
+
+---
+
 ### Code architecture additions
 
 | Module | Role | Why it was added |
@@ -691,6 +760,9 @@ The *Registered sources — unmapped fields* table on ESG Command Center used to
 | `utils/gap_suggestions.py` | Remediation suggestions for regulatory gaps | Used by the Regulatory Tracker's gap narrative |
 | `utils/industry_standards.py` | Industry-specific benchmarks for peer comparisons | Drives the ROI page's peer-benchmarking section |
 | `utils/monitoring.py` | Operational counters / timers | Lightweight in-process telemetry, no external sink required |
+| `utils/run_store.py` | Per-user pipeline-run snapshots | Persists full `pipeline_results` dicts to the auth HF Dataset so the Command Center + ESG ROI page auto-rehydrate on the next session start. History capped at 25 with orphan cleanup. |
+| `utils/connector_retry.py` | Shared retry/timeout policy for connector fetches | Wraps every `ConnectionManager.fetch_source` call. Transient HTTP 5xx / network blips retry with jittered backoff; auth + config failures fail fast. |
+| `utils/agent_telemetry.py` | Persistent per-agent run history (file-backed) | Survives Streamlit reruns + Space restarts so the *Pipeline Observability* panel always shows the last-run timestamp / runtime / error per agent. |
 
 ---
 

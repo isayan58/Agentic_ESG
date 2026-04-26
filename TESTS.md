@@ -1,13 +1,11 @@
 # Test Cases & Results
 
-Documentation of the automated test suite covering the ETL pipeline,
-connection layer, and pipeline-refresh helper.
+Documentation of the automated test suite covering the ETL pipeline, connection layer, pipeline-refresh helper, orchestrator cache, run-snapshot store, regulatory audit log, ROI agent computations, connector retry policy, and per-user state isolation.
 
 - **Framework:** `pytest` 9.0.3 on CPython 3.12.2
 - **Plugins:** `pluggy` 1.6.0, `anyio` 4.13.0
-- **Rootdir:** `trusting-maxwell/`
-- **Run:** `.venv/bin/python -m pytest tests/ -q`
-- **Latest result:** ✅ **64 passed in 1.01s**
+- **Run:** `python3 -m pytest tests/ -q`
+- **Latest result:** ✅ **175 passed in ~20s**
 
 ---
 
@@ -15,26 +13,37 @@ connection layer, and pipeline-refresh helper.
 
 ```bash
 # Fast pass (summary only)
-.venv/bin/python -m pytest tests/ -q
+python3 -m pytest tests/ -q
 
 # Verbose (one line per test)
-.venv/bin/python -m pytest tests/ -v
+python3 -m pytest tests/ -v
 
 # With per-test timings
-.venv/bin/python -m pytest tests/ --durations=0 -q
+python3 -m pytest tests/ --durations=0 -q
 
 # A single file
-.venv/bin/python -m pytest tests/test_pipeline_refresh.py -v
+python3 -m pytest tests/test_orchestrator_cache.py -v
 ```
 
 ## Test layout
 
 ```
 tests/
-├── conftest.py                           # shared fixtures
-├── test_connection_manager.py            # 33 unit tests
-├── test_datacollector_integration.py     #  7 end-to-end tests
-└── test_pipeline_refresh.py              # 24 unit tests
+├── conftest.py                           # shared fixtures (FakeStreamlit, in-memory connectors)
+├── test_agents_communication.py          #  5 tests — inter-agent state-bus contract
+├── test_connection_manager.py            # 33 tests — registry, signature, per-source cache
+├── test_connector_retry.py               # 30 tests — retry/timeout policy (NEW)
+├── test_data_collector_page_init.py      #  4 tests — Data Collector page init guard regression
+├── test_datacollector_integration.py     #  7 tests — end-to-end refresh path
+├── test_feedback_store.py                #  1 test  — feedback round-trip
+├── test_framework_audit.py               # 10 tests — regulatory apply / revert / audit log (NEW)
+├── test_orchestrator.py                  #  4 tests — orchestrator construction + dispatch
+├── test_orchestrator_cache.py            # 13 tests — incremental run cache (NEW)
+├── test_pipeline_refresh.py              # 24 tests — refresh helper + freshness caption
+├── test_report_generator.py              #  1 test  — report generator state subscription
+├── test_roi_agent.py                     # 26 tests — ROI math: financial ROI, IQS, J-Curve (NEW)
+├── test_run_store.py                     # 11 tests — pipeline run snapshots (NEW)
+└── test_state_manager_isolation.py       #  6 tests — per-user state-bus partitioning
 ```
 
 ### Shared fixtures (`conftest.py`)
@@ -184,30 +193,167 @@ Unit tests for `utils/pipeline_refresh.py` using `StubDataCollector` and
 
 ---
 
+## 4. `test_connector_retry.py` — 30 tests
+
+Pins the contract of `utils/connector_retry.py` — the shared retry / timeout policy that wraps every `ConnectionManager.fetch_source(...)` call.
+
+### 4.1 `TestIsTransient` — error classification (12 tests)
+
+Verifies `is_transient(exc)` returns True only for genuinely retryable failures and False for everything else.
+
+| Group | Tests |
+| --- | --- |
+| Network classes | `test_timeout_is_transient`, `test_connection_error_is_transient`, `test_socket_timeout_is_transient` |
+| HTTP statuses | `test_retryable_http_status[408 / 425 / 429 / 500 / 502 / 503 / 504]`, `test_fatal_http_status[400 / 401 / 403 / 404 / 422]` |
+| Fatal Python types | `test_value_error_is_fatal`, `test_import_error_is_fatal`, `test_key_error_is_fatal`, `test_unknown_runtime_error_is_fatal` |
+| Class-name heuristic | `test_class_name_heuristic_matches_throttling`, `test_class_name_heuristic_matches_unavailable` |
+
+### 4.2 `TestWithRetry` — retry loop semantics (18 tests)
+
+| Test | What it proves |
+| --- | --- |
+| `test_returns_value_on_success` | Single successful call, no retries, no sleep. |
+| `test_no_retry_on_fatal_error` | `ValueError` fails fast; `fn` called once. |
+| `test_retries_transient_then_succeeds` | Two failures + a success → 3 calls + 2 sleeps with non-negative durations. |
+| `test_gives_up_after_max_attempts` | Persistent transient → exactly `MAX_ATTEMPTS` calls, then re-raises. |
+| `test_max_attempts_one_disables_retries` | Per-call `max_attempts=1` is the kill switch (used in tests). |
+| `test_deadline_caps_total_time` | Wall-clock deadline busts out before `MAX_ATTEMPTS` is reached. |
+| `test_forwards_args_and_kwargs` | Retry wrapper is transparent to the wrapped function's signature. |
+| `test_http_5xx_retries_then_propagates` | A 503 that never recovers retries, then re-raises the original `HTTPError`. |
+| `test_http_401_does_not_retry` | Auth failures fail fast — no retry, no delay. |
+
+---
+
+## 5. `test_framework_audit.py` — 10 tests
+
+Pins the apply / revert / dismiss workflow on the regulatory updates store, including the audit log and the round-trip from apply → revert → re-apply. Uses an `isolated_data_dir` fixture so tests don't mutate shipped JSON files.
+
+| Class | Tests | What's pinned |
+| --- | --- | --- |
+| `TestApplyAndAudit` | 3 | Apply appends the requirement to `regulatory_frameworks.json`, marks the update `applied`, captures `applied_by` + `applied_requirement_id`, writes one `apply` audit entry. Re-applying is idempotent (no double-audit). Unknown id returns an error dict. |
+| `TestRevert` | 4 | Revert removes the requirement that apply added, flips status back to `pending`, drops apply markers, writes a `revert` audit entry with reason. Re-apply after revert is clean (no duplicate). Reverting a `pending` update is a no-op that still logs `revert_skipped` (operator's intent matters). Unknown id returns an error dict. |
+| `TestDismiss` | 1 | Dismiss records actor + reason and writes a `dismiss` audit entry. |
+| `TestAuditLogFilters` | 2 | `audit_log(framework=...)` filters; `audit_log(limit=N)` truncates head. |
+
+---
+
+## 6. `test_orchestrator_cache.py` — 13 tests
+
+Pure-data tests of the orchestrator's incremental-run cache (no Anthropic API key required). Uses a `FakeConnectionManager` to drive `compute_dep_fingerprint` for the data_collector path.
+
+| Class | Tests | What's pinned |
+| --- | --- | --- |
+| `TestFingerprints` | 5 | Same inputs → same fingerprint; dependency change → different fingerprint; data_collector fp keyed on `sources_signature()`; no-manager fingerprint is stable; chain propagation through deps (dc change → reg/roi change). |
+| `TestStoreAndLookup` | 6 | Lookup miss when empty, hit after store, miss on different fingerprint, **empty fingerprint never hits** (guards against accidental hits when `sources_signature()` returned `""`), **errored runs are not cached** (a transient failure won't get pinned), distinguishes a cached empty `{}` from "nothing cached". |
+| `TestCacheLifecycle` | 2 | `invalidate_incremental_cache()` clears the memo and the per-run hit list; `record_cache_hit()` appends in order. |
+
+---
+
+## 7. `test_roi_agent.py` — 26 tests
+
+First direct coverage for the 586-line ROI agent — its math owns the headline numbers the README sells (Investment Quality Score grade, J-Curve breakeven, Financial ROI %), so a regression in those formulas silently corrupts every downstream board deck.
+
+| Class | Tests | What's pinned |
+| --- | --- | --- |
+| `TestParseNumber` | 6 | Parametrised: `"INR 1.2 Cr"` → `1.2`, `"USD 42"` → `42.0`, `"3.14"` → `3.14`, `""` → `0.0`, `"no digits"` → `0.0`, `"12.5 Cr"` → `12.5`. |
+| `TestFinancialROI` | 5 | Result shape (mandatory keys), capex sums current + prior FY, channel-metric `"INR 8.5 Cr"` parsed to 8.5, zero-capex doesn't divide-by-zero (`roi_pct=0`), zero-savings yields `payback_years=None`. |
+| `TestInvestmentQualityScore` | 9 | Components bounded 0–100, weights sum to 1.0 (`±1e-6`), grade thresholds parametrised across `A+ / A / B+ / B / C / D`, extreme ROI clamps the financial-ROI component at 100 and total IQS ≤ 100. |
+| `TestJCurve` | 4 | Empty frame → empty quarters; cumulative series monotonically non-decreasing; **breakeven set when benefit overtakes cost from a prior negative position**; **breakeven `None` when costs always dominate**; **breakeven `None` when position starts positive** (pins the "Breakeven: 2021 Q2 with -187.83 Cr" production bug). |
+| `TestExecuteErrorPath` | 1 | Missing financials data → clean `{"error": ...}` dict instead of crashing. |
+
+---
+
+## 8. `test_run_store.py` — 11 tests
+
+Local-JSON backend coverage for `utils/run_store.py`. The HF Dataset path needs a real token + network, so we exercise the local fallback that every unsigned-token deployment hits.
+
+| Class | Tests | What's pinned |
+| --- | --- | --- |
+| `TestSaveAndList` | 4 | Save returns a stable run id; round-trips the full results dict; per-user isolation (alice and bob never see each other's runs); list returns newest-first. |
+| `TestDelete` | 2 | Delete removes both the index entry and the snapshot file; deleting an unknown id returns `False`. |
+| `TestHistoryCap` | 2 | Cap at 3 (test fixture override) → only the 3 newest survive; rotated-out snapshot files are deleted from disk so orphans don't accumulate. |
+| `TestSizeCap` | 1 | Save above `MAX_SNAPSHOT_BYTES` raises `ValueError` cleanly without leaving an index entry. |
+| `TestUsernameSanitisation` | 1 | `"alice@example.com"` round-trips through save → list (filesystem-safe key, same key on load). |
+| `TestDiagnostic` | 1 | Reports `local_json` backend after a save when no HF token is set. |
+
+---
+
+## 9. `test_orchestrator.py` — 4 tests
+
+Smoke tests of the orchestrator's *non-LLM* surface (the legacy `_plan_next_step` tests predate the move to a Claude-driven agent loop and were rewritten):
+
+| Test | What it proves |
+| --- | --- |
+| `test_constructor_wires_every_agent_with_telemetry_key` | Every agent in `PIPELINE_ORDER` is wired with the canonical telemetry key. |
+| `test_run_single_agent_dispatches_by_key` | `run_single_agent("data_collector", connection_manager=cm)` calls the right agent's `run()` with the kwargs. |
+| `test_run_single_agent_unknown_key_returns_error_dict` | Unknown agent key returns `{"error": ...}` instead of crashing. |
+| `test_get_agent_statuses_includes_required_keys` | Each row includes `name`, `status`, `last_run`, `runtime_seconds`, `last_error`, `run_count` — the keys the ESG Command Center fleet card consumes. |
+
+---
+
+## 10. `test_data_collector_page_init.py` — 4 tests
+
+Regression coverage for the production bug (2026-04-20) where users hitting ESG Command Center or the ESG ROI page first caused `pipeline_refresh` to seed `st.session_state["data_collector"]`. When the user later navigated to the Data Collector page, the page's combined init guard short-circuited and `data_collector_results` never got set, exploding on first render with `AttributeError`.
+
+| Test | What it proves |
+| --- | --- |
+| `test_init_when_data_collector_pre_populated_by_pipeline_refresh` | Page init now uses two independent guards (data_collector + data_collector_results). |
+| `test_init_when_nothing_pre_populated` | Cold-load path (both keys missing) still works. |
+| `test_init_idempotent_under_streamlit_rerun` | Second rerun is a no-op (no double-instantiation). |
+| `test_data_collector_results_init_not_nested_inside_data_collector_guard` | AST-walks the page file to assert the two guards remain separate so a future refactor that re-merges them fails CI before the bug reaches prod. |
+
+---
+
+## 11. `test_state_manager_isolation.py` — 6 tests
+
+Per-user partitioning of the `state_manager` pub/sub bus.
+
+| Test | What it proves |
+| --- | --- |
+| `test_publish_by_user_a_is_invisible_to_user_b` | User A's publish never reaches User B's subscribe. |
+| `test_get_all_channels_only_returns_current_user_channels` | Each user sees only their own channels. |
+| `test_clear_only_clears_current_user` | `clear()` is bucket-scoped; doesn't leak to neighbours. |
+| `test_clear_user_drops_specific_username` | `clear_user(name)` is precise. |
+| `test_guest_users_share_anonymous_bucket` | Unauthenticated sessions share the synthetic `_anonymous` bucket. |
+| `test_internal_channels_property_returns_current_user_bucket` | The `_channels` backward-compat shim resolves to the current user's bucket. |
+
+---
+
+## 12. `test_agents_communication.py` — 5 tests
+
+Inter-agent state-bus handshake (regulatory results → audit, carbon results → audit, action plan → stakeholder, etc.). Pins the channel names the orchestrator's downstream agents subscribe to.
+
+## 13. `test_report_generator.py` — 1 test
+
+End-to-end: stub the HF text generator + state subscriptions, run `ReportGeneratorAgent.run()`, verify all expected fields land in the result (`recommended_reports`, `dashboard_templates.power_bi`, `dashboard_templates.quicksight`, `actionable_insights`, distribution plan, etc.). Updated in this cycle to add the `agent=None` kwarg the production `generate_text` signature now requires.
+
+## 14. `test_feedback_store.py` — 1 test
+
+Feedback round-trip — save a thumbs-up record, load it back.
+
+---
+
 ## Result matrix
 
-| Suite | File | Tests | Passed | Failed | Wall time (approx.) |
-|---|---|---:|---:|---:|---:|
-| Connection manager | `test_connection_manager.py` | 33 | 33 | 0 | ~0.02s |
-| Data Collector integration | `test_datacollector_integration.py` | 7 | 7 | 0 | ~0.49s |
-| Pipeline refresh | `test_pipeline_refresh.py` | 24 | 24 | 0 | ~0.03s |
-| **Total** | | **64** | **64** | **0** | **~1.01s** |
+| Suite | File | Tests | Passed | Failed |
+|---|---|---:|---:|---:|
+| Connection manager | `test_connection_manager.py` | 33 | 33 | 0 |
+| Connector retry | `test_connector_retry.py` | 30 | 30 | 0 |
+| ROI agent | `test_roi_agent.py` | 26 | 26 | 0 |
+| Pipeline refresh | `test_pipeline_refresh.py` | 24 | 24 | 0 |
+| Orchestrator cache | `test_orchestrator_cache.py` | 13 | 13 | 0 |
+| Run store | `test_run_store.py` | 11 | 11 | 0 |
+| Framework audit | `test_framework_audit.py` | 10 | 10 | 0 |
+| Data Collector integration | `test_datacollector_integration.py` | 7 | 7 | 0 |
+| State-manager isolation | `test_state_manager_isolation.py` | 6 | 6 | 0 |
+| Inter-agent communication | `test_agents_communication.py` | 5 | 5 | 0 |
+| Orchestrator (smoke) | `test_orchestrator.py` | 4 | 4 | 0 |
+| Data Collector page init | `test_data_collector_page_init.py` | 4 | 4 | 0 |
+| Report generator | `test_report_generator.py` | 1 | 1 | 0 |
+| Feedback store | `test_feedback_store.py` | 1 | 1 | 0 |
+| **Total** | | **175** | **175** | **0** |
 
-### Slowest 9 tests (from `--durations=0`)
-
-| Duration | Phase | Test |
-|---:|---|---|
-| 0.32s | setup | `test_use_cache_prevents_remote_refetch` |
-| 0.20s | call  | `test_empty_conn_manager_does_not_publish_real_channels` |
-| 0.09s | call  | `test_use_cache_prevents_remote_refetch` |
-| 0.05s | call  | `test_removing_source_clears_stale_real_data` |
-| 0.05s | call  | `test_config_edit_invalidates_cache` |
-| 0.05s | call  | `test_removing_real_only_source_drops_its_dataset` |
-| 0.02s | call  | `test_failed_source_reported_and_warned` |
-| 0.02s | call  | `test_real_data_published_to_state_manager` |
-| 0.01s | call  | `test_fetch_source_returns_mapped_df` |
-
-All other tests run under 5ms and are hidden from the default durations report.
+Wall time on a 2024 MacBook Pro: ~20 s (dominated by the 3-tier orchestrator construction in agent suites that don't mock the agent classes). The connector-retry / orchestrator-cache / framework-audit / run-store suites all complete in well under a second each because they're pure-data tests with no agent instantiation.
 
 ---
 
@@ -227,11 +373,42 @@ in `RUNBOOK.md` describing the manual verification step:
 - **Rate limiter** (`utils/auth.py` `_check_rate_limit`) — trigger confirmed
   via smoke-test (11 rapid logins hit `RateLimitExceeded`); no pytest file
   yet.
-- **HF Dataset persistence** — depends on a real HF token; guarded by graceful
-  fallback to `data/` local store which the existing tests implicitly cover.
+- **HF Dataset persistence** — depends on a real HF token. The local-JSON
+  fallback path is fully covered (`test_run_store.py` runs end-to-end against
+  the local backend); the HF path is implicitly exercised on every Space deploy.
 - **Streamlit page rendering** — no `streamlit.testing` harness in place;
-  pages are verified end-to-end by running the app.
+  pages are verified end-to-end by running the app. The `FakeStreamlit`
+  fixture in `conftest.py` covers the ETL surface (warnings, captions,
+  toasts) but not full page render.
+- **Anthropic agent loop** (`core/agent_loop.py`) — the LLM tool-use loop
+  itself is not unit-tested (would require a real API key). The orchestrator
+  surface that loop *drives* is covered (`test_orchestrator_cache.py`,
+  `test_orchestrator.py`); the loop is exercised on every manual run.
+- **Auth cookie persistence** (`utils/auth.py`) — `_resolve_secret()`'s
+  HF-Dataset path is not unit-tested (network-dependent); local file +
+  ephemeral paths are covered by their existence and the secret round-trips
+  through every successful login on the deployed Space.
 
 These gaps are intentional — the automated suite focuses on the data-plane
-correctness (connections, caching, publication) where regressions are silent
-and costly. UI / auth / persistence regressions surface immediately on deploy.
+correctness (connections, caching, publication, ROI math, run snapshots,
+regulatory audit log) where regressions are silent and costly. UI / auth /
+persistence regressions surface immediately on deploy.
+
+### What's now covered that wasn't before (recent additions)
+
+- **ROI agent math** (`agents/roi_agent.py`) — 26 tests pin financial-ROI
+  computation, IQS weighted composite, J-Curve breakeven (including the
+  fix for the production "Breakeven: 2021 Q2 / -187.83 Cr" bug), and
+  payback-years edge cases.
+- **Orchestrator incremental cache** (`core/orchestrator.py`) — 13 tests
+  pin fingerprint stability, dependency-change propagation, errored-runs-
+  not-cached, and cache-lifecycle.
+- **Connector retry policy** (`utils/connector_retry.py`) — 30 tests pin
+  the transient/fatal classification and the retry loop (max-attempts cap,
+  deadline cap, fatal fail-fast, HTTP status allow-list).
+- **Pipeline run snapshots** (`utils/run_store.py`) — 11 tests cover save,
+  load, list, delete, history-cap rotation, size-cap enforcement, and
+  username sanitisation.
+- **Regulatory audit log + revert** (`utils/framework_refresh.py`) — 10
+  tests pin apply / revert / dismiss with actor capture, the apply →
+  revert → re-apply round-trip, and audit-log filters.
