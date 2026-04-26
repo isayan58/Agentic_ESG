@@ -6,7 +6,7 @@ from core.state_manager import state_manager
 
 
 def test_report_generator_produces_dashboard_templates_and_insights(monkeypatch):
-    def fake_generate_text(prompt, max_tokens=300):
+    def fake_generate_text(prompt, max_tokens=300, agent=None):
         if "Provide one sample Power BI report design" in prompt:
             return (
                 "Power BI:\n- Page 1: ESG scorecard with carbon, compliance, and ROI cards.\n"
