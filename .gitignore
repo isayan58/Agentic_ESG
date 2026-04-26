@@ -57,3 +57,9 @@ coverage/
 
 ._*
 .!*
+
+# Local data and generated/sample assets — not tracked
+data/
+data_esg/
+sample_data/
+scripts/
