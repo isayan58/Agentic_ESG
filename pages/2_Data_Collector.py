@@ -38,7 +38,7 @@ if "data_collector" not in st.session_state:
     st.session_state.data_collector = DataCollectorAgent()
 # ``data_collector_results`` is initialised independently of the agent
 # itself: ``utils.pipeline_refresh`` may seed ``st.session_state.data_collector``
-# from another page (Mission Control, ROI), which would otherwise skip the
+# from another page (ESG Command Center, ROI), which would otherwise skip the
 # guard above and leave ``data_collector_results`` unset — line 626 then
 # raises ``AttributeError`` when this page is opened second.
 if "data_collector_results" not in st.session_state:
@@ -111,7 +111,7 @@ def _auto_register_source(df, connector_type: str, source_id: str,
     st.info(
         f"✅ **Auto-registered** as `{schema}` schema ({len(df):,} rows). "
         f"{'Schema detected from column names.' if detected else 'Schema guessed — adjust below if needed.'} "
-        "Run the pipeline on **Mission Control** to use this data.",
+        "Run the pipeline on **ESG Command Center** to use this data.",
         icon="📂",
     )
 
@@ -179,7 +179,7 @@ with main_tab1:
                             f"✅ **Auto-registered** as `{auto_schema}` schema "
                             f"({len(df):,} rows). "
                             f"{'Schema detected from column names.' if detected else 'Schema guessed — adjust below if needed.'} "
-                            f"Run the pipeline in Mission Control to use this data."
+                            f"Run the pipeline in ESG Command Center to use this data."
                         )
                 else:
                     st.error(result["message"])

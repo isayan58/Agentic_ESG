@@ -10,10 +10,10 @@ an Anthropic API key:
   2. ``run_single_agent`` dispatches by key and returns the agent's
      result dict (or an error dict for unknown agents).
   3. ``get_agent_statuses`` returns a row per agent with the keys the
-     Mission Control fleet card consumes.
+     ESG Command Center fleet card consumes.
 
 The real Anthropic loop and the incremental-cache behaviour are tested
-in :mod:`test_orchestrator_cache` and exercised via the Mission Control
+in :mod:`test_orchestrator_cache` and exercised via the ESG Command Center
 manual run; we don't want to spend a real API key on each CI run.
 """
 from __future__ import annotations
@@ -58,7 +58,7 @@ def test_get_agent_statuses_includes_required_keys():
     statuses = orch.get_agent_statuses()
     # One row per agent
     assert set(statuses.keys()) == {k for k, _, _ in PIPELINE_ORDER}
-    # Each row has the keys Mission Control reads.
+    # Each row has the keys ESG Command Center reads.
     for row in statuses.values():
         assert {"name", "status", "last_run", "runtime_seconds",
                 "last_error", "run_count"} <= set(row.keys())

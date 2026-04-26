@@ -357,13 +357,13 @@ _STATIC_CSS = """
 }
 [data-testid="stSidebarNav"] span, [data-testid="stSidebarNav"] p { font-weight: inherit !important; }
 
-/* Sidebar nav hierarchy — Mission Control & ESG ROI Agent are the two
+/* Sidebar nav hierarchy — ESG Command Center & ESG ROI Agent are the two
    primary surfaces the product is sold on (overview + headline value
    number); every other page is a supporting agent. Style them
    accordingly so the sidebar reads as "command centre + investment
    thesis · then the agents that feed them" rather than ten equal
    peers. Targeting via href[*=…] survives page reorderings.        */
-[data-testid="stSidebarNav"] a[href*="Mission_Control"],
+[data-testid="stSidebarNav"] a[href*="ESG_Command_Center"],
 [data-testid="stSidebarNav"] a[href*="ESG_ROI_Agent"] {
     font-size: 1.02rem !important;
     font-weight: 700 !important;
@@ -373,7 +373,7 @@ _STATIC_CSS = """
 }
 /* Subtle accent rail on the primary items so they read as "main"
    even when not currently active.                                    */
-[data-testid="stSidebarNav"] a[href*="Mission_Control"]:not([aria-current="page"]),
+[data-testid="stSidebarNav"] a[href*="ESG_Command_Center"]:not([aria-current="page"]),
 [data-testid="stSidebarNav"] a[href*="ESG_ROI_Agent"]:not([aria-current="page"]) {
     border-left: 3px solid var(--pwc-orange) !important;
     padding-left: calc(var(--space-3) - 3px) !important;
@@ -381,13 +381,19 @@ _STATIC_CSS = """
 /* Everything else (the supporting agent pages + Settings) reads as
    secondary: tighter, smaller, slightly muted. Sign In is hidden
    post-login by an existing rule, so it doesn't need shrinking.      */
-[data-testid="stSidebarNav"] a:not([href*="Mission_Control"]):not([href*="ESG_ROI_Agent"]) {
-    font-size: 0.84rem !important;
-    padding-top: 6px !important;
-    padding-bottom: 6px !important;
-    opacity: 0.86;
+[data-testid="stSidebarNav"] a:not([href*="ESG_Command_Center"]):not([href*="ESG_ROI_Agent"]) {
+    font-size: 0.78rem !important;
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    opacity: 0.78;
+    letter-spacing: 0;
 }
-[data-testid="stSidebarNav"] a:not([href*="Mission_Control"]):not([href*="ESG_ROI_Agent"]):hover {
+[data-testid="stSidebarNav"] a:not([href*="ESG_Command_Center"]):not([href*="ESG_ROI_Agent"]) span,
+[data-testid="stSidebarNav"] a:not([href*="ESG_Command_Center"]):not([href*="ESG_ROI_Agent"]) p {
+    font-size: 0.78rem !important;
+    font-weight: 500 !important;
+}
+[data-testid="stSidebarNav"] a:not([href*="ESG_Command_Center"]):not([href*="ESG_ROI_Agent"]):hover {
     opacity: 1;
 }
 
@@ -413,7 +419,7 @@ button[kind="headerNoPadding"][aria-label*="sidebar" i] {
    inconsistent:
      1. The sidebar would auto-resize on Streamlit's whim, occasionally
         snapping narrower and squashing nav labels.
-     2. The Mission Control hero card (rendered via components.v1.html
+     2. The ESG Command Center hero card (rendered via components.v1.html
         into an iframe at fixed height=440px) stretched to whatever the
         viewport offered, which on 27"+ monitors made the IQS gauge
         look isolated in a sea of orange.
@@ -1257,7 +1263,7 @@ def statusbar(
 ) -> None:
     """Render a top status strip — search + LIVE system pill + notif + avatar.
 
-    Pass ``statuses`` (same shape as Mission Control's ``orch.get_agent_statuses()``)
+    Pass ``statuses`` (same shape as ESG Command Center's ``orch.get_agent_statuses()``)
     and the pill will automatically reflect live agent state: running counts,
     errors, completions, or a neutral ready state. Animated pulse conveys
     liveness. If ``statuses`` is omitted, ``system_value``/``tone`` can be
@@ -2033,7 +2039,7 @@ def esg_roi_featured_card(
     ``results`` is the raw dict returned by ``ROIAgent.run()`` — the card
     pulls IQS/grade from ``results['investment_quality_score']`` and ROI
     figures from ``results['financial_roi']`` / ``['strategic_roi']`` so it
-    always reflects whatever Mission Control most recently produced.
+    always reflects whatever ESG Command Center most recently produced.
     """
     from streamlit.components.v1 import html as _html
 
@@ -2140,7 +2146,7 @@ def esg_roi_featured_card(
     greet = (
         f'Good to see you, {html.escape(user_name)} — here is your current investment thesis.'
         if mode == "live" and user_name else
-        (f'Signed in as {html.escape(user_name)}. Run Mission Control to populate your ROI view.'
+        (f'Signed in as {html.escape(user_name)}. Run the ESG Command Center to populate your ROI view.'
          if mode == "empty" and user_name else
          'See what your ROI could look like. Sign in to unlock your live numbers.')
     )

@@ -2,7 +2,7 @@
 
 This is the entry point shown as "Home" in the Streamlit sidebar. It is
 visible to *all* visitors (signed-in or not). The signed-in experience
-adds a personal greeting and a direct CTA to Mission Control; guests
+adds a personal greeting and a direct CTA to ESG Command Center; guests
 see product marketing and a sign-up CTA.
 """
 from __future__ import annotations
@@ -590,7 +590,7 @@ if user:
     name = user.get("full_name") or user.get("username", "there")
     eyebrow = f"Signed in · {name}"
     subtitle = (
-        "Your ESG command center is ready. Jump into Mission Control to orchestrate "
+        "Your ESG command center is ready. Jump into ESG Command Center to orchestrate "
         "the 9-agent pipeline — or drill into the ROI dashboard for the board-ready view."
     )
 else:
@@ -620,11 +620,11 @@ hero(
 cta_cols = st.columns([1.1, 1, 1, 1])
 with cta_cols[0]:
     if user:
-        if st.button("🎛️  Open Mission Control", type="primary", use_container_width=True):
+        if st.button("🎛️  Open ESG Command Center", type="primary", use_container_width=True):
             try:
-                st.switch_page("pages/1_Mission_Control.py")
+                st.switch_page("pages/1_ESG_Command_Center.py")
             except Exception:
-                st.info("Open Mission Control from the sidebar.")
+                st.info("Open ESG Command Center from the sidebar.")
     else:
         if st.button("🔐  Sign in to continue", type="primary", use_container_width=True):
             try:

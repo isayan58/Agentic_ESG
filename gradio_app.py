@@ -616,7 +616,7 @@ with gr.Blocks(title="ESG Pilot") as demo:
     gr.Markdown("# 🌍 ESG Pilot — Autonomous ESG Intelligence")
     gr.Markdown("*9 specialized AI agents powered by HuggingFace*")
 
-    with gr.Tab("🎛️ Mission Control"):
+    with gr.Tab("🎛️ ESG Command Center"):
         gr.Markdown("Run the full 9-agent pipeline in dependency order.")
         run_btn = gr.Button("🚀 Run Full Pipeline", variant="primary")
         output = gr.Markdown()

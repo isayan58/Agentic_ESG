@@ -20,7 +20,7 @@ Storage layout::
     runs/{username}/{run_id}.json        # full snapshot (one file per run)
 
 Why one file per run rather than one giant array?
-    1. Listing the saved runs (a hot path on Mission Control) doesn't
+    1. Listing the saved runs (a hot path on the ESG Command Center) doesn't
        need to download every snapshot.
     2. Deleting one run doesn't require rewriting the whole history.
     3. Snapshots can be large (the ROI agent alone produces a few KB

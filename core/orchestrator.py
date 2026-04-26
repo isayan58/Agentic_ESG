@@ -98,15 +98,32 @@ class Orchestrator:
         return self._loop
 
     def run_full_pipeline(self, progress_callback=None, data_collector_kwargs=None,
-                          user_goal=None, max_steps=MAX_AGENT_LOOP_ITERATIONS):
-        """Execute the pipeline as a Claude-driven tool-use loop."""
+                          user_goal=None, max_steps=MAX_AGENT_LOOP_ITERATIONS,
+                          enforce_complete=True):
+        """Execute the pipeline as a Claude-driven tool-use loop.
+
+        With ``enforce_complete=True`` (default), any agent the LLM
+        planner skipped is run afterwards in dependency order — so
+        callers that say "run the full pipeline" actually get all 9
+        agents in the result, not whatever subset Claude decided was
+        sufficient for the goal. The featured ROI card on the ESG
+        Command Center page relies on this guarantee to refresh on
+        every Run.
+        """
         goal = user_goal or DEFAULT_AUTONOMOUS_GOAL
-        return self.run_autonomous_pipeline(
+        results = self.run_autonomous_pipeline(
             goal,
             progress_callback=progress_callback,
             data_collector_kwargs=data_collector_kwargs,
             max_steps=max_steps,
         )
+        if enforce_complete:
+            self._ensure_complete(
+                results,
+                data_collector_kwargs=data_collector_kwargs,
+                progress_callback=progress_callback,
+            )
+        return results
 
     def run_autonomous_pipeline(self, goal, progress_callback=None,
                                 data_collector_kwargs=None,
@@ -138,6 +155,66 @@ class Orchestrator:
             })
 
         return {"planning": self.planning_log, **results}
+
+    def _ensure_complete(self, results, data_collector_kwargs=None,
+                         progress_callback=None) -> None:
+        """Run any agents the LLM planner left out of ``results``.
+
+        Mutates ``results`` in place. Walks ``agent_order`` once so a
+        downstream agent (e.g. ``roi_agent``) gets a chance to run after
+        its upstream prerequisites are filled in by an earlier pass of
+        this loop. Errored agents are *not* re-run automatically — that
+        would mask transient failures the user should see and react to.
+
+        Each fill-in run is fingerprinted into the incremental cache so
+        the next ``Run`` button click correctly short-circuits when
+        nothing has changed.
+        """
+        for agent_key in self.agent_order:
+            existing = results.get(agent_key)
+            if isinstance(existing, dict) and "error" not in existing:
+                continue
+            if existing is not None:
+                # Errored result — leave it. The user needs to see the
+                # error, not have us silently retry and possibly mask it.
+                continue
+            if not self._can_run_agent(agent_key, results):
+                continue
+            run_kwargs = (data_collector_kwargs or {}) if agent_key == "data_collector" else {}
+            if progress_callback:
+                progress_callback(agent_key, "running", 0, len(self.agent_order))
+            try:
+                agent_result = self.agents[agent_key].run(
+                    orchestrator=self, **run_kwargs,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.execution_log.append({
+                    "agent": agent_key, "status": "error",
+                    "details": f"ensure_complete fill-in failed: {exc}",
+                })
+                continue
+            results[agent_key] = agent_result
+            self.execution_log.append({
+                "agent": agent_key,
+                "status": ("completed"
+                           if self.agents[agent_key].status == "completed"
+                           else "error"),
+                "details": "Filled in by ensure_complete (skipped by planner).",
+            })
+            if (isinstance(agent_result, dict)
+                    and "error" not in agent_result):
+                # Keep the incremental cache honest so a follow-up Run
+                # short-circuits when inputs haven't changed.
+                dep_fp = self.compute_dep_fingerprint(
+                    agent_key, results,
+                    data_collector_kwargs=data_collector_kwargs,
+                )
+                self.store_incremental_cache(agent_key, dep_fp, agent_result)
+            if progress_callback:
+                progress_callback(
+                    agent_key, self.agents[agent_key].status or "completed",
+                    0, len(self.agent_order),
+                )
 
     def _can_run_agent(self, agent_key, results):
         if agent_key not in self.agents:

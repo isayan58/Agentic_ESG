@@ -18,7 +18,7 @@ Policy
   fail fast — retrying won't help and just delays the error message
   the user needs to see.
 * **A hard ceiling on total wall time** (``DEADLINE_SECONDS``) so a
-  pathological retry loop can't hang the Mission Control Run button.
+  pathological retry loop can't hang the ESG Command Center Run button.
 
 Why this lives here, not on the connectors themselves
 -----------------------------------------------------

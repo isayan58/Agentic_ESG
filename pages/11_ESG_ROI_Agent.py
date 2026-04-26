@@ -74,7 +74,7 @@ if (st.session_state.get("roi_results") is None
             _roi_block = _snap["results"].get("roi_agent")
             if isinstance(_roi_block, dict) and "error" not in _roi_block:
                 st.session_state.roi_results = _roi_block
-            # Also seed Mission Control's bag in case the user navigates
+            # Also seed ESG Command Center's bag in case the user navigates
             # there next — keeps both pages consistent.
             st.session_state.pipeline_results = _snap["results"]
     st.session_state["_roi_autoloaded"] = True
@@ -100,6 +100,17 @@ if run_roi:
     with st.spinner("Running ESG ROI analysis..."):
         results = orch.run_single_agent("roi_agent")
         st.session_state.roi_results = results
+        # Keep the ESG Command Center's pipeline_results bag in sync so
+        # the featured card on that page picks up this single-agent run
+        # without a full pipeline rerun. The agent itself publishes to
+        # state_manager["roi_results"], which the card reads first; this
+        # session_state mirror covers the auto-rehydrate path.
+        if isinstance(results, dict) and "error" not in results:
+            _pr = st.session_state.get("pipeline_results")
+            if not isinstance(_pr, dict):
+                _pr = {}
+            _pr["roi_agent"] = results
+            st.session_state.pipeline_results = _pr
 
 results = st.session_state.get("roi_results")
 

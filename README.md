@@ -179,7 +179,7 @@ The engine has four layers:
 | **Orchestration** | `utils/connection_manager.py` | Per-user registry of configured sources. SHA-256 **config signatures** drive a per-source cache so an unchanged query doesn't re-execute on every pipeline Run. `fetch_all_by_schema()` concatenates multiple sources targeting the same schema. |
 | **Publication** | `core/state_manager.py`, `core/data_access.py` | After fetch + map, each DataFrame is published to a pub/sub channel (`dataset_<schema>`). Every downstream agent reads via `get_dataset(schema)` so they transparently consume real data when it's present and fall back to bundled samples otherwise. |
 
-Refresh flow on each Mission Control **Run**:
+Refresh flow on each ESG Command Center **Run**:
 
 1. `utils/pipeline_refresh.refresh_real_data()` walks the signed-in user's registered sources.
 2. Each source is fetched through its connector; the column mapping runs; the result is signature-hashed.
@@ -219,7 +219,7 @@ See `RUNBOOK.md` → *Data ETL & freshness* for deeper internals including cache
 │   ├── action_agent.py               # Agent 8: Prioritized recommendations
 │   └── stakeholder_agent.py          # Agent 9: Audience-tailored communications
 ├── pages/
-│   ├── 1_Mission_Control.py           # Overview dashboard — KPIs, pipeline runner
+│   ├── 1_ESG_Command_Center.py           # Overview dashboard — KPIs, pipeline runner
 │   ├── 2_Data_Collector.py            # Data sources, connectors, schema mapping
 │   ├── 3_Regulatory_Tracker.py        # Compliance radar, gap analysis
 │   ├── 4_Carbon_Accountant.py         # Emissions charts, supply chain X-Ray
@@ -257,7 +257,7 @@ See `RUNBOOK.md` → *Data ETL & freshness* for deeper internals including cache
 | Layer | Technologies |
 | --- | --- |
 | **AI** | HuggingFace Inference API — Mistral-7B, BART-large-CNN, BART-large-MNLI, DistilBERT-SST-2 |
-| **Dashboard** | Streamlit (multi-page app, 10 pages including Mission Control + ROI page) |
+| **Dashboard** | Streamlit (multi-page app, 10 pages including ESG Command Center + ROI page) |
 | **Interactive UI** | Gradio (tabbed interface, all agents) |
 | **Data** | Pandas, NumPy, Plotly, PyArrow |
 | **Cloud (optional)** | boto3 (AWS), google-cloud-bigquery, google-cloud-storage (GCP), azure-storage-blob (Azure), deltalake (Delta Lake) |
@@ -467,7 +467,7 @@ Four bugs in the upload-to-pipeline flow were identified and fixed. The correct 
 1. Go to **Data Collector → Connect Data Sources → File Upload**.
 2. Upload a CSV, Excel (`.xlsx` / `.xls`), or JSON file.
 3. Click **Test & Preview**. The file is immediately auto-registered with auto-detected schema. A confirmation message is shown — no additional save step is required.
-4. Go to **Mission Control**. A green banner confirms that your real data sources are wired in.
+4. Go to **ESG Command Center**. A green banner confirms that your real data sources are wired in.
 5. Click **Run Full Pipeline**. Your uploaded data drives all calculations.
 
 > **Note:** Data is session-scoped. It lives in RAM only and is lost on browser refresh or Space restart. See [Known Limitation: Session-Scoped Storage](#known-limitation-session-scoped-storage) below.
@@ -479,7 +479,7 @@ Four bugs in the upload-to-pipeline flow were identified and fixed. The correct 
 | 1 | Upload required a separate "Save Data Source" click that users routinely missed | Auto-registration did not run on Test & Preview | "Test & Preview" now immediately auto-registers the source with auto-detected schema |
 | 2 | Excel files were silently ignored | Phase 3 of `DataCollectorAgent.execute()` only handled `.csv` and `.json` | Added `pd.read_excel()` handling for `.xlsx` / `.xls` |
 | 3 | Uploaded data never reached pipeline calculations | Files stored under their original filename (e.g. `my_data.xlsx`), never matching a `real_{schema}` canonical slot | Auto-detection now stores uploaded data under `real_{schema}` (e.g. `real_emissions`), giving it priority over sample data |
-| 4 | `connection_manager` always arrived as `None` in the orchestrator | `Orchestrator.run_full_pipeline()` called `DataCollectorAgent.run()` with no kwargs | Added `data_collector_kwargs` parameter to `run_full_pipeline()`; Mission Control now reads `st.session_state.conn_manager` and passes it through |
+| 4 | `connection_manager` always arrived as `None` in the orchestrator | `Orchestrator.run_full_pipeline()` called `DataCollectorAgent.run()` with no kwargs | Added `data_collector_kwargs` parameter to `run_full_pipeline()`; ESG Command Center now reads `st.session_state.conn_manager` and passes it through |
 
 ---
 
@@ -537,10 +537,10 @@ There is currently no option to persist data to a database or download session s
 
 **What changed operationally:**
 
-- Mission Control (`pages/1_Mission_Control.py`) calls `refresh_real_data()` inside the Run handler, then `stamp_refresh_from_pipeline(...)` after `orchestrator.run_full_pipeline(...)` completes, so the per-page "Refreshed N min ago" caption is accurate.
+- ESG Command Center (`pages/1_ESG_Command_Center.py`) calls `refresh_real_data()` inside the Run handler, then `stamp_refresh_from_pipeline(...)` after `orchestrator.run_full_pipeline(...)` completes, so the per-page "Refreshed N min ago" caption is accurate.
 - Agent pages 3–9 and 11 each call `refresh_real_data()` in a spinner before invoking their `.run()`, then render `data_freshness_caption()` so the user can see when the data was last fetched.
 - `refresh_real_data(only_changed=True)` reuses the per-source SHA-256 config-signature cache (in `utils/connection_manager.py`) to skip the remote round-trip when nothing changed — useful for slow Snowflake / BigQuery sources.
-- **Full-refresh mode now wipes the per-source DataFrame cache before fetching** (`conn_mgr.invalidate_cache()` is called inside `refresh_real_data()` whenever `only_changed=False`, and Mission Control invalidates before `run_full_pipeline()`). This guarantees a remote-side row change — e.g. rows deleted from a Snowflake table — is always visible on the next Run, regardless of what `use_cache` flag flows through the agent stack. The signature-based cache reuse for `only_changed=True` is unchanged.
+- **Full-refresh mode now wipes the per-source DataFrame cache before fetching** (`conn_mgr.invalidate_cache()` is called inside `refresh_real_data()` whenever `only_changed=False`, and ESG Command Center invalidates before `run_full_pipeline()`). This guarantees a remote-side row change — e.g. rows deleted from a Snowflake table — is always visible on the next Run, regardless of what `use_cache` flag flows through the agent stack. The signature-based cache reuse for `only_changed=True` is unchanged.
 - Stale `dataset_*` / `validated_*` channels in `state_manager` are cleared before the Data Collector republishes, so removing a source actually removes its contribution from downstream totals.
 - `conn_mgr.source_errors()` is rendered as `st.warning()` by the helper, so a connector that silently returns an empty DataFrame is now visible to the user.
 
@@ -582,7 +582,7 @@ Streamlit's icon spans were rendering as raw text — `"upload"`, `"keyboard_dou
 
 ### Data Collector init guard split (`AttributeError` fix)
 
-**Production incident (2026-04-20):** users hitting Mission Control or the ESG ROI page first caused `utils/pipeline_refresh.py` to seed `st.session_state["data_collector"]`. When the user later navigated to the Data Collector page, this combined guard short-circuited:
+**Production incident (2026-04-20):** users hitting ESG Command Center or the ESG ROI page first caused `utils/pipeline_refresh.py` to seed `st.session_state["data_collector"]`. When the user later navigated to the Data Collector page, this combined guard short-circuited:
 
 ```python
 if "data_collector" not in st.session_state:
@@ -673,9 +673,9 @@ This entry pairs with the [Pipeline refresh & data freshness](#pipeline-refresh-
 
 ### Cleaner gap table: only show what needs attention
 
-The *Registered sources — unmapped fields* table on Mission Control used to render a row for every registered source, including fully-mapped ones whose "Missing required" / "Missing optional" columns just said `—`. Clients reported the visual noise made it hard to spot the actual gaps.
+The *Registered sources — unmapped fields* table on ESG Command Center used to render a row for every registered source, including fully-mapped ones whose "Missing required" / "Missing optional" columns just said `—`. Clients reported the visual noise made it hard to spot the actual gaps.
 
-**Fix in `pages/1_Mission_Control.py`:** the table now lists only sources that have at least one missing required or optional column. Fully-mapped sources collapse into a single green ✅ success line ("All 4 registered sources are fully mapped — no gaps to address"), and a small *"Hiding N fully-mapped sources with no gaps"* caption keeps the filter transparent. The CSV export is filtered the same way.
+**Fix in `pages/1_ESG_Command_Center.py`:** the table now lists only sources that have at least one missing required or optional column. Fully-mapped sources collapse into a single green ✅ success line ("All 4 registered sources are fully mapped — no gaps to address"), and a small *"Hiding N fully-mapped sources with no gaps"* caption keeps the filter transparent. The CSV export is filtered the same way.
 
 ---
 

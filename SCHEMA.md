@@ -527,9 +527,9 @@ Select your file. Click **Test & Preview**. ESG Pilot will:
 
 A confirmation message confirms the registration. No additional save step is required.
 
-**Step 4 — Confirm wiring in Mission Control**
+**Step 4 — Confirm wiring in ESG Command Center**
 
-Navigate to **Mission Control**. A green or blue banner will appear confirming that real data sources are registered. If the banner is absent or shows no registered sources, return to Step 3.
+Navigate to **ESG Command Center**. A green or blue banner will appear confirming that real data sources are registered. If the banner is absent or shows no registered sources, return to Step 3.
 
 **Step 5 — Run the pipeline**
 

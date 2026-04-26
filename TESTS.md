@@ -160,7 +160,7 @@ Unit tests for `utils/pipeline_refresh.py` using `StubDataCollector` and
 
 | # | Test | What it proves |
 |---|---|---|
-| 54 | `test_writes_session_state_keys` | Mission Control's full-pipeline run can stamp freshness keys so every page's caption stays honest. |
+| 54 | `test_writes_session_state_keys` | ESG Command Center's full-pipeline run can stamp freshness keys so every page's caption stays honest. |
 | 55 | `test_works_without_conn_manager` | No-op safe when no manager is in session; signature resolves to `None`. |
 
 ### 3.3 `TestDataFreshnessCaption` — UI badge (6 tests)

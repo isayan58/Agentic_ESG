@@ -1,4 +1,4 @@
-"""Mission Control — Full pipeline overview with business impact, pipeline visualization, and transformation view."""
+"""ESG Command Center — Full pipeline overview with business impact, pipeline visualization, and transformation view."""
 import io
 import json
 import os
@@ -29,18 +29,18 @@ from utils.data_gaps import compute_data_gaps
 from utils import agent_telemetry
 from utils.run_store import get_run_store
 
-st.set_page_config(page_title="Mission Control | ESG Intelligence Hub", page_icon="🎛️", layout="wide")
+st.set_page_config(page_title="ESG Command Center | ESG Intelligence Hub", page_icon="🎛️", layout="wide")
 inject_global_css()
 pwc_header()
 sidebar_auth_widget()
-require_login("Sign in to run the 9-agent pipeline and view Mission Control.")
+require_login("Sign in to run the 9-agent pipeline and view ESG Command Center.")
 # Hydrate (or rebuild) this user's persistent ConnectionManager as early
 # as possible so the Run buttons below see sources the user registered
 # in a previous session.
 get_session_connection_manager()
 
 hero(
-    title="Mission Control",
+    title="ESG Command Center",
     emoji="🎛️",
     subtitle=(
         "Orchestrate all 9 agents — the command center for autonomous ESG intelligence. "
@@ -78,7 +78,7 @@ if (not st.session_state.pipeline_results
             st.session_state.pipeline_results = _snap["results"]
             # Republish each agent's result so the per-agent pages
             # (ESG ROI, Carbon, Audit, …) read live numbers from the
-            # state bus on first render too — not just Mission Control.
+            # state bus on first render too — not just ESG Command Center.
             try:
                 from core.state_manager import state_manager as _sm
                 for _agent_key, _agent_result in _snap["results"].items():
@@ -119,17 +119,40 @@ def signal_label(value, good_threshold, watch_threshold=None):
 
 
 # ── Featured ESG ROI Agent card ──
-# Mission Control is the new home — surface the headline investment-quality
+# ESG Command Center is the new home — surface the headline investment-quality
 # card at the top so signed-in users see their live numbers first.
+#
+# Read priority: state_manager["roi_results"] → st.session_state["roi_results"]
+# → st.session_state["pipeline_results"]["roi_agent"] → orch.agents.roi_agent.results.
+# The agent object's `.results` was the only source before, but the
+# incremental cache sometimes serves a result without re-calling
+# agent.run() (which is what writes that attribute) — so the card stayed
+# stale after a Run. The state-bus + session-state sources are written
+# on every successful run regardless of cache path, so checking them
+# first makes the card honest about the latest values.
 _roi_results = None
 try:
-    _roi_agent_obj = getattr(orch, "agents", {}).get("roi_agent")
-    if _roi_agent_obj is not None:
-        _r = getattr(_roi_agent_obj, "results", None)
-        if _r:
-            _roi_results = _r
+    from core.state_manager import state_manager as _sm
+    _roi_results = _sm.subscribe("roi_results")
 except Exception:
     _roi_results = None
+if not _roi_results:
+    _roi_results = st.session_state.get("roi_results")
+if not _roi_results:
+    _pr = st.session_state.get("pipeline_results") or {}
+    if isinstance(_pr, dict):
+        _candidate = _pr.get("roi_agent")
+        if isinstance(_candidate, dict) and "error" not in _candidate:
+            _roi_results = _candidate
+if not _roi_results:
+    try:
+        _roi_agent_obj = getattr(orch, "agents", {}).get("roi_agent")
+        if _roi_agent_obj is not None:
+            _r = getattr(_roi_agent_obj, "results", None)
+            if _r and isinstance(_r, dict) and "error" not in _r:
+                _roi_results = _r
+    except Exception:
+        _roi_results = None
 
 _mc_user = st.session_state.get("user") or {}
 _mc_user_name = (_mc_user.get("full_name") or _mc_user.get("username") or "").strip() or None

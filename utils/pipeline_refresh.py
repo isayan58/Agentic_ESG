@@ -215,7 +215,7 @@ def data_freshness_caption(can_refresh: bool = True) -> None:
         When ``True`` (default), the hint message tells the user to
         click **Run** on this page to pull the latest data — appropriate
         for pages that actually trigger ``refresh_real_data()`` (Data
-        Collector, Mission Control, ESG ROI). When ``False``, the hint
+        Collector, ESG Command Center, ESG ROI). When ``False``, the hint
         redirects the user to the Data Collector page instead — used by
         downstream agent pages (Regulatory, Carbon, Report, Risk, Audit,
         Action, Stakeholder) that read the last-published datasets from

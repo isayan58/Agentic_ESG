@@ -1,7 +1,7 @@
 """Sign In / Sign Up page for ESG Pilot.
 
 Presents two tabs — Sign In and Create account — backed by
-``utils.auth``. On success the user is redirected to Mission Control.
+``utils.auth``. On success the user is redirected to ESG Command Center.
 """
 import streamlit as st
 
@@ -30,7 +30,7 @@ hero(
     title="Sign in to ESG Intelligence Hub",
     emoji="🔐",
     subtitle=(
-        "Authenticate to unlock the 9-agent autonomous pipeline, Mission Control, "
+        "Authenticate to unlock the 9-agent autonomous pipeline, ESG Command Center, "
         "and ROI dashboards. New here? Create a free account in seconds."
     ),
     chips=[
@@ -49,11 +49,11 @@ if existing:
     )
     col_a, col_b, _ = st.columns([1, 1, 2])
     with col_a:
-        if st.button("Go to Mission Control", type="primary", use_container_width=True):
+        if st.button("Go to ESG Command Center", type="primary", use_container_width=True):
             try:
-                st.switch_page("pages/1_Mission_Control.py")
+                st.switch_page("pages/1_ESG_Command_Center.py")
             except Exception:
-                st.info("Open **Mission Control** from the left sidebar.")
+                st.info("Open **ESG Command Center** from the left sidebar.")
     with col_b:
         if st.button("Sign out", use_container_width=True):
             logout()
@@ -99,7 +99,7 @@ with tab_signin:
                 else:
                     st.success(f"Welcome, {user.get('full_name') or user.get('username')}! Redirecting…")
                     try:
-                        st.switch_page("pages/1_Mission_Control.py")
+                        st.switch_page("pages/1_ESG_Command_Center.py")
                     except Exception:
                         st.rerun()
 
@@ -174,7 +174,7 @@ with tab_signup:
                     f"Account created — welcome, {user.get('full_name') or user.get('username')}!"
                 )
                 try:
-                    st.switch_page("pages/1_Mission_Control.py")
+                    st.switch_page("pages/1_ESG_Command_Center.py")
                 except Exception:
                     st.rerun()
 

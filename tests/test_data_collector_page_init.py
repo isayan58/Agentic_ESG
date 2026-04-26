@@ -1,6 +1,6 @@
 """Regression tests for the Data Collector page's session-state init.
 
-Production bug (2026-04-20): users hitting Mission Control or the ESG ROI
+Production bug (2026-04-20): users hitting ESG Command Center or the ESG ROI
 page first caused ``utils/pipeline_refresh.py`` to seed
 ``st.session_state["data_collector"]``. When the user later navigated to
 the Data Collector page, the page's combined init guard:
@@ -64,7 +64,7 @@ def test_init_when_data_collector_pre_populated_by_pipeline_refresh(monkeypatch)
     """Reproduce the exact production failure mode.
 
     Order of events:
-      1. User opens Mission Control → ``utils/pipeline_refresh.refresh_real_data``
+      1. User opens ESG Command Center → ``utils/pipeline_refresh.refresh_real_data``
          runs and stashes its DataCollectorAgent in
          ``st.session_state["data_collector"]``.
       2. User clicks the Data Collector page in the sidebar.
@@ -198,7 +198,7 @@ def test_data_collector_results_init_not_nested_inside_data_collector_guard():
     assert "data_collector_results" not in data_collector_guard_targets, (
         "data_collector_results must NOT be initialised inside the "
         "`if \"data_collector\" not in st.session_state:` guard. When "
-        "another page (Mission Control, ESG ROI) seeds `data_collector` "
+        "another page (ESG Command Center, ESG ROI) seeds `data_collector` "
         "via utils/pipeline_refresh, the guard short-circuits and "
         "`data_collector_results` stays undefined → AttributeError on "
         "first use. See test_init_when_data_collector_pre_populated_by_"
