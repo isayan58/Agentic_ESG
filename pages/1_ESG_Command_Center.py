@@ -157,11 +157,38 @@ if not _roi_results:
 _mc_user = st.session_state.get("user") or {}
 _mc_user_name = (_mc_user.get("full_name") or _mc_user.get("username") or "").strip() or None
 
+# Look up the previous saved run's IQS so the featured card can show a
+# real "+X vs last run" delta instead of the generic "live · updated now"
+# string. The most recent saved run (runs[0]) is the one currently
+# displayed (auto-saved by the last successful pipeline run); runs[1] is
+# the one before — that's the comparison point.
+_prev_iqs: float | None = None
+_username_for_runs = (_mc_user.get("username") or "").strip()
+if _username_for_runs:
+    try:
+        _runs = get_run_store().list_runs(_username_for_runs)
+        if len(_runs) >= 2:
+            _prev_id = _runs[1].get("id")
+            if _prev_id:
+                _prev_snap = get_run_store().load_run(
+                    _username_for_runs, _prev_id,
+                )
+                if isinstance(_prev_snap, dict):
+                    _prev_iqs_raw = ((_prev_snap.get("results") or {})
+                                      .get("roi_agent") or {}) \
+                        .get("investment_quality_score", {}) \
+                        .get("score")
+                    if isinstance(_prev_iqs_raw, (int, float)):
+                        _prev_iqs = float(_prev_iqs_raw)
+    except Exception:
+        _prev_iqs = None
+
 esg_roi_featured_card(
     results=_roi_results,
     mode="auto",
     user_name=_mc_user_name,
     height=440,
+    previous_iqs=_prev_iqs,
 )
 
 roi_cta_cols = st.columns([1.2, 1, 3])

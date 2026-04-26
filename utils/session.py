@@ -63,6 +63,18 @@ def _build_on_change(username: str):
     Also drops the process-wide source-store cache entry so a second tab
     on the same replica picks up the change on its next rerun instead
     of waiting for the TTL window to elapse.
+
+    Side effect: invalidates the orchestrator's incremental cache. The
+    fingerprint chain *should* propagate a source change all the way
+    through to every downstream agent's dep_fp, but the chain depends
+    on data_collector's result actually changing in a fingerprint-
+    detectable way — and data_collector's result is mostly aggregate
+    metadata (record counts, completeness scores). If a user replaces
+    a CSV with the same number of rows but different *values*, the
+    metadata can hash identically even though every downstream
+    calculation should change. Clearing the cache here guarantees a
+    fresh end-to-end run on the next click, regardless of how the
+    user mutated the source.
     """
     store = get_source_store()
 
@@ -73,6 +85,12 @@ def _build_on_change(username: str):
         ]
         store.save(username, records)
         store.clear_cache(username)
+        try:
+            orch = st.session_state.get("orchestrator")
+            if orch is not None and hasattr(orch, "invalidate_incremental_cache"):
+                orch.invalidate_incremental_cache()
+        except Exception:
+            pass
 
     return _callback
 

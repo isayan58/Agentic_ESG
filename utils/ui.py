@@ -2024,6 +2024,7 @@ def esg_roi_featured_card(
     mode: str = "auto",
     user_name: Optional[str] = None,
     height: int = 440,
+    previous_iqs: Optional[float] = None,
 ) -> None:
     """Render the ESG ROI agent as a featured dashboard hero card.
 
@@ -2061,7 +2062,8 @@ def esg_roi_featured_card(
     financial_return: str = "2.47×"
     strategic_return: str = "IQS 87 / 100"
     payback_months: int = 14
-    delta_label: str = "+12 vs last quarter"
+    delta_label: str = "+12 vs last run"
+    delta_arrow: str = "↑"
     sparkline: Optional[Sequence[float]] = None
 
     # --- Live mapping from the ROI agent's result schema -----------------
@@ -2105,7 +2107,27 @@ def esg_roi_featured_card(
             except Exception:
                 sparkline = None
 
-        delta_label = "live · updated now"
+        # Real delta vs previous saved run if the caller looked one up.
+        # If we don't have a prior IQS to compare to (very first run, or
+        # caller didn't pass it), fall back to a neutral "first run"
+        # label rather than the misleading "live · updated now" string,
+        # which read like an animated heartbeat instead of an actual
+        # delta and confused users into thinking the card was always
+        # the latest of *something*.
+        if isinstance(previous_iqs, (int, float)) and previous_iqs > 0:
+            _diff = float(iqs_score) - float(previous_iqs)
+            if abs(_diff) < 0.5:
+                delta_label = "no change vs last run"
+                delta_arrow = "→"
+            elif _diff > 0:
+                delta_label = f"+{_diff:.0f} vs last run"
+                delta_arrow = "↑"
+            else:
+                delta_label = f"{_diff:.0f} vs last run"
+                delta_arrow = "↓"
+        else:
+            delta_label = "first computed run"
+            delta_arrow = "✦"
 
     elif mode == "empty":
         iqs_score, grade = 0, "—"
@@ -2113,6 +2135,7 @@ def esg_roi_featured_card(
         strategic_return = "Run pipeline to populate"
         payback_months = 0
         delta_label = "no run yet"
+        delta_arrow = "·"
 
     # --- Sparkline polyline (100×36 viewBox) -----------------------------
     spark: Sequence[float] = list(sparkline) if sparkline else \
@@ -2384,7 +2407,7 @@ def esg_roi_featured_card(
           <div class="iqs-num" id="iqs-num" data-target="{iqs_score:.0f}">0</div>
         </div>
         <div class="iqs-sub">IQS · Investment Quality Score</div>
-        <span class="delta-chip">↑ {html.escape(delta_label)}</span>
+        <span class="delta-chip">{html.escape(delta_arrow)} {html.escape(delta_label)}</span>
         <svg class="spark" viewBox="0 0 100 36" preserveAspectRatio="none" aria-hidden="true">
           <defs>
             <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
