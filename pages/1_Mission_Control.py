@@ -26,6 +26,7 @@ from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
 from utils.session import get_session_connection_manager
 from utils.data_gaps import compute_data_gaps
+from utils.run_store import get_run_store
 
 st.set_page_config(page_title="Mission Control | ESG Intelligence Hub", page_icon="🎛️", layout="wide")
 inject_global_css()
@@ -277,6 +278,92 @@ if run_pipeline:
             "Click *Force full re-run* to bypass the cache.",
             icon="ℹ️",
         )
+# ── Save / Load Run ──
+# Closes the README-flagged "session-scoped storage" gap: instead of every
+# pipeline run vanishing on browser refresh, the signed-in user can stash
+# a snapshot to the same private HF Dataset that backs profile + sources,
+# then reload it on any device. Saves are explicit (not auto) so users
+# don't accumulate junk runs they didn't ask for.
+_run_store = get_run_store()
+_user = (st.session_state.get("user") or {})
+_username = (_user.get("username") or "").strip()
+_results_in_state = st.session_state.get("pipeline_results")
+
+with st.expander("💾 Save / Load Pipeline Runs", expanded=False):
+    save_col, load_col = st.columns([1, 1])
+    with save_col:
+        st.markdown("##### Save the current run")
+        if not _results_in_state:
+            st.caption("Run the pipeline first — there's nothing to save yet.")
+        elif not _username:
+            st.caption("Sign in to save runs to your private dataset.")
+        else:
+            _label = st.text_input(
+                "Run label",
+                value=f"Run @ {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                key="mc_save_run_label",
+                max_chars=120,
+            )
+            if st.button("Save run", key="mc_save_run_btn",
+                          use_container_width=True):
+                try:
+                    _rid = _run_store.save_run(
+                        _username,
+                        results=_results_in_state,
+                        label=_label,
+                        goal=goal,
+                        saved_by=_username,
+                    )
+                    st.success(f"Saved run `{_rid}`.", icon="✅")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Save failed: {exc}", icon="⚠️")
+
+    with load_col:
+        st.markdown("##### Load a previous run")
+        if not _username:
+            st.caption("Sign in to see your saved runs.")
+        else:
+            _runs = _run_store.list_runs(_username)
+            if not _runs:
+                st.caption("No saved runs yet.")
+            else:
+                _options = {
+                    f"{r.get('label')} · "
+                    f"{(r.get('saved_at') or '')[:16]} · "
+                    f"IQS {r.get('headline', {}).get('iqs_grade') or '—'}"
+                    : r["id"] for r in _runs
+                }
+                _picked_label = st.selectbox(
+                    "Pick a run",
+                    list(_options.keys()),
+                    key="mc_load_run_select",
+                )
+                _picked_id = _options[_picked_label]
+                _lc1, _lc2 = st.columns([1, 1])
+                with _lc1:
+                    if st.button("Load", key="mc_load_run_btn",
+                                  use_container_width=True):
+                        snap = _run_store.load_run(_username, _picked_id)
+                        if snap and isinstance(snap.get("results"), dict):
+                            st.session_state.pipeline_results = snap["results"]
+                            st.success(f"Loaded `{_picked_id}`.", icon="📂")
+                            st.rerun()
+                        else:
+                            st.error("Couldn't load that run.", icon="⚠️")
+                with _lc2:
+                    if st.button("Delete", key="mc_delete_run_btn",
+                                  use_container_width=True):
+                        if _run_store.delete_run(_username, _picked_id):
+                            st.success(f"Deleted `{_picked_id}`.", icon="🗑️")
+                            st.rerun()
+                        else:
+                            st.error("Couldn't delete that run.", icon="⚠️")
+    _diag = _run_store.diagnostic()
+    st.caption(
+        f"Storage: {_diag.get('label')}"
+        + (f" · last error: `{_diag['last_error']}`" if _diag.get("last_error") else "")
+    )
 
 # ── Pipeline Results ──
 if st.session_state.pipeline_results:
