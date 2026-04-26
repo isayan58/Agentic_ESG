@@ -12,12 +12,14 @@ from utils.gap_suggestions import suggestions_for_gap, render_suggestion_block
 from utils.framework_refresh import (
     TRACKED_FRAMEWORKS,
     apply_update,
+    audit_log,
     dismiss_update,
     load_updates_store,
     pending_updates,
     applied_updates,
     dismissed_updates,
     refresh_and_store,
+    revert_update,
     time_since_last_check,
 )
 
@@ -265,10 +267,15 @@ if results and "error" not in results:
                     else:
                         st.caption("No new requirement proposed — this is a guidance / deadline update for awareness only.")
 
+                    # Capture the signed-in user as the "actor" so the
+                    # audit log can answer "who approved this?". Falls
+                    # back gracefully for unsigned/anonymous flows.
+                    _actor = ((st.session_state.get("user") or {}).get("username")
+                              or "anonymous")
                     ac, dc = st.columns(2)
                     with ac:
                         if st.button("✅ Apply update", key=f"apply_{upd['id']}", type="primary", use_container_width=True):
-                            result = apply_update(upd["id"])
+                            result = apply_update(upd["id"], actor=_actor)
                             if result.get("ok"):
                                 st.success("Applied. The framework set has been updated.", icon="✅")
                                 st.rerun()
@@ -276,22 +283,39 @@ if results and "error" not in results:
                                 st.error(result.get("reason", "Apply failed."), icon="⚠️")
                     with dc:
                         if st.button("🗑️ Dismiss", key=f"dismiss_{upd['id']}", use_container_width=True):
-                            dismiss_update(upd["id"], reason="Dismissed by reviewer")
+                            dismiss_update(upd["id"], reason="Dismissed by reviewer",
+                                           actor=_actor)
                             st.rerun()
 
         # ── Applied history ──
         if applied:
             with st.expander(f"📘 Applied updates ({len(applied)})", expanded=False):
-                safe_dataframe(
-                    pd.DataFrame([{
-                        "Framework": u.get("framework"),
-                        "Title": u.get("title"),
-                        "Applied at": u.get("applied_at"),
-                        "Source": u.get("source_url"),
-                    } for u in sorted(applied, key=lambda u: u.get("applied_at", ""), reverse=True)]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                _revert_actor = ((st.session_state.get("user") or {}).get("username")
+                                 or "anonymous")
+                for u in sorted(applied, key=lambda u: u.get("applied_at", ""), reverse=True):
+                    a1, a2 = st.columns([5, 1])
+                    with a1:
+                        st.markdown(
+                            f"**{u.get('framework')}** — {u.get('title')}  \n"
+                            f"<small>Applied at `{u.get('applied_at', '—')}` "
+                            f"by `{u.get('applied_by', 'unknown')}`. "
+                            f"[Source]({u.get('source_url')})</small>",
+                            unsafe_allow_html=True,
+                        )
+                    with a2:
+                        if st.button("↩️ Revert", key=f"revert_{u['id']}",
+                                     use_container_width=True):
+                            result = revert_update(
+                                u["id"], actor=_revert_actor,
+                                reason="Reverted from Regulatory Tracker UI",
+                            )
+                            if result.get("ok"):
+                                st.success("Reverted. Update is pending review again.",
+                                           icon="↩️")
+                                st.rerun()
+                            else:
+                                st.error(result.get("reason", "Revert failed."),
+                                         icon="⚠️")
 
         # ── Dismissed audit trail ──
         if dismissed:
@@ -301,9 +325,32 @@ if results and "error" not in results:
                         "Framework": u.get("framework"),
                         "Title": u.get("title"),
                         "Dismissed at": u.get("dismissed_at"),
+                        "By": u.get("dismissed_by", ""),
                         "Reason": u.get("dismiss_reason", ""),
                         "Source": u.get("source_url"),
                     } for u in sorted(dismissed, key=lambda u: u.get("dismissed_at", ""), reverse=True)]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        # ── Append-only audit log ──
+        # Records every apply / revert / dismiss action with the
+        # signed-in user and timestamp so an auditor can reconstruct
+        # who changed the live framework set and when. Survives across
+        # sessions because it lives in regulatory_updates.json.
+        _log = audit_log(store, limit=200)
+        if _log:
+            with st.expander(f"🔍 Audit log ({len(_log)} events)", expanded=False):
+                safe_dataframe(
+                    pd.DataFrame([{
+                        "When": e.get("timestamp"),
+                        "Action": e.get("action"),
+                        "Framework": e.get("framework"),
+                        "Title": e.get("title"),
+                        "Requirement ID": e.get("requirement_id") or "—",
+                        "Actor": e.get("actor") or "anonymous",
+                        "Reason": e.get("reason") or "",
+                    } for e in _log]),
                     use_container_width=True,
                     hide_index=True,
                 )
