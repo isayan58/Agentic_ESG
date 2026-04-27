@@ -9,51 +9,134 @@ from core.company_config import company_cfg
 from utils.data_processing import load_regulatory_frameworks, load_esg_metrics
 
 
-# Mapping from data field names to metric IDs in our sample data
+# Mapping from framework data_field names to metric IDs in esg_metrics.
+#
+# The numbering follows the canonical metric-ID taxonomy in DATA_MODEL.md §9
+# (E01–E25, S01–S25, G01–G25). New entries below close the 45 framework gaps
+# previously reporting "No data mapping available" — particularly the SOX,
+# SEC-Climate, CSRD-DM, and CSRD-E3 governance/compliance fields.
 DATA_FIELD_MAPPING = {
-    "emissions_scope1": ["E01", "E02"],
-    "emissions_scope2": ["E01", "E02"],
-    "emissions_scope3": ["E02"],
-    "emissions_all_scopes": ["E01", "E02"],
-    "energy_consumption": ["E10"],
-    "energy_intensity": ["E01"],
-    "renewable_energy": ["E03"],
-    "renewable_energy_pct": ["E03"],
-    "water_consumption": ["E04"],
-    "water_recycling": ["E05"],
-    "waste_generated": ["E06"],
-    "waste_recycled": ["E07"],
-    "hazardous_waste": ["E08"],
-    "biodiversity_impact": ["E09"],
-    "land_use": ["E09"],
-    "ltifr": ["S06"],
-    "safety_training": ["S07"],
-    "employee_wellbeing": ["S01", "S02"],
-    "diversity": ["S03", "S04"],
-    "pay_equity": ["S05"],
-    "gender_diversity": ["S03", "S04"],
-    "board_diversity": ["G02"],
-    "training_hours": ["S07"],
-    "anti_corruption": ["G04"],
-    "anti_corruption_training": ["G04"],
-    "whistleblower": ["G05"],
-    "csr_spending": ["S08"],
-    "beneficiaries": ["S09"],
-    "hr_training": ["S10"],
-    "data_privacy": ["G07"],
-    "data_breaches": ["G07"],
-    "board_governance": ["G01", "G02", "G03"],
-    "supplier_audits": ["S12"],
-    "supplier_env_audits": ["S12"],
-    "supplier_social_audits": ["S12"],
-    "supply_chain_emissions": ["E02"],
-    "supply_chain_labor": ["S12"],
-    "engagement_score": ["S02"],
-    "new_hires": ["S01"],
-    "turnover": ["S02"],
-    "voluntary_turnover": ["S02"],
-    "involuntary_turnover": ["S02"],
-    "climate_targets": ["E01", "E02"],
+    # ── Climate & emissions ──
+    "emissions_scope1":          ["E01"],
+    "emissions_scope2":          ["E01"],
+    "emissions_scope3":          ["E02"],
+    "emissions_all_scopes":      ["E01", "E02"],
+    "supply_chain_emissions":    ["E02"],
+    "climate_targets":           ["E01", "E02"],
+    "emissions_assurance":       ["E25", "G14"],
+    "transition_plan":           ["E14", "E15", "G10"],
+
+    # ── Energy ──
+    "energy_consumption":        ["E10"],
+    "energy_intensity":          ["E22"],
+    "renewable_energy":          ["E03"],
+    "renewable_energy_pct":      ["E03"],
+    "energy_strategy":           ["E03", "E10", "G10"],
+    "grid_electricity_pct":      ["E21"],
+
+    # ── Water ──
+    "water_consumption":         ["E04"],
+    "water_recycling":           ["E05"],
+    "water_pollution":           ["E12"],
+    "water_discharge":           ["E12"],
+    "water_stress":              ["E24"],
+
+    # ── Waste & circularity ──
+    "waste_generated":           ["E06"],
+    "waste_recycled":            ["E07"],
+    "hazardous_waste":           ["E08"],
+
+    # ── Biodiversity & land ──
+    "biodiversity_impact":       ["E09"],
+    "land_use":                  ["E09"],
+
+    # ── Pollution (CSRD-E3) ──
+    "air_pollution":             ["E11"],
+
+    # ── Climate-financial (SEC-CLIM SX-14, IFRS S2) ──
+    "financial_climate_impact":  ["E14", "E15", "E16"],
+    "severe_weather_costs":      ["E15", "E17"],
+    "material_events_disclosure":["E16", "G18"],
+
+    # ── Sourcing ──
+    "product_sustainability":    ["E19", "S25"],
+
+    # ── Workforce & DEI ──
+    "ltifr":                     ["S06"],
+    "safety_training":           ["S07"],
+    "employee_wellbeing":        ["S01", "S19"],
+    "diversity":                 ["S03", "S04"],
+    "pay_equity":                ["S05"],
+    "gender_diversity":          ["S03", "S04"],
+    "racial_diversity":          ["S03"],
+    "board_diversity":           ["G02"],
+    "training_hours":            ["S07", "S10"],
+    "engagement_score":          ["S19"],
+    "new_hires":                 ["S01"],
+    "turnover":                  ["S02"],
+    "voluntary_turnover":        ["S02"],
+    "involuntary_turnover":      ["S02"],
+    "skill_development":         ["S24"],
+    "benefits":                  ["S20", "S19"],
+    "hr_assessment":             ["S14"],
+    "incidents":                 ["S06", "S22", "S23"],
+
+    # ── Human rights & community ──
+    "csr_spending":              ["S08"],
+    "beneficiaries":             ["S09"],
+    "community_impact":          ["S08", "S09"],
+    "hr_training":               ["S10", "S14"],
+    "indigenous_rights":         ["S17"],
+    "stakeholder_engagement":    ["G13"],
+
+    # ── Customer / product ──
+    "consumer_complaints":       ["S15"],
+    "product_safety":            ["S16"],
+
+    # ── Privacy & cyber ──
+    "data_privacy":              ["G07"],
+    "data_breaches":             ["G07", "G18"],
+    "gdpr_compliance":           ["G07"],
+    "pii_records":               ["G07"],
+    "privacy_policy":            ["G07"],
+
+    # ── Board & ethics ──
+    "board_governance":          ["G01", "G02", "G03"],
+    "anti_corruption":           ["G04"],
+    "anti_corruption_training":  ["G04"],
+    "whistleblower":             ["G05"],
+    "corruption_incidents":      ["G17"],
+    "lobbying":                  ["G16"],
+    "policy_advocacy":           ["G16"],
+    "ethical_ai_revenue":        ["G18", "G07"],
+
+    # ── SOX / ICFR ──
+    "icfr_assessment":           ["G06"],
+    "internal_controls":         ["G06", "G25"],
+    "control_deficiencies":      ["G06"],
+    "ceo_cfo_certification":     ["G08"],
+    "disclosure_controls":       ["G19"],
+    "document_retention":        ["G20"],
+    "audit_trail":               ["G24"],
+
+    # ── Climate governance (TCFD / IFRS S2 / SEC-CLIM 1501-1502) ──
+    "climate_gov_structure":     ["G09"],
+    "climate_strategy":          ["G10"],
+    "climate_risk_assessment":   ["G11"],
+    "climate_risk_process":      ["G11"],
+
+    # ── Materiality (CSRD-DM) ──
+    "materiality_assessment":    ["G12"],
+
+    # ── Supply chain risk ──
+    "supplier_audits":           ["S12"],
+    "supplier_env_audits":       ["S12"],
+    "supplier_social_audits":    ["S12"],
+    "supplier_env_screening":    ["S12"],
+    "supplier_social_screening": ["S12"],
+    "supplier_dependency":       ["S12"],
+    "supply_risk":               ["S12", "G21"],
+    "supply_chain_labor":        ["S12", "S14"],
 }
 
 
