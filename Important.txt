@@ -1,0 +1,131 @@
+1. In the next quarter should I invest in E, S or G?
+
+Short answer: Governance (G) — by a wide margin.
+This isn't a values judgment — it's what your own pipeline data is screaming. Here's why:
+
+The signal from your run
+SOX compliance: 0% covered (5/5 requirements missing) — including critical gaps in CEO/CFO certification (SOX-302), ICFR (SOX-404), and criminal certification (SOX-906). These are mandatory and carry personal liability for executives.
+SEC Climate Disclosure: 0% covered (8/8 missing), with critical gaps in board oversight and governance structure (SEC-CLIM-1501).
+CSRD-G1 (Business Conduct & Governance): missing, critical priority.
+CSRD-DM (Double Materiality Assessment): missing, critical — this is the gatekeeper for the entire CSRD filing.
+BRSR-G1 (Business Ethics): missing, critical.
+Every mandatory framework in your tracker (BRSR, CSRD, SOX, SEC) sits at 0.0% compliance, and the governance-layer gaps are the ones flagged "critical" and tied to executive certification / audit-readiness.
+
+Why not E or S first?
+You actually have strong raw E and S data already:
+
+Emissions: 10,080 records, 100% complete, confidence 87.3, audit-ready ✅
+ESG metrics: 5,544 records, audit-ready ✅
+Energy, waste, supply chain, pollution, materiality: all 100% complete
+The bottleneck on E and S isn't data — it's that there's no governance scaffolding (ICFR, audit trail, board oversight, materiality process, CEO/CFO sign-off) to turn that data into a defensible filing. Investing more in E/S data right now produces numbers no auditor will sign off on.
+
+Where to put the next quarter's spend
+ICFR over ESG data (SOX-404) — you have 4,896 real_icfr_controls records sitting at Medium confidence (68.6); operationalize them.
+Double Materiality Assessment (CSRD-DM) — you have 25,776 real_materiality_assessment records unused by the framework mapper. Wire them in.
+Board oversight & climate governance disclosures (SEC-CLIM-1501, CSRD-G1).
+CEO/CFO certification + audit trail workflow (SOX-302, SOX-802, SOX-906).
+Fix G next quarter, and your existing E and S datasets immediately become reportable. Skip G, and the E/S investments don't convert into compliance.
+
+
+
+
+2. How to improve our IQS?
+
+Improving your IQS (Information/Data Quality Score)
+Your run shows overall completeness 100% and overall confidence 87.4 — so completeness isn't the problem. The drag on IQS is coming from two specific places: low per-dataset confidence scores and unmapped data fields. Here's how to lift each.
+
+1. Fix the "Medium" confidence datasets (stuck at 68.6 / 63.6)
+Only 2 of 20 datasets are audit-ready (real_emissions, real_esg_metrics at score 100). The other 18 sit at Medium. The pattern:
+
+15 real_ datasets at 68.6* — likely missing avg_confidence metadata (most show avg_confidence: 0).
+5 connector_ datasets at 63.6* — same issue, plus connector-level provenance gaps.
+Actions:
+
+Populate avg_confidence on every dataset (currently only real_emissions = 87.3 and real_esg_metrics = 87.6 have it). This single field gap is likely costing ~30 points per dataset.
+Add source lineage / timestamp / validation-rule metadata to the 18 underscored datasets.
+2. Close the framework data-mapping gaps
+Every mandatory framework is at 0.0% compliance — not because data is missing, but because fields aren't mapped. Examples from your run:
+
+real_materiality_assessment has 25,776 records, yet CSRD-DM reports "No data mapping available."
+real_icfr_controls has 4,896 records, yet SOX-404 reports "No data mapping available."
+real_pollution (9,113 records) → CSRD-E3 unmapped.
+real_climate_financial_impacts (5,248 records) → SEC climate requirements unmapped.
+Action: Build the field-to-requirement mapping layer. You're sitting on the data; the tracker just can't see it. This alone should move several frameworks from 0% to meaningful coverage.
+
+3. Resolve the 7 critical "missing data" alerts
+The collector flags emissions, esg_metrics, supply_chain, energy, waste, diversity, and financials as missing — yet most of these datasets exist in your canonical list. Two real issues hiding here:
+
+Diversity is genuinely absent — no dataset covers it. Connect HR/Workday diversity fields (your connector_hr has only 10 records).
+The other 6 alerts are false positives caused by the mapping gap in #2 — fixing the mapper clears them automatically.
+4. Strengthen thin connectors
+connector_erp: 12 records
+connector_hr: 10 records
+connector_api_cdp: 7 records
+supplier_portal (EcoVadis): 0 records, synced — broken pull.
+These thin pipes are why connector confidence sits at 63.6. Fix the EcoVadis pull and expand ERP/HR extracts.
+
+Priority order for next sprint
+Repair EcoVadis connector (0 records is a red flag).
+Add avg_confidence + lineage metadata to all 18 Medium datasets → expected IQS lift: ~85 → ~95.
+Build framework field-mappings for materiality, ICFR, pollution, climate-financial → unlocks compliance % across BRSR/CSRD/SOX/SEC.
+Onboard a diversity dataset (the only genuinely missing domain).
+Do steps 1–2 and your audit-ready dataset count goes from 2/20 to most-of-20 without collecting a single new data point.
+
+
+
+
+
+3. How do we decide the the avg_confidence? Should our DEs do the calculation? If so, based on what?
+
+Who owns avg_confidence and how to calculate it
+Short answer: Yes, your Data Engineers should own the calculation, but the rubric should be co-designed with the ESG/Audit team. Confidence is a data-trust score, not a data-science score — it has to be defensible to an auditor, not just statistically clean.
+
+What your run tells us
+Only 2 datasets currently carry a real value:
+
+real_emissions: 87.3
+real_esg_metrics: 87.6
+The other 18 show avg_confidence: 0 — meaning the field exists but nothing is populating it. So this isn't a methodology question yet; it's a "pick a formula and backfill" question.
+
+A defensible rubric (5 components, weighted)
+This is the standard pattern for ESG/audit contexts. Each dataset gets scored 0–100 on five dimensions, then weighted-averaged.
+
+Component	Weight	What DEs measure
+Source reliability	25%	Tier 1 (metered/IoT/ERP) = 100, Tier 2 (invoiced/billed) = 80, Tier 3 (supplier-reported) = 60, Tier 4 (estimated/proxy) = 40
+Completeness	20%	% non-null across required fields (you already compute this — it's 100% everywhere)
+Timeliness / freshness	15%	Days since last_sync vs. expected cadence. <1 cycle = 100, stale = decays
+Validation pass rate	20%	% of records passing schema + business rules (ranges, units, referential integrity)
+Lineage & auditability	20%	Has source ID, timestamp, transformation log, owner? Binary checks summed
+A record scoring 100/100/100/100/100 = avg_confidence 100. The dataset's avg_confidence is the mean across records (or a weighted mean by materiality).
+
+Why your emissions dataset hits 87.3 (worked example)
+Plausible decomposition:
+
+Source: 90 (mix of IoT meters + invoiced energy)
+Completeness: 100
+Timeliness: 85 (some monthly lags)
+Validation: 80 (a few unit/range flags)
+Lineage: 80 (good but not every record has full transformation log)
+→ Weighted = 87.0-ish. That's the kind of math an auditor can follow.
+
+Division of labor
+Data Engineers own:
+
+Implementing the 5 component calculations as code in the pipeline
+Writing it back to the avg_confidence field per dataset
+Surfacing per-record confidence so it can be aggregated
+ESG/Compliance team owns:
+
+The source tier mapping (is EcoVadis Tier 2 or Tier 3 for you?)
+The validation rules (what's a valid Scope 1 range for a facility?)
+The weights (your run weights all 5 evenly via the 68.6 score — you may want to weight Source higher for SOX/SEC purposes)
+Internal Audit signs off:
+
+That the rubric meets ICFR-over-ESG standards (relevant given your SOX-404 gap)
+Concrete next steps for your pipeline
+Codify the rubric in a single function compute_confidence(dataset) — one source of truth.
+Backfill the 18 datasets at 0 — even a v1 score is better than null. Your connector_iot (1,680 records, streaming) should land high; supplier_portal (0 records) should land near zero and trigger an alert, not a silent pass.
+Tie the threshold to audit_ready — currently the cutoff appears to be ~87 (only 87.3 and 87.6 pass). Make this explicit: e.g., ≥85 = audit-ready, 70–84 = review, <70 = remediate.
+Log component scores, not just the average. When real_supply_chain lands at 72, you need to know why — is it source tier or validation? — so DEs know what to fix.
+One caution
+Don't let DEs set the source tier weights alone. That's where auditors push back hardest ("why is supplier-reported scored 60 and not 40?"). Get that locked in writing with ESG + Audit before you publish numbers externally.
