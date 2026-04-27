@@ -831,12 +831,95 @@ if st.session_state.pipeline_results:
             text = text[:char_limit] + "\n…[truncated]"
         return text
 
+    def _headline_metrics(run_results: dict) -> str:
+        """Pull the top-line metrics into a compact text block that always
+        precedes the JSON context, so the model never misses them even when
+        the JSON gets truncated. Most importantly, surfaces the IQS — which
+        otherwise sits deep inside `roi_agent.investment_quality_score`."""
+        roi   = run_results.get("roi_agent",          {}) or {}
+        audit = run_results.get("audit_agent",        {}) or {}
+        carbon= run_results.get("carbon_accountant",  {}) or {}
+        risk  = run_results.get("risk_predictor",     {}) or {}
+        data  = run_results.get("data_collector",     {}) or {}
+        regs  = run_results.get("regulatory_tracker", {}) or {}
+
+        iqs       = roi.get("investment_quality_score", {}) or {}
+        readiness = audit.get("readiness_score", {}) or {}
+
+        lines = ["HEADLINE METRICS FOR THIS RUN (always reference these in answers):"]
+        # Investment Quality Score — primary
+        if iqs:
+            score = iqs.get("score", "—")
+            grade = iqs.get("grade", "—")
+            lines.append(
+                f"  • Investment Quality Score (IQS): {score}/100  •  Grade: {grade}"
+            )
+            comps = iqs.get("components") or {}
+            if comps:
+                comp_str = " | ".join(f"{k}: {v}" for k, v in comps.items())
+                lines.append(f"      IQS components → {comp_str}")
+            wts = iqs.get("weights") or {}
+            if wts:
+                wt_str = " | ".join(f"{k}: {v}" for k, v in wts.items())
+                lines.append(f"      IQS weights    → {wt_str}")
+            delta = iqs.get("delta_vs_previous") or iqs.get("delta")
+            if delta is not None:
+                lines.append(f"      IQS delta vs previous run → {delta}")
+
+        # Audit readiness
+        if readiness:
+            lines.append(
+                f"  • Audit readiness: {readiness.get('overall', '—')}/100  "
+                f"(grade {readiness.get('grade', '—')})  •  "
+                f"completeness {readiness.get('completeness', '—')}  •  "
+                f"compliance {readiness.get('compliance', '—')}  •  "
+                f"evidence {readiness.get('evidence', '—')}"
+            )
+
+        # Emissions / carbon
+        if carbon:
+            lines.append(
+                f"  • Total emissions (current period): "
+                f"{carbon.get('total_emissions_current', '—')} tCO2e "
+                f"(YoY change {carbon.get('yoy_change_pct', '—')}%)"
+            )
+
+        # Risk
+        if risk:
+            lines.append(
+                f"  • Risk score: {risk.get('overall_risk_score', '—')}/100  "
+                f"({risk.get('risk_level', '—')})"
+            )
+
+        # Data quality
+        if data:
+            lines.append(
+                f"  • Data: {data.get('total_records', '—')} records "
+                f"across {data.get('datasets_loaded', '—')} datasets  •  "
+                f"completeness {data.get('overall_completeness', '—')}%  •  "
+                f"confidence {data.get('overall_confidence', '—')}%"
+            )
+
+        # Regulatory compliance summary (top-line only)
+        fw_results = (regs or {}).get("framework_results") or {}
+        if fw_results:
+            fw_summary = "; ".join(
+                f"{name}: {fw.get('compliance_pct', '—')}%"
+                for name, fw in list(fw_results.items())[:6]
+            )
+            lines.append(f"  • Framework compliance → {fw_summary}")
+
+        if len(lines) == 1:
+            return ""  # nothing to surface
+        return "\n".join(lines)
+
     def _ask_pilot(question: str, history: list[dict], run_results: dict) -> str:
         api_key = config.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
             return ("⚠️ `ANTHROPIC_API_KEY` is not set in this environment — "
                     "set it and reload to use the Pilot.")
         client = anthropic.Anthropic(api_key=api_key)
+        headline = _headline_metrics(run_results)
         system = [
             {
                 "type": "text",
@@ -847,15 +930,22 @@ if st.session_state.pipeline_results:
                     "no time-series), say so plainly and point to the closest signal "
                     "that *is* available. Prefer concrete numbers from the context "
                     "over generic ESG advice. Be concise — 3–6 short paragraphs or a "
-                    "tight bullet list. Never invent fields that aren't in the JSON."
+                    "tight bullet list. Never invent fields that aren't in the JSON. "
+                    "When the user asks anything about investment quality, ROI grade, "
+                    "or 'how good is the run', cite the IQS score and grade explicitly."
                 ),
             },
-            {
-                "type": "text",
-                "text": f"Pipeline run context (JSON):\n{_pipeline_context(run_results)}",
-                "cache_control": {"type": "ephemeral"},
-            },
         ]
+        if headline:
+            system.append({
+                "type": "text",
+                "text": headline,
+            })
+        system.append({
+            "type": "text",
+            "text": f"Pipeline run context (JSON):\n{_pipeline_context(run_results)}",
+            "cache_control": {"type": "ephemeral"},
+        })
         messages = [
             {"role": turn["role"], "content": turn["content"]}
             for turn in history
