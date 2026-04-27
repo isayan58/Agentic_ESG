@@ -92,7 +92,10 @@ class AuditAgent(BaseAgent):
         ]
 
         for dataset_key, label, priority in expected_datasets:
-            quality = quality_scores.get(dataset_key, {})
+            # Real uploads are stored under the `real_*` key by the Data
+            # Collector; the bare schema name only holds bundled-sample data.
+            # Prefer real-source quality, fall back to sample-source quality.
+            quality = quality_scores.get(f"real_{dataset_key}") or quality_scores.get(dataset_key, {})
             if quality:
                 status = "Pass" if quality["completeness"] >= t.audit_completeness_pass else (
                     "Warning" if quality["completeness"] >= t.audit_completeness_warning else "Fail"
