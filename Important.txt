@@ -129,3 +129,56 @@ Tie the threshold to audit_ready — currently the cutoff appears to be ~87 (onl
 Log component scores, not just the average. When real_supply_chain lands at 72, you need to know why — is it source tier or validation? — so DEs know what to fix.
 One caution
 Don't let DEs set the source tier weights alone. That's where auditors push back hardest ("why is supplier-reported scored 60 and not 40?"). Get that locked in writing with ESG + Audit before you publish numbers externally.
+
+
+
+4. So, just by adding the avg_confidence in each dataset I can make the compliance s fall in place?
+
+No — avg_confidence alone won't move compliance. They're two different problems.
+I want to correct something from my earlier answer where I conflated these. Let me separate them cleanly.
+
+Two independent problems in your run
+Problem	What it measures	Current state	Fix
+IQS / data quality	Can we trust the data?	18/20 datasets at Medium because avg_confidence is null	Populate avg_confidence
+Framework compliance	Does the data answer the regulation's questions?	All frameworks at 0.0%	Build field-to-requirement mappings
+Adding avg_confidence improves the first row only. Compliance % stays at 0.0% until the mapping layer is built.
+
+Why compliance is actually at 0%
+Look at the gap reasons in your tracker — they fall into two buckets:
+
+Bucket A: "Required data not found in available metrics"
+
+BRSR-E1 needs fields named emissions_scope1, emissions_scope2
+Your real_emissions dataset has 10,080 records but the mapper can't find those exact field names
+→ This is a schema/mapping problem, not a data problem or a confidence problem
+Bucket B: "No data mapping available"
+
+CSRD-DM needs materiality_assessment
+You have real_materiality_assessment with 25,776 records
+The mapper has no rule connecting them
+→ Pure mapping config gap
+Neither bucket is solved by confidence scores.
+
+The correct sequence
+Build the framework mapper — a config/lookup that says:
+
+BRSR-E1.emissions_scope1 → real_emissions.scope1_tco2e (or whatever your column is called)
+CSRD-DM.materiality_assessment → real_materiality_assessment
+SOX-404.icfr_assessment → real_icfr_controls
+…etc for all 57 requirements across the 6 frameworks
+This is what moves compliance from 0% to something real.
+
+Then populate avg_confidence — this determines whether the now-mapped data is audit-ready (currently only 2 datasets clear that bar).
+
+Then the audit-ready compliance % — the meaningful number for executives — becomes: requirements covered by mapped AND audit-ready data.
+
+Analogy
+Mapping = connecting the pipes between your data and the regulation's questions.
+avg_confidence = certifying the water in those pipes is drinkable.
+If the pipes aren't connected, certifying the water doesn't help anyone.
+
+What to tell your team
+DEs: own avg_confidence calculation (the rubric we discussed).
+ESG/Compliance analyst (or whoever owns the regulatory_tracker): owns the framework mapping config — this is the higher-leverage fix and should run in parallel, not after.
+Both must land before you can claim any non-zero audit-ready compliance %.
+Do the mapping first if you have to choose — it unlocks visible compliance movement. Confidence scoring upgrades that movement from "covered" to "covered and defensible."
