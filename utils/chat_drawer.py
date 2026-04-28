@@ -394,6 +394,13 @@ def _render_assistant_blocks(blocks: list[dict], chart_key_prefix: str) -> None:
 # CSS — drawer is fixed to the right of the viewport, FAB to bottom-right.
 # ``stylable_container`` scopes its rules to the wrapper div for that key,
 # so these styles don't leak to the rest of the app.
+#
+# The FAB renders only when the drawer is closed; the drawer's own header
+# carries the close (✕) control. Earlier versions tried to keep the FAB
+# visible to also act as a toggle, but at right:1.4rem / bottom:1.4rem
+# it sat *inside* the drawer's footprint and ended up behind the panel
+# on some browsers — clicks landed on the drawer instead and "close"
+# felt broken.
 # ---------------------------------------------------------------------------
 _DRAWER_CSS = """
 {
@@ -407,7 +414,21 @@ _DRAWER_CSS = """
     box-shadow: -16px 0 48px rgba(15, 23, 42, 0.18);
     z-index: 9998;
     overflow-y: auto;
-    padding: 1rem 1.1rem 5rem 1.1rem;
+    padding: 0.85rem 1rem 5rem 1rem;
+}
+.stPlotlyChart, [data-testid="stPlotlyChart"] {
+    max-width: 100% !important;
+}
+.stPlotlyChart > div, [data-testid="stPlotlyChart"] > div {
+    width: 100% !important;
+}
+[data-testid="stChatMessage"] {
+    padding: 0.5rem 0.6rem !important;
+    margin-bottom: 0.5rem !important;
+}
+[data-testid="stChatMessage"] p {
+    font-size: 0.9rem !important;
+    line-height: 1.45 !important;
 }
 """
 
@@ -432,13 +453,56 @@ button {
         inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
     font-size: 1.5rem !important;
     padding: 0 !important;
-    transition: transform 180ms ease !important;
+    transition: transform 180ms ease, box-shadow 180ms ease !important;
 }
 button:hover {
     transform: translateY(-3px) scale(1.04) !important;
     box-shadow:
         0 18px 36px rgba(253, 81, 8, 0.45),
         inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+}
+"""
+
+_CLOSE_BTN_CSS = """
+button {
+    width: 34px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    border-radius: 50% !important;
+    background: rgba(15, 23, 42, 0.04) !important;
+    color: #475569 !important;
+    border: 1px solid rgba(15, 23, 42, 0.08) !important;
+    font-size: 0.95rem !important;
+    font-weight: 600 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    transition: background 160ms ease, color 160ms ease,
+                border-color 160ms ease !important;
+}
+button:hover {
+    background: rgba(200, 16, 46, 0.08) !important;
+    color: #C8102E !important;
+    border-color: rgba(200, 16, 46, 0.30) !important;
+}
+"""
+
+_CLEAR_BTN_CSS = """
+button {
+    background: transparent !important;
+    color: #64748b !important;
+    border: none !important;
+    box-shadow: none !important;
+    font-size: 0.78rem !important;
+    font-weight: 500 !important;
+    padding: 0.25rem 0.4rem !important;
+    text-decoration: underline !important;
+    text-decoration-color: rgba(100, 116, 139, 0.35) !important;
+    text-underline-offset: 3px !important;
+}
+button:hover {
+    color: #C8102E !important;
+    text-decoration-color: rgba(200, 16, 46, 0.5) !important;
+    background: transparent !important;
 }
 """
 
@@ -462,29 +526,30 @@ def render_chat_drawer() -> None:
 
     open_now = bool(st.session_state[_DRAWER_OPEN_KEY])
 
-    with stylable_container(key="esg_pilot_fab", css_styles=_FAB_CSS):
-        if st.button(
-            "✕" if open_now else "💬",
-            key="_pilot_fab_btn",
-            help="Close ESG Pilot" if open_now else "Open ESG Pilot",
-        ):
-            st.session_state[_DRAWER_OPEN_KEY] = not open_now
-            st.rerun()
-
     if not open_now:
+        with stylable_container(key="esg_pilot_fab", css_styles=_FAB_CSS):
+            if st.button("💬", key="_pilot_fab_btn", help="Open ESG Pilot"):
+                st.session_state[_DRAWER_OPEN_KEY] = True
+                st.rerun()
         return
 
     with stylable_container(key="esg_pilot_drawer", css_styles=_DRAWER_CSS):
-        st.markdown(
-            "<div style='display:flex;align-items:center;justify-content:space-between;"
-            "margin-bottom:0.4rem;'>"
-            "<div style='font-family:Plus Jakarta Sans,Inter,sans-serif;font-weight:700;"
-            "font-size:1.05rem;color:#0f172a;'>🧭 ESG Pilot</div>"
-            "<div style='font-size:0.72rem;color:#64748b;letter-spacing:0.06em;"
-            "text-transform:uppercase;'>Conversational BI</div>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+        head_left, head_right = st.columns([6, 1], vertical_alignment="center")
+        with head_left:
+            st.markdown(
+                "<div style='line-height:1.15;'>"
+                "<div style='font-family:Plus Jakarta Sans,Inter,sans-serif;"
+                "font-weight:700;font-size:1.02rem;color:#0f172a;'>🧭 ESG Pilot</div>"
+                "<div style='font-size:0.66rem;color:#94a3b8;letter-spacing:0.08em;"
+                "text-transform:uppercase;margin-top:2px;'>Conversational BI</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+        with head_right:
+            with stylable_container(key="esg_pilot_close", css_styles=_CLOSE_BTN_CSS):
+                if st.button("✕", key="_pilot_close_btn", help="Minimize"):
+                    st.session_state[_DRAWER_OPEN_KEY] = False
+                    st.rerun()
 
         run = _load_run_results()
         if not run:
@@ -493,7 +558,9 @@ def render_chat_drawer() -> None:
                 "pipeline to give the Pilot something to analyse."
             )
         else:
-            st.caption("Grounded in your latest pipeline run. Ask for a chart anytime.")
+            st.caption(
+                "Grounded in your latest pipeline run · ask for a chart anytime."
+            )
 
         history = st.session_state[_CHAT_HISTORY_KEY]
         for idx, turn in enumerate(history):
@@ -507,10 +574,10 @@ def render_chat_drawer() -> None:
                     _render_assistant_blocks(blocks, chart_key_prefix=f"hist_{idx}")
 
         if history:
-            if st.button("Clear conversation", key="_pilot_clear",
-                         use_container_width=True):
-                st.session_state[_CHAT_HISTORY_KEY] = []
-                st.rerun()
+            with stylable_container(key="esg_pilot_clear", css_styles=_CLEAR_BTN_CSS):
+                if st.button("Clear conversation", key="_pilot_clear"):
+                    st.session_state[_CHAT_HISTORY_KEY] = []
+                    st.rerun()
 
         question = st.chat_input(
             "Ask about your run — try 'show me the IQS components'",
