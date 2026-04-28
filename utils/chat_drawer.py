@@ -402,6 +402,30 @@ def _render_assistant_blocks(blocks: list[dict], chart_key_prefix: str) -> None:
 # ---------------------------------------------------------------------------
 _DRAWER_STYLES = """
 <style>
+/* ---- Free up `position: fixed` to anchor to the viewport --------------
+   Streamlit's outer shells (.stApp, stAppViewContainer, stMain) ship with
+   properties — typically a stacking-context-creating transform or a
+   `contain` declaration — that establish a new "containing block."
+   Anything inside those shells with `position: fixed` then anchors to
+   the *shell* rather than the viewport, so a FAB at `bottom: 1.4rem;
+   right: 1.4rem` lands at the bottom-right of the *page* and disappears
+   below the fold on scroll. Resetting these properties here removes the
+   trap without touching the inner widget animations (hover transforms,
+   etc.) which actually need transform to work. */
+[data-testid="stApp"],
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+section[data-testid="stMain"],
+.main {
+    transform: none !important;
+    -webkit-transform: none !important;
+    perspective: none !important;
+    filter: none !important;
+    -webkit-filter: none !important;
+    contain: none !important;
+    will-change: auto !important;
+}
+
 /* ---- Drawer panel ----------------------------------------------------- */
 .st-key-esg_pilot_drawer {
     position: fixed;
