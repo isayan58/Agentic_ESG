@@ -24,12 +24,6 @@ except Exception:
     _HAS_ANTHROPIC = False
 
 try:
-    from streamlit_extras.stylable_container import stylable_container
-    _HAS_STYLABLE = True
-except Exception:
-    _HAS_STYLABLE = False
-
-try:
     import plotly.graph_objects as go
     _HAS_PLOTLY = True
 except Exception:
@@ -391,19 +385,25 @@ def _render_assistant_blocks(blocks: list[dict], chart_key_prefix: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CSS — drawer is fixed to the right of the viewport, FAB to bottom-right.
-# ``stylable_container`` scopes its rules to the wrapper div for that key,
-# so these styles don't leak to the rest of the app.
+# CSS — every rule is scoped to a ``.st-key-*`` class so styles can't leak
+# to the rest of the app. ``st.container(key="X")`` adds a class
+# ``st-key-X`` to its wrapper div, which is what we hook off here. The
+# previous implementation used ``streamlit_extras.stylable_container``,
+# but its CSS scoping turned out to be unreliable in our Streamlit
+# version — every ``button`` selector bled to other pages and turned
+# normal CTAs (Sign out, Download, Full Pipeline, etc.) into orange FAB
+# circles. The class-prefix approach below is the migration path
+# Streamlit recommends and is now deprecation-warning-free.
 #
-# The FAB renders only when the drawer is closed; the drawer's own header
-# carries the close (✕) control. Earlier versions tried to keep the FAB
-# visible to also act as a toggle, but at right:1.4rem / bottom:1.4rem
-# it sat *inside* the drawer's footprint and ended up behind the panel
-# on some browsers — clicks landed on the drawer instead and "close"
-# felt broken.
+# The FAB only renders when the drawer is closed; the drawer's own
+# header carries the close (✕) control. Keeping the FAB visible while
+# open caused it to sit *inside* the drawer's footprint and end up
+# unclickable behind the panel.
 # ---------------------------------------------------------------------------
-_DRAWER_CSS = """
-{
+_DRAWER_STYLES = """
+<style>
+/* ---- Drawer panel ----------------------------------------------------- */
+.st-key-esg_pilot_drawer {
     position: fixed;
     top: 4rem;
     right: 0;
@@ -416,31 +416,33 @@ _DRAWER_CSS = """
     overflow-y: auto;
     padding: 0.85rem 1rem 5rem 1rem;
 }
-.stPlotlyChart, [data-testid="stPlotlyChart"] {
+.st-key-esg_pilot_drawer .stPlotlyChart,
+.st-key-esg_pilot_drawer [data-testid="stPlotlyChart"] {
     max-width: 100% !important;
 }
-.stPlotlyChart > div, [data-testid="stPlotlyChart"] > div {
+.st-key-esg_pilot_drawer .stPlotlyChart > div,
+.st-key-esg_pilot_drawer [data-testid="stPlotlyChart"] > div {
     width: 100% !important;
 }
-[data-testid="stChatMessage"] {
+.st-key-esg_pilot_drawer [data-testid="stChatMessage"] {
     padding: 0.5rem 0.6rem !important;
     margin-bottom: 0.5rem !important;
 }
-[data-testid="stChatMessage"] p {
+.st-key-esg_pilot_drawer [data-testid="stChatMessage"] p {
     font-size: 0.9rem !important;
     line-height: 1.45 !important;
 }
-"""
 
-_FAB_CSS = """
-{
+/* ---- FAB (open-drawer trigger) --------------------------------------- */
+.st-key-esg_pilot_fab {
     position: fixed;
     bottom: 1.4rem;
     right: 1.4rem;
     z-index: 9999;
     width: auto;
 }
-button {
+.st-key-esg_pilot_fab .stButton > button,
+.st-key-esg_pilot_fab button {
     width: 56px !important;
     height: 56px !important;
     min-height: 56px !important;
@@ -455,16 +457,17 @@ button {
     padding: 0 !important;
     transition: transform 180ms ease, box-shadow 180ms ease !important;
 }
-button:hover {
+.st-key-esg_pilot_fab .stButton > button:hover,
+.st-key-esg_pilot_fab button:hover {
     transform: translateY(-3px) scale(1.04) !important;
     box-shadow:
         0 18px 36px rgba(253, 81, 8, 0.45),
         inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
 }
-"""
 
-_CLOSE_BTN_CSS = """
-button {
+/* ---- Close (✕) inside drawer header ---------------------------------- */
+.st-key-esg_pilot_close .stButton > button,
+.st-key-esg_pilot_close button {
     width: 34px !important;
     height: 34px !important;
     min-height: 34px !important;
@@ -479,15 +482,16 @@ button {
     transition: background 160ms ease, color 160ms ease,
                 border-color 160ms ease !important;
 }
-button:hover {
+.st-key-esg_pilot_close .stButton > button:hover,
+.st-key-esg_pilot_close button:hover {
     background: rgba(200, 16, 46, 0.08) !important;
     color: #C8102E !important;
     border-color: rgba(200, 16, 46, 0.30) !important;
 }
-"""
 
-_CLEAR_BTN_CSS = """
-button {
+/* ---- "Clear conversation" subtle text link --------------------------- */
+.st-key-esg_pilot_clear .stButton > button,
+.st-key-esg_pilot_clear button {
     background: transparent !important;
     color: #64748b !important;
     border: none !important;
@@ -498,12 +502,17 @@ button {
     text-decoration: underline !important;
     text-decoration-color: rgba(100, 116, 139, 0.35) !important;
     text-underline-offset: 3px !important;
+    width: auto !important;
+    min-height: 0 !important;
+    height: auto !important;
 }
-button:hover {
+.st-key-esg_pilot_clear .stButton > button:hover,
+.st-key-esg_pilot_clear button:hover {
     color: #C8102E !important;
     text-decoration-color: rgba(200, 16, 46, 0.5) !important;
     background: transparent !important;
 }
+</style>
 """
 
 
@@ -516,24 +525,27 @@ def render_chat_drawer() -> None:
     per-page changes. Only signed-in users see it."""
     if not _current_username():
         return
-    if not _HAS_STYLABLE:
-        return
 
     if _CHAT_HISTORY_KEY not in st.session_state:
         st.session_state[_CHAT_HISTORY_KEY] = []
     if _DRAWER_OPEN_KEY not in st.session_state:
         st.session_state[_DRAWER_OPEN_KEY] = False
 
+    # Inject scoped styles once per page render. Cheap and idempotent —
+    # browsers de-duplicate identical <style> tags effectively, and this
+    # keeps the rules co-located with the components they target.
+    st.markdown(_DRAWER_STYLES, unsafe_allow_html=True)
+
     open_now = bool(st.session_state[_DRAWER_OPEN_KEY])
 
     if not open_now:
-        with stylable_container(key="esg_pilot_fab", css_styles=_FAB_CSS):
+        with st.container(key="esg_pilot_fab"):
             if st.button("💬", key="_pilot_fab_btn", help="Open ESG Pilot"):
                 st.session_state[_DRAWER_OPEN_KEY] = True
                 st.rerun()
         return
 
-    with stylable_container(key="esg_pilot_drawer", css_styles=_DRAWER_CSS):
+    with st.container(key="esg_pilot_drawer"):
         head_left, head_right = st.columns([6, 1], vertical_alignment="center")
         with head_left:
             st.markdown(
@@ -546,7 +558,7 @@ def render_chat_drawer() -> None:
                 unsafe_allow_html=True,
             )
         with head_right:
-            with stylable_container(key="esg_pilot_close", css_styles=_CLOSE_BTN_CSS):
+            with st.container(key="esg_pilot_close"):
                 if st.button("✕", key="_pilot_close_btn", help="Minimize"):
                     st.session_state[_DRAWER_OPEN_KEY] = False
                     st.rerun()
@@ -574,7 +586,7 @@ def render_chat_drawer() -> None:
                     _render_assistant_blocks(blocks, chart_key_prefix=f"hist_{idx}")
 
         if history:
-            with stylable_container(key="esg_pilot_clear", css_styles=_CLEAR_BTN_CSS):
+            with st.container(key="esg_pilot_clear"):
                 if st.button("Clear conversation", key="_pilot_clear"):
                     st.session_state[_CHAT_HISTORY_KEY] = []
                     st.rerun()
