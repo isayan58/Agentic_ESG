@@ -818,6 +818,16 @@ def sidebar_auth_widget() -> None:
                 except Exception:
                     st.info("Open the **Sign In** page from the sidebar.")
 
+    # Mount the global ESG Pilot drawer for signed-in users. Imported
+    # lazily so a missing optional dep (e.g. plotly / streamlit-extras
+    # / anthropic) never blocks the auth widget itself.
+    if user:
+        try:
+            from utils.chat_drawer import render_chat_drawer
+            render_chat_drawer()
+        except Exception:
+            pass
+
 
 # ---------------------------------------------------------------------------
 # Misc helpers
