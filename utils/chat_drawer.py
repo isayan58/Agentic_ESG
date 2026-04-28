@@ -433,13 +433,19 @@ _DRAWER_STYLES = """
     line-height: 1.45 !important;
 }
 
-/* ---- FAB (open-drawer trigger) --------------------------------------- */
+/* ---- FAB (open-drawer trigger) ---------------------------------------
+   The class lands on the button widget's outer wrapper because we attach
+   `key="esg_pilot_fab"` directly to st.button — no st.container wrapper
+   between us and the button. !important on the position is defensive
+   against any base Streamlit rules that might otherwise win specificity
+   and leave the FAB stuck in the document flow. */
 .st-key-esg_pilot_fab {
-    position: fixed;
-    bottom: 1.4rem;
-    right: 1.4rem;
-    z-index: 9999;
-    width: auto;
+    position: fixed !important;
+    bottom: 1.4rem !important;
+    right: 1.4rem !important;
+    z-index: 9999 !important;
+    width: auto !important;
+    margin: 0 !important;
 }
 .st-key-esg_pilot_fab .stButton > button,
 .st-key-esg_pilot_fab button {
@@ -539,10 +545,15 @@ def render_chat_drawer() -> None:
     open_now = bool(st.session_state[_DRAWER_OPEN_KEY])
 
     if not open_now:
-        with st.container(key="esg_pilot_fab"):
-            if st.button("💬", key="_pilot_fab_btn", help="Open ESG Pilot"):
-                st.session_state[_DRAWER_OPEN_KEY] = True
-                st.rerun()
+        # Attach the key directly to the button so .st-key-esg_pilot_fab
+        # lands on the button's own wrapper. An st.container(key=...)
+        # around it added an extra DOM level that, in this Streamlit
+        # version, didn't reliably receive the class — so the FAB lost
+        # its position:fixed styling on rerun and the user saw nothing
+        # to reopen the drawer with.
+        if st.button("💬", key="esg_pilot_fab", help="Open ESG Pilot"):
+            st.session_state[_DRAWER_OPEN_KEY] = True
+            st.rerun()
         return
 
     with st.container(key="esg_pilot_drawer"):
@@ -558,10 +569,9 @@ def render_chat_drawer() -> None:
                 unsafe_allow_html=True,
             )
         with head_right:
-            with st.container(key="esg_pilot_close"):
-                if st.button("✕", key="_pilot_close_btn", help="Minimize"):
-                    st.session_state[_DRAWER_OPEN_KEY] = False
-                    st.rerun()
+            if st.button("✕", key="esg_pilot_close", help="Minimize"):
+                st.session_state[_DRAWER_OPEN_KEY] = False
+                st.rerun()
 
         run = _load_run_results()
         if not run:
@@ -586,10 +596,9 @@ def render_chat_drawer() -> None:
                     _render_assistant_blocks(blocks, chart_key_prefix=f"hist_{idx}")
 
         if history:
-            with st.container(key="esg_pilot_clear"):
-                if st.button("Clear conversation", key="_pilot_clear"):
-                    st.session_state[_CHAT_HISTORY_KEY] = []
-                    st.rerun()
+            if st.button("Clear conversation", key="esg_pilot_clear"):
+                st.session_state[_CHAT_HISTORY_KEY] = []
+                st.rerun()
 
         question = st.chat_input(
             "Ask about your run — try 'show me the IQS components'",
