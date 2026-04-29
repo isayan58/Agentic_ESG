@@ -71,7 +71,57 @@ class RiskPredictorAgent(BaseAgent):
         }
 
         state_manager.publish("risk_results", results, self.name)
+
+        # Best-effort notification on a high-risk reading. Anything ≥70
+        # crosses the "needs management attention" line in
+        # ``_risk_level`` (see method below) so the threshold matches
+        # what users already see colour-coded as red on the dashboard.
+        try:
+            self._maybe_notify_risk_breach(results)
+        except Exception:  # noqa: BLE001 — never break the pipeline
+            pass
         return results
+
+    def _maybe_notify_risk_breach(self, results: dict) -> None:
+        """Emit a `risk_threshold_breached` event when overall risk ≥ 70."""
+        overall = float(results.get("overall_risk_score") or 0)
+        if overall < 70:
+            return
+        try:
+            from utils.notifications import Event, notify
+        except Exception:  # pragma: no cover
+            return
+
+        owner = None
+        actor = None
+        try:
+            import streamlit as st
+            user = (st.session_state.get("user") or {}) if hasattr(st, "session_state") else {}
+            owner = (user.get("org_id") or "").strip() or None
+            actor = (user.get("username") or "").strip() or None
+        except Exception:
+            owner = None
+        import os
+        owner = owner or os.getenv("ESG_DEFAULT_ORG") or None
+        if not owner:
+            return
+
+        notify(
+            Event(
+                type="risk_threshold_breached",
+                title=f"Risk score crossed threshold: {overall}/100",
+                summary=(
+                    f"The Risk Predictor reported an overall climate risk "
+                    f"score of {overall}/100, which is at or above the "
+                    "70-point management-attention threshold. Open the "
+                    "Risk Predictor page to review category-level drivers."
+                ),
+                severity="critical" if overall >= 85 else "warning",
+                actor=actor,
+                payload={"overall_risk_score": overall},
+            ),
+            owner=owner,
+        )
 
     def _assess_climate_risks(self, emissions_df, metrics_df):
         sr = company_cfg.sector_risk

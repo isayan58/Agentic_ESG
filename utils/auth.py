@@ -456,13 +456,24 @@ def signup(
     password: str,
     full_name: str = "",
     role: str = "viewer",
+    org_id: str = "",
+    org_name: str = "",
 ) -> dict:
     """Create a new user. Raises ``ValueError`` on validation / duplicates.
 
     Rate-limited per username-or-email to blunt signup-spam scripts. The
     cap is intentionally generous (5/hour) so a real user typo-ing their
     password a few times isn't locked out.
+
+    Org membership: when ``org_id`` is omitted the user gets a personal
+    one-person org (``org_<username>``) so demos that don't bother with
+    teams keep working. When the first user of an org signs up they are
+    promoted to ``admin`` automatically — without that, no one in the
+    new org would have ``manage_users`` and the team page would be
+    permanently locked.
     """
+    from utils.rbac import default_org_for, ROLES
+
     username = _validate_username(username)
     email = _validate_email(email)
     _validate_password(password)
@@ -473,13 +484,27 @@ def signup(
     _check_rate_limit(_signup_attempts, email.lower(),
                       SIGNUP_RATE_LIMIT, SIGNUP_RATE_WINDOW)
 
+    role = (role or "viewer").strip().lower()
+    if role not in ROLES:
+        role = "viewer"
+
+    org_id = (org_id or "").strip() or default_org_for(username)
+    org_name = (org_name or "").strip() or full_name + "'s workspace"
+
     store = get_user_store()
+    # First user in an org always becomes admin so the team can be
+    # managed at all. Otherwise honour the requested role.
+    if not store.list_org_members(org_id):
+        role = "admin"
+
     user = User(
         username=username,
         email=email,
         password_hash=hash_password(password),
         full_name=full_name,
         role=role,
+        org_id=org_id,
+        org_name=org_name,
     )
     store.create_user(user)
     store.touch_last_login(username)
