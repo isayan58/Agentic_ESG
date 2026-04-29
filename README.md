@@ -65,21 +65,6 @@ The ESG tooling market is full of dashboards. ESG Pilot is built differently —
 > **🧯 Defensive by design — fallbacks everywhere.**
 > No HuggingFace token? Rule-based fallbacks keep every agent running. No `pyarrow`? HTML table renderer kicks in. No `plotly`? Charts degrade to placeholders, the data still flows. Caches invalidated before every full pipeline run, so a remote table change is always visible on the next click. Errors are surfaced loudly, never swallowed.
 
-> **👥 Org / team / role-based access control.**
-> Four-role matrix (admin · analyst · auditor · viewer) gating 11 platform permissions. Every signup auto-provisions a personal one-person org so single-user demos still work; invite a teammate and they land in your workspace as the role you pick. The matrix is enforced consistently across pipeline runs, regulatory approvals, supplier-token minting, XBRL exports, and the team page itself.
-
-> **🔔 Notifications routed to email · Slack · Teams · webhooks.**
-> Per-org route store with severity gating (info / warning / critical) and event filtering. Wired into the regulatory approval queue, pipeline completion / failure, the risk-threshold breach (≥70/100), and supplier submissions. Best-effort by design — a dead Slack webhook never blocks the action that triggered it. SMTP credentials and webhook URLs are *optional*; the platform degrades cleanly without them.
-
-> **🤝 Supplier self-service portal — no supplier login required.**
-> Closes the Scope 3 data-quality gap. Org admin mints a single-use tokenised URL for a named supplier and reporting period; the supplier opens the link, fills a typed form, submits. The submission lands in a per-org inbox. One click merges the rows into the live `dataset_supply_chain` channel for the next pipeline run. Tokens are revocable, single-use, and optionally expiry-bound.
-
-> **🧬 End-to-end data lineage view.**
-> A dedicated page renders the source → schema → agent → output Sankey for the current pipeline run, plus a per-agent table showing what each agent reads, what it publishes, when it last ran, and whether its output channel is currently populated. Reads from the connection manager + state bus + agent telemetry — no extra agent runs required. Auditor-friendly answer to "where did this number come from?".
-
-> **📊 XBRL / Inline XBRL exports for regulatory filing.**
-> Both the SEC Climate Rule and CSRD ESRS require machine-readable digital tagging. The Report Generator now ships three downloads: a raw XBRL 2.1 instance document, an iXBRL HTML report (the format SEC EDGAR / EFRAG ESEF actually accept), and a debug facts-CSV. Tags emissions, compliance %, ESG capex, ROI, and IQS against a configurable taxonomy URI — swap the synthetic namespace for the regulator's published taxonomy when filing for real.
-
 > **🔮 What-if simulator over the cached ROI run.**
 > A new tab on the ESG ROI page with sliders for carbon-price uplift, ESG-capex change, benefit-realisation timing, and discount rate. Recomputes the J-curve, IQS, NPV, and breakeven in milliseconds — pure-functional re-projection, no agent re-runs. Lets a CFO answer "what if CBAM doubled our carbon tax?" without waiting for a fresh pipeline.
 
@@ -166,11 +151,6 @@ Recent platform enhancements:
 | **Emissions → Cost Linkage & Carbon Tax Risk** | What are our current and projected (3-yr, CBAM) carbon tax exposures? |
 | **Implementation Friction & Net ROI per Action** | Which actions actually survive execution realism — accounting for regime, category, liquidity, and transaction cost? |
 | **What-if Simulator** (carbon price, capex, benefit realisation, discount rate) | What does the J-curve, IQS, and NPV look like under stress? Pure re-projection — no pipeline re-run. |
-| **Org / Team / RBAC** (admin · analyst · auditor · viewer) | Who can edit data, approve regulatory updates, mint supplier links, and download XBRL? |
-| **Notification routing** (email · Slack · Teams · webhook) | The team finds out a regulator changed something even if no one had ESG Pilot open. |
-| **Supplier portal with single-use tokens** | How do we get Scope 3 data without putting suppliers through an SSO dance? |
-| **Lineage Sankey** (source → schema → agent → output) | Where did this number come from? — answered visually, in one click. |
-| **XBRL / iXBRL export** | Can we file machine-readable disclosures for SEC Climate / ESRS without a separate tool? |
 
 ---
 
@@ -258,12 +238,7 @@ See `RUNBOOK.md` → *Data ETL & freshness* for deeper internals including cache
 │   ├── 7_Audit_Agent.py              # Audit readiness, compliance checklist
 │   ├── 8_Action_Agent.py             # Action items table, roadmap
 │   ├── 9_Stakeholder_Agent.py        # Communication templates, tone analysis
-│   ├── 11_ESG_ROI_Agent.py           # ROI dashboard — dual ROI, J-curve, IQS, what-if simulator
-│   ├── 13_Team.py                    # Team & roles — invite members, change roles, view permission matrix
-│   ├── 14_Notifications.py           # Notification routes — email, Slack, Teams, generic webhooks
-│   ├── 15_Supplier_Portal.py         # Token-only supplier intake (no login required)
-│   ├── 16_Supplier_Inbox.py          # Mint supplier links, review submissions, merge into supply_chain
-│   └── 17_Data_Lineage.py            # Source → schema → agent → output Sankey + per-agent table
+│   └── 11_ESG_ROI_Agent.py           # ROI dashboard — dual ROI, J-curve, IQS, what-if simulator
 ├── data/
 │   ├── company_profile.json           # Fictional company: GreenTech Solutions Pvt. Ltd.
 │   ├── regulatory_frameworks.json     # BRSR, CSRD, GRI, SASB requirements
@@ -282,11 +257,7 @@ See `RUNBOOK.md` → *Data ETL & freshness* for deeper internals including cache
     ├── connection_manager.py          # Session-scoped source registry
     ├── schema_mapper.py               # ESG schema definitions + auto-mapping
     ├── streamlit_compat.py            # Fallback renderers for constrained local installs
-    ├── rbac.py                         # Role + permission matrix; require_permission gate
-    ├── notifications.py                # Email/Slack/Teams/webhook fan-out + per-org route store
-    ├── supplier_tokens.py              # Token + submission stores, supplier-row validation
     ├── whatif.py                       # Pure-functional ROI re-projection (J-curve, IQS, NPV)
-    ├── xbrl_export.py                  # XBRL 2.1 instance + iXBRL HTML generator
     └── monitoring.py                  # Operational monitoring utilities
 ```
 
@@ -442,10 +413,8 @@ This section documents verified functional and operational changes introduced in
 
 | Area | Entry |
 | --- | --- |
-| Identity & isolation | [Authentication](#authentication--access-control) · [Per-user state isolation](#per-user-state-isolation) · [Per-user persistence](#per-user-persistence-profile--source-store) · [Session-cookie secret persistence](#session-cookie-secret-persistence) · [Org / Team / RBAC](#org--team--rbac) |
-| Data flow | [Pipeline refresh & data freshness](#pipeline-refresh--data-freshness) · [Live source refresh & file replace](#live-source-refresh--file-replace) · [Snowflake connector](#snowflake-connector-promoted-to-first-class) · [Data Upload → Pipeline wiring](#data-upload--pipeline-wiring) · [Connector retry/timeout policy](#connector-retrytimeout-policy) · [Supplier portal](#supplier-self-service-portal) · [Data lineage page](#data-lineage-page) |
-| Notifications | [Notification routes](#notification-routes) |
-| Regulatory exports | [XBRL / iXBRL exports](#xbrl--ixbrl-exports) |
+| Identity & isolation | [Authentication](#authentication--access-control) · [Per-user state isolation](#per-user-state-isolation) · [Per-user persistence](#per-user-persistence-profile--source-store) · [Session-cookie secret persistence](#session-cookie-secret-persistence) |
+| Data flow | [Pipeline refresh & data freshness](#pipeline-refresh--data-freshness) · [Live source refresh & file replace](#live-source-refresh--file-replace) · [Snowflake connector](#snowflake-connector-promoted-to-first-class) · [Data Upload → Pipeline wiring](#data-upload--pipeline-wiring) · [Connector retry/timeout policy](#connector-retrytimeout-policy) |
 | Decision tooling | [What-if simulator (ROI page)](#what-if-simulator-roi-page) |
 | Reliability & state | [Persistent pipeline runs (auto-save + auto-load)](#persistent-pipeline-runs-auto-save--auto-load) · [Incremental run cache](#incremental-run-cache--ensure-complete) · [Featured ROI card stale-read fix](#featured-roi-card-no-longer-goes-stale-after-a-run) · [J-Curve breakeven repair](#j-curve-breakeven-repair) · [Recommendation cache: don't pin failures](#recommendation-cache-dont-pin-failures) |
 | Regulatory | [Live framework reloads](#live-regulatory-framework-reloads) · [LLM-JSON parser tolerance](#llm-json-parser-tolerance-for-framework-updates) · [Approval audit log + revert](#approval-audit-log--revert) |
@@ -785,117 +754,6 @@ Fix: persist the secret to the same private HF Dataset that backs the user / sou
 
 ---
 
-### Org / Team / RBAC
-
-The single `role` field on `User` is now part of a four-role matrix gating eleven platform permissions. Implemented in `utils/rbac.py` and surfaced through a new **Team** page (`pages/13_Team.py`).
-
-**Roles:**
-
-| Role | Can |
-| --- | --- |
-| **admin** | Manage users, manage org, manage sources, run pipeline, approve regulatory updates, manage notifications, manage supplier tokens, manage XBRL, view dashboards, view audit, view lineage |
-| **analyst** | Edit sources, run pipeline, approve regulatory updates, manage supplier tokens, manage XBRL, view dashboards, view audit, view lineage |
-| **auditor** | View dashboards, view audit, view lineage (read-only) |
-| **viewer** | View dashboards (read-only) |
-
-**Org membership:** `User` gained `org_id` + `org_name` fields. Every signup auto-provisions a personal org (`org_<username>`) so single-user demos still work; the *first* user in any org is auto-promoted to admin so the workspace is always manageable.
-
-**Gating:** `require_permission("manage_xbrl")` etc. is called at the top of admin-only pages and inside per-action UI blocks. Misspelled permission strings are treated as denied (the matrix is the only authoritative grant path) so a typo never silently grants access.
-
-`tests/test_rbac.py` pins: admin holds every permission, viewer is strictly read-only, auditor keeps `view_audit`, only admin manages users, unknown roles + permissions are denied.
-
----
-
-### Notification routes
-
-Per-org route store with four channels — **email** (SMTP), **Slack** (incoming webhook), **Microsoft Teams** (incoming webhook), and **generic JSON webhook** — backed by the same private HF Dataset as the rest of the auth state. New page at `pages/14_Notifications.py` (admin-only).
-
-**Wired into:**
-
-- **Regulatory updates** — every framework refresh that detects new pending updates fires `regulatory_update_pending` (severity warns when ≥3 land at once). See `utils/framework_refresh.py:_notify_pending_updates`.
-- **Pipeline runs** — `Orchestrator.run_full_pipeline` fires `pipeline_run_completed` on success and `pipeline_run_failed` (warning) when any agent errored.
-- **Risk thresholds** — `RiskPredictorAgent.execute` fires `risk_threshold_breached` whenever the overall climate-risk score crosses 70/100 (critical at ≥85). The 70 threshold matches the colour cutoff already shown on the Risk Predictor page.
-- **Supplier submissions** — `pages/15_Supplier_Portal.py` fires `supplier_submission_received` the moment a supplier hits Submit.
-
-**Severity gating:** every route has a `min_severity` (info / warning / critical) and an optional `event_types` filter. Empty filter means "all events". Disabled routes never match.
-
-**Best-effort by design:** every transport has its own try/except inside `_dispatch_to`, so a broken Slack webhook can't block delivery to email and never raises into the action that triggered the notification. `tests/test_notifications.py::TestDispatchIsolation` pins this.
-
-**SMTP configuration** (env vars on the server):
-
-| Var | Purpose |
-| --- | --- |
-| `ESG_SMTP_HOST` | SMTP server host |
-| `ESG_SMTP_PORT` | Port (default `587`) |
-| `ESG_SMTP_USER` / `ESG_SMTP_PASS` | Optional auth credentials |
-| `ESG_SMTP_SENDER` | `From:` address (required to enable email channel) |
-| `ESG_SMTP_TLS` | `1` (default) for STARTTLS, `0` for plain |
-| `ESG_DEFAULT_ORG` | Fallback org id when notifications fire from a non-Streamlit context |
-
-With nothing configured, the email channel reports "No SMTP config" instead of trying to send. Webhook channels need no extra setup.
-
----
-
-### Supplier self-service portal
-
-Closes the README-flagged Scope 3 gap: suppliers don't have ESG Pilot logins, so getting their data took spreadsheets and chasing. Now an org admin can mint a single-use tokenised URL — the supplier opens the link, fills a typed form, submits.
-
-**Layout:** two new pages plus a token store.
-
-- `pages/15_Supplier_Portal.py` — public, **no login required**. Token in URL (`?t=<token>`) is the credential. Sidebar nav is hidden via CSS so suppliers never see app pages. The form has typed inputs for Scope 3 emissions, energy, renewable share, water, waste, diversity, lost-time incidents, and a self-reported ESG score, plus a notes field and a consent checkbox. On submit it validates rows (drops unknown fields, rejects non-numeric values in numeric fields, rejects empty rows), marks the token used, and fires a `supplier_submission_received` notification.
-- `pages/16_Supplier_Inbox.py` — admin / analyst counterpart. Mint links, view active / used / revoked tokens, review submitted rows, and **one-click merge** into `dataset_supply_chain` for the next pipeline run. Merging publishes through `state_manager` rather than rewriting any persisted store — same "next run picks it up" semantics as a re-uploaded CSV.
-
-**Token security:**
-
-- 32-byte URL-safe tokens (~43 chars). Brute-forcing is impractical without rate-limiting in front, but combined with single-use semantics + supplier+period scoping + revocability the blast radius of a leaked URL is bounded to one already-anticipated submission.
-- `is_valid()` rejects revoked → expired → already-used in priority order so the supplier sees the most actionable error message.
-- `find_token` walks every known org's token file when looking up a supplier-supplied token, because the supplier doesn't know which org issued the link.
-
-**`ESG_PUBLIC_URL`** env var (e.g. `https://your-space.hf.space`) makes the inbox print fully-qualified copy/paste URLs instead of the path-only fallback.
-
-`tests/test_supplier_tokens.py` pins token lifecycle + submission validation, including the priority rule for the `is_valid()` errors.
-
----
-
-### Data lineage page
-
-`pages/17_Data_Lineage.py` answers "where did this number come from?" visually. Two layers:
-
-1. **Sankey** — sources (connectors) → schemas (canonical names) → agents (9) → output channels. Reads from `ConnectionManager.list_sources()`, the static schema-input map per agent, the orchestrator's dependency graph, and the live `state_manager.get_all_channels()` so an agent that hasn't run yet renders with a faded link to its output.
-2. **Per-agent table** — what each agent reads (schemas + upstream agents), what it publishes, its current status from `agent_telemetry`, last run timestamp, and runtime. Plus the live channel inventory and the registered-source list with last fetch + row count.
-
-Pure metadata read — no extra agent runs. Permission-gated on `view_lineage` so auditors get access without needing edit rights.
-
----
-
-### XBRL / iXBRL exports
-
-Closes the regulatory digital-tagging gap. The Report Generator now produces three additional downloads (admin / analyst only) alongside the HTML / Markdown reports:
-
-- **XBRL 2.1 instance** (`.xbrl`) — raw XML conforming to the spec, suitable for offline validation against a regulator's published taxonomy.
-- **Inline XBRL** (`.html`) — the format SEC EDGAR and EFRAG ESEF actually accept for filings. Every numeric fact in the report is wrapped in `<ix:nonFraction>` so an iXBRL viewer can extract it.
-- **Facts CSV** (debug / cross-check) — the same fact set in flat form so you can `diff` against the dashboard.
-
-**Tagged concepts** (this iteration — quantitative facts only; narrative block-tagging is the next iteration):
-
-| Concept | Source |
-| --- | --- |
-| `TotalGreenhouseGasEmissions` | Carbon Accountant total |
-| `ScopeOneEmissions` / `ScopeTwoEmissions` / `ScopeThreeEmissions` | Carbon Accountant scope totals |
-| `OverallRegulatoryCompliancePercent` | Regulatory Tracker overall |
-| `Compliance{Framework}Percent` | Per-framework compliance % (BRSR, CSRD, GRI, SASB, SOX, SEC) |
-| `ESGLinkedCapitalExpenditure` / `ESGNetFinancialBenefit` | ROI Agent financial summary |
-| `ESGFinancialReturnPercent` | ROI Agent ROI % |
-| `ESGInvestmentQualityScore` | ROI Agent IQS |
-
-**Taxonomy URI:** the generator emits facts under a synthetic `http://esg-pilot.dev/taxonomy/2026` namespace by default. For a real filing, swap that constant in `utils/xbrl_export.py` for the regulator's URI (`http://www.efrag.org/xbrl/esrs/2026`, the SEC equivalent, or your in-house extension). Concept names are deliberately aligned with ESRS / SEC concept names so the swap is mechanical.
-
-**Entity identifier resolution** (in `_entity_identifier`): prefers the LEI (`http://standards.iso.org/iso/17442` scheme), falls back to a sanitised company-name identifier so the export still validates structurally on the demo data.
-
-`tests/test_xbrl_export.py` pins XML well-formedness, the LEI vs synthetic-id fallback, the concept-name sanitisation rule, and the iXBRL HTML being valid XHTML.
-
----
-
 ### What-if simulator (ROI page)
 
 A new **🔮 What-if Simulator** tab on `pages/11_ESG_ROI_Agent.py` with four sliders:
@@ -930,11 +788,7 @@ NPV semantics: per-quarter rate is `rate / 4` (so the slider stays in annual uni
 | `utils/run_store.py` | Per-user pipeline-run snapshots | Persists full `pipeline_results` dicts to the auth HF Dataset so the Command Center + ESG ROI page auto-rehydrate on the next session start. History capped at 25 with orphan cleanup. |
 | `utils/connector_retry.py` | Shared retry/timeout policy for connector fetches | Wraps every `ConnectionManager.fetch_source` call. Transient HTTP 5xx / network blips retry with jittered backoff; auth + config failures fail fast. |
 | `utils/agent_telemetry.py` | Persistent per-agent run history (file-backed) | Survives Streamlit reruns + Space restarts so the *Pipeline Observability* panel always shows the last-run timestamp / runtime / error per agent. |
-| `utils/rbac.py` | Role + permission matrix (admin / analyst / auditor / viewer) and `require_permission()` gate | Adds an authoritative grant path for the eleven platform permissions. Misspelled permission strings deny by default. |
-| `utils/notifications.py` | Email / Slack / Teams / generic-webhook fan-out with per-org route store | Routes ESG events outside the app — the team finds out about regulatory updates / risk breaches / pipeline failures even when no one has the dashboard open. |
-| `utils/supplier_tokens.py` | Single-use token store + per-org submission inbox + row validation | Powers the supplier portal. Suppliers fill data without an account; a leaked URL has bounded blast radius. |
 | `utils/whatif.py` | Pure-functional re-projection of an ROI run under slider scenarios | Sub-second "what if carbon prices doubled?" answers without re-running the agents. |
-| `utils/xbrl_export.py` | XBRL 2.1 instance + inline-XBRL HTML generator | Closes the SEC Climate Rule + CSRD ESRS digital-tagging gap. Stdlib-only — swap the synthetic taxonomy URI for the regulator's published one when filing for real. |
 
 ---
 

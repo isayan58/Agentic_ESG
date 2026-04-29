@@ -88,9 +88,6 @@ class User:
     role: str = "viewer"
     created_at: str = ""
     last_login: str = ""
-    # Organisation membership. Defaults to a per-user personal org auto-
-    # assigned at signup so single-user demos keep working without any
-    # explicit team setup. See ``utils.rbac.default_org_for``.
     org_id: str = ""
     org_name: str = ""
 
@@ -210,20 +207,6 @@ class UserStore:
             for rec in self._load_users()
             if (rec.get("org_id") or "").strip() == org_id
         ]
-
-    def update_role(self, username: str, new_role: str) -> bool:
-        """Change a user's role. Returns True on success.
-
-        Validates the new role against ``utils.rbac.ROLES`` before
-        writing — a typo here would otherwise silently lock the user
-        into a role that grants nothing.
-        """
-        from utils.rbac import ROLES
-
-        new_role = (new_role or "").strip().lower()
-        if new_role not in ROLES:
-            raise ValueError(f"Unknown role '{new_role}'. Valid: {', '.join(ROLES)}")
-        return self._patch_user(username, {"role": new_role})
 
     def set_user_org(self, username: str, org_id: str, org_name: str = "") -> bool:
         """Move a user into ``org_id`` (with display name ``org_name``)."""

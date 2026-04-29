@@ -467,13 +467,8 @@ def signup(
 
     Org membership: when ``org_id`` is omitted the user gets a personal
     one-person org (``org_<username>``) so demos that don't bother with
-    teams keep working. When the first user of an org signs up they are
-    promoted to ``admin`` automatically — without that, no one in the
-    new org would have ``manage_users`` and the team page would be
-    permanently locked.
+    teams keep working.
     """
-    from utils.rbac import default_org_for, ROLES
-
     username = _validate_username(username)
     email = _validate_email(email)
     _validate_password(password)
@@ -484,18 +479,13 @@ def signup(
     _check_rate_limit(_signup_attempts, email.lower(),
                       SIGNUP_RATE_LIMIT, SIGNUP_RATE_WINDOW)
 
-    role = (role or "viewer").strip().lower()
-    if role not in ROLES:
-        role = "viewer"
+    role = (role or "viewer").strip().lower() or "viewer"
 
-    org_id = (org_id or "").strip() or default_org_for(username)
+    cleaned_username = username.strip().lower()
+    org_id = (org_id or "").strip() or (f"org_{cleaned_username}" if cleaned_username else "org_anonymous")
     org_name = (org_name or "").strip() or full_name + "'s workspace"
 
     store = get_user_store()
-    # First user in an org always becomes admin so the team can be
-    # managed at all. Otherwise honour the requested role.
-    if not store.list_org_members(org_id):
-        role = "admin"
 
     user = User(
         username=username,

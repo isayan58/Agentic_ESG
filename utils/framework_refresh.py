@@ -258,61 +258,7 @@ def refresh_and_store(
     store["last_error"] = None
     store["last_added_count"] = added
     save_updates_store(store)
-
-    # Best-effort fan-out to configured notification routes for the
-    # signed-in user's org. Failures are absorbed inside ``notify`` so a
-    # broken Slack webhook never blocks a successful refresh.
-    if added:
-        try:
-            _notify_pending_updates(store, added)
-        except Exception:  # noqa: BLE001 — never break the refresh path
-            pass
     return store
-
-
-def _notify_pending_updates(store: dict, added_count: int) -> None:
-    """Dispatch a `regulatory_update_pending` event for newly-detected updates."""
-    try:
-        from utils.notifications import Event, notify
-    except Exception:  # pragma: no cover - notifications optional
-        return
-
-    # Find owners we should fan out to. Streamlit context is not
-    # guaranteed (this might run from a CLI / job), so we fall back to
-    # an env-configured org if no signed-in user is available.
-    owner: str | None = None
-    actor: str | None = None
-    try:
-        import streamlit as st
-        user = (st.session_state.get("user") or {}) if hasattr(st, "session_state") else {}
-        owner = (user.get("org_id") or "").strip() or None
-        actor = (user.get("username") or "").strip() or None
-    except Exception:
-        owner = None
-    owner = owner or os.getenv("ESG_DEFAULT_ORG") or None
-    if not owner:
-        return
-
-    pending = [u for u in store.get("updates", []) if u.get("status") == "pending"]
-    headlines = "; ".join(
-        f"[{u.get('framework')}] {u.get('title')}" for u in pending[:3]
-    )
-    summary = (
-        f"{added_count} new regulatory update(s) need approval. "
-        f"Total pending in queue: {len(pending)}.\n\n{headlines}"
-    )
-    severity = "warning" if added_count >= 3 else "info"
-    notify(
-        Event(
-            type="regulatory_update_pending",
-            title=f"{added_count} new regulatory update(s) pending approval",
-            summary=summary,
-            severity=severity,
-            actor=actor,
-            payload={"added": added_count, "pending_total": len(pending)},
-        ),
-        owner=owner,
-    )
 
 
 # ── Approvals ───────────────────────────────────────────────────────────
