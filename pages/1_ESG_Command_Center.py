@@ -809,105 +809,11 @@ if st.session_state.pipeline_results:
 
     st.markdown("---")
 
-    # ── Ask the Pilot (natural-language Q&A grounded in this run) ──
-    section_header(
-        "Ask the Pilot",
-        "Ask a question about this pipeline run. Claude answers using the current agent results as context — no data from other runs or the web.",
-    )
-
-    if "mc_chat" not in st.session_state:
-        st.session_state.mc_chat = []
-
-    def _pipeline_context(run_results: dict, char_limit: int = 40000) -> str:
-        """Compact JSON snapshot of the run for the model. Drops planning log
-        (shown elsewhere) and truncates hard to stay well under the prompt-
-        cache sweet spot even on large runs."""
-        snapshot = {k: v for k, v in run_results.items() if k != "planning"}
-        try:
-            text = json.dumps(snapshot, default=str, indent=2)
-        except TypeError:
-            text = str(snapshot)
-        if len(text) > char_limit:
-            text = text[:char_limit] + "\n…[truncated]"
-        return text
-
-    def _ask_pilot(question: str, history: list[dict], run_results: dict) -> str:
-        api_key = config.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            return ("⚠️ `ANTHROPIC_API_KEY` is not set in this environment — "
-                    "set it and reload to use the Pilot.")
-        client = anthropic.Anthropic(api_key=api_key)
-        system = [
-            {
-                "type": "text",
-                "text": (
-                    "You are the ESG Pilot, answering questions about a single ESG "
-                    "pipeline run. Ground every claim in the JSON context provided. "
-                    "If the data cannot answer the question (e.g. no sector breakdown, "
-                    "no time-series), say so plainly and point to the closest signal "
-                    "that *is* available. Prefer concrete numbers from the context "
-                    "over generic ESG advice. Be concise — 3–6 short paragraphs or a "
-                    "tight bullet list. Never invent fields that aren't in the JSON."
-                ),
-            },
-            {
-                "type": "text",
-                "text": f"Pipeline run context (JSON):\n{_pipeline_context(run_results)}",
-                "cache_control": {"type": "ephemeral"},
-            },
-        ]
-        messages = [
-            {"role": turn["role"], "content": turn["content"]}
-            for turn in history
-        ]
-        messages.append({"role": "user", "content": question})
-        response = client.messages.create(
-            model=config.ANTHROPIC_MODEL,
-            max_tokens=2048,
-            system=system,
-            messages=messages,
-        )
-        return "".join(
-            block.text for block in response.content
-            if getattr(block, "type", None) == "text"
-        ).strip() or "(no response)"
-
-    for turn in st.session_state.mc_chat:
-        with st.chat_message(turn["role"]):
-            st.markdown(turn["content"])
-
-    user_q = st.chat_input(
-        "Ask about this run — e.g. 'Which KPI is weakest?' or 'Where is the biggest ROI lever?'"
-    )
-    if user_q:
-        st.session_state.mc_chat.append({"role": "user", "content": user_q})
-        with st.chat_message("user"):
-            st.markdown(user_q)
-        with st.chat_message("assistant"):
-            placeholder = st.empty()
-            placeholder.markdown("_Thinking…_")
-            try:
-                answer = _ask_pilot(
-                    user_q,
-                    st.session_state.mc_chat[:-1],
-                    results,
-                )
-            except Exception as exc:
-                answer = f"⚠️ Pilot call failed: `{exc}`"
-            placeholder.markdown(answer)
-        st.session_state.mc_chat.append({"role": "assistant", "content": answer})
-
-    if st.session_state.mc_chat:
-        if st.button("Clear chat", key="mc_chat_clear"):
-            st.session_state.mc_chat = []
-            st.rerun()
-
-    st.markdown("---")
-
     tab_results, tab_business, tab_hypotheses, tab_pipeline, tab_transform, tab_stack, tab_tiers, tab_monitor = st.tabs([
         "Results Summary", "Business Lens", "Hypothesis Tracker", "Pipeline Flow",
         "Transformation", "Enterprise Stack", "Tier Config", "24/7 Monitoring",
     ])
+
 
     data_res = results.get("data_collector", {})
     carbon_res = results.get("carbon_accountant", {})

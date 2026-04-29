@@ -46,6 +46,10 @@ ESG_SCHEMAS = {
         "audit_status":                 {"type": "str",   "required": False, "description": "Audit status"},
         "last_audit_date":              {"type": "str",   "required": False, "description": "Last audit date (YYYY-MM-DD)"},
         "key_risk_factors":             {"type": "str",   "required": False, "description": "Key risk factors (comma-separated)"},
+        "annual_spend_inr_crores":      {"type": "float", "required": False, "description": "Annual spend with this supplier (INR crore)"},
+        "scope3_category":              {"type": "str",   "required": False, "description": "GHG Protocol Scope 3 category 1-15 (e.g. 'Cat 1: Purchased Goods')"},
+        "single_source_flag":           {"type": "str",   "required": False, "description": "Single-source dependency flag (Yes/No)"},
+        "emission_factor_source":       {"type": "str",   "required": False, "description": "Source of emission factor (e.g. EcoInvent v3.10, DEFRA 2024, Supplier-reported)"},
     },
     "energy": {
         "year":             {"type": "int",   "required": True,  "description": "Reporting year"},
@@ -161,6 +165,75 @@ ESG_SCHEMAS = {
         "green_assets_pct_avg": {"type": "float", "required": False, "description": "5-year average green assets %"},
         "esg_score_avg":        {"type": "float", "required": True,  "description": "5-year average ESG score (0-100)"},
     },
+
+    # ── Regulatory & Risk Schemas ─────────────────────────────────────────────
+    # Closes specific gaps flagged by the Audit Agent and Regulatory Tracker:
+    # CSRD Double Materiality, SOX/ICFR coverage, SEC climate financial impact,
+    # ERM climate risk register, and CSRD-E3 Pollution Prevention.
+
+    "materiality_assessment": {
+        "topic_id":                     {"type": "str",   "required": True,  "description": "Unique topic identifier (e.g. M01, CLIMATE)"},
+        "topic_name":                   {"type": "str",   "required": True,  "description": "Material topic name"},
+        "esg_pillar":                   {"type": "str",   "required": False, "description": "Pillar (Environmental, Social, Governance)"},
+        "impact_materiality_score":     {"type": "float", "required": True,  "description": "Inside-out impact score (0-10)"},
+        "financial_materiality_score":  {"type": "float", "required": True,  "description": "Outside-in financial materiality score (0-10)"},
+        "stakeholder_group":            {"type": "str",   "required": True,  "description": "Primary stakeholder group affected"},
+        "time_horizon":                 {"type": "str",   "required": True,  "description": "Time horizon (Short, Medium, Long)"},
+        "assessment_date":              {"type": "str",   "required": True,  "description": "Assessment date (YYYY-MM-DD)"},
+        "evidence_link":                {"type": "str",   "required": False, "description": "Link or reference to evidence"},
+        "owner":                        {"type": "str",   "required": False, "description": "Topic owner (function or individual)"},
+        "decision":                     {"type": "str",   "required": False, "description": "Outcome (Material, Not Material, Watch)"},
+        "framework_alignment":          {"type": "str",   "required": False, "description": "Aligned framework (CSRD-DM, BRSR-S4, GRI-3)"},
+    },
+    "icfr_controls": {
+        "control_id":                   {"type": "str",   "required": True,  "description": "Unique control identifier (e.g. ICFR-ESG-001)"},
+        "process":                      {"type": "str",   "required": True,  "description": "Business process the control covers"},
+        "esg_metric_linked":            {"type": "str",   "required": False, "description": "ESG metric ID linked to this control"},
+        "control_owner":                {"type": "str",   "required": True,  "description": "Control owner (function or individual)"},
+        "test_date":                    {"type": "str",   "required": True,  "description": "Last test date (YYYY-MM-DD)"},
+        "deficiency_flag":              {"type": "str",   "required": False, "description": "Deficiency flag (None, Significant, Material)"},
+        "remediation_status":           {"type": "str",   "required": False, "description": "Remediation status"},
+        "sox_section":                  {"type": "str",   "required": False, "description": "SOX section (302, 404, 906)"},
+        "control_type":                 {"type": "str",   "required": False, "description": "Type (Preventive, Detective, Corrective)"},
+        "frequency":                    {"type": "str",   "required": False, "description": "Frequency (Daily, Monthly, Quarterly, Annual)"},
+        "tester":                       {"type": "str",   "required": False, "description": "Independent tester (Internal Audit / external)"},
+    },
+    "climate_financial_impacts": {
+        "fiscal_period":                {"type": "str",   "required": True,  "description": "Fiscal period (e.g. FY2024-Q3)"},
+        "event_type":                   {"type": "str",   "required": True,  "description": "Event type (Acute, Chronic, Transition)"},
+        "capex_climate":                {"type": "float", "required": True,  "description": "Climate-related CapEx (INR crore)"},
+        "opex_climate":                 {"type": "float", "required": True,  "description": "Climate-related OpEx (INR crore)"},
+        "impairment_amount":            {"type": "float", "required": False, "description": "Impairment recorded (INR crore)"},
+        "insurance_recovery":           {"type": "float", "required": False, "description": "Insurance recovery (INR crore)"},
+        "affected_asset_id":            {"type": "str",   "required": False, "description": "Affected asset / facility id"},
+        "gl_account":                   {"type": "str",   "required": False, "description": "General-ledger account code"},
+        "scenario_tag":                 {"type": "str",   "required": False, "description": "Scenario tag (e.g. NGFS-NetZero2050, IEA-STEPS)"},
+        "description":                  {"type": "str",   "required": False, "description": "Free-text event description"},
+    },
+    "climate_risk_register": {
+        "risk_id":                      {"type": "str",   "required": True,  "description": "Unique risk identifier (e.g. CR-001)"},
+        "category":                     {"type": "str",   "required": True,  "description": "Category (Physical-Acute, Physical-Chronic, Transition-Policy, Transition-Tech, Transition-Market)"},
+        "scenario":                     {"type": "str",   "required": True,  "description": "Scenario (e.g. NGFS-NetZero, IEA-STEPS, RCP8.5)"},
+        "time_horizon":                 {"type": "str",   "required": True,  "description": "Time horizon (Short, Medium, Long)"},
+        "likelihood":                   {"type": "str",   "required": True,  "description": "Likelihood (Rare, Possible, Likely, Almost Certain)"},
+        "financial_impact_inr_crores":  {"type": "float", "required": True,  "description": "Estimated financial impact (INR crore)"},
+        "mitigation":                   {"type": "str",   "required": False, "description": "Mitigation action(s)"},
+        "status":                       {"type": "str",   "required": False, "description": "Risk status (Open, Mitigating, Closed)"},
+        "owner":                        {"type": "str",   "required": False, "description": "Risk owner"},
+        "affected_business_unit":       {"type": "str",   "required": False, "description": "Affected business unit / facility"},
+    },
+    "pollution": {
+        "year":                         {"type": "int",   "required": True,  "description": "Reporting year"},
+        "quarter":                      {"type": "str",   "required": True,  "description": "Quarter (Q1-Q4)"},
+        "emission_medium":              {"type": "str",   "required": True,  "description": "Medium (Air, Water, Land)"},
+        "pollutant_type":               {"type": "str",   "required": True,  "description": "Pollutant (NOx, SOx, PM2.5, COD, BOD, etc.)"},
+        "quantity_kg":                  {"type": "float", "required": True,  "description": "Quantity released (kg)"},
+        "location":                     {"type": "str",   "required": False, "description": "Facility location"},
+        "regulatory_limit_kg":          {"type": "float", "required": False, "description": "Permitted regulatory limit (kg)"},
+        "monitoring_method":            {"type": "str",   "required": False, "description": "Monitoring method (CEMS, manual sampling, etc.)"},
+        "discharge_point":              {"type": "str",   "required": False, "description": "Discharge / emission point id"},
+        "exceedance_flag":              {"type": "str",   "required": False, "description": "Whether limit was exceeded (Yes/No)"},
+    },
 }
 
 # Indicator columns used for auto-detection — columns strongly associated
@@ -180,6 +253,12 @@ _SCHEMA_INDICATORS = {
     "peer_esg":        ["scope1_emissions_tco2e", "green_assets", "scope2_emissions_tco2e"],
     "peer_metrics":    ["roa", "asset_turnover", "esg_capex_pct", "net_debt_to_ebitda"],
     "peer_benchmark":  ["roa_avg", "esg_score_avg", "esg_capex_pct_avg"],
+    # Regulatory & risk schemas
+    "materiality_assessment":   ["impact_materiality_score", "financial_materiality_score", "topic_id"],
+    "icfr_controls":            ["control_id", "deficiency_flag", "sox_section"],
+    "climate_financial_impacts":["capex_climate", "opex_climate", "fiscal_period"],
+    "climate_risk_register":    ["risk_id", "scenario", "financial_impact_inr_crores"],
+    "pollution":                ["pollutant_type", "emission_medium", "quantity_kg"],
 }
 
 

@@ -118,7 +118,11 @@ if results:
     if "error" in results:
         st.error(results["error"])
     else:
-        tab_company, tab_peers = st.tabs(["📊 Your Company", "🏢 Peer Benchmarking"])
+        tab_company, tab_peers, tab_whatif = st.tabs([
+            "📊 Your Company",
+            "🏢 Peer Benchmarking",
+            "🔮 What-if Simulator",
+        ])
 
         # ══════════════════════════════════════════════════════════════════════
         # TAB 1 — YOUR COMPANY  (all existing content, unchanged)
@@ -707,3 +711,172 @@ if results:
                         )
                     else:
                         st.caption("No peer data available.")
+
+        # ══════════════════════════════════════════════════════════════════════
+        # TAB 3 — WHAT-IF SIMULATOR
+        # Pure-functional re-projection: no agent re-runs. Sliders nudge
+        # the cached ROI snapshot through ``utils.whatif.simulate`` and
+        # we render the deltas next to the live numbers.
+        # ══════════════════════════════════════════════════════════════════════
+        with tab_whatif:
+            from utils.whatif import WhatIfInputs, simulate
+
+            section_header(
+                "Scenario sliders",
+                "Adjust the inputs and watch the J-curve, IQS, and NPV "
+                "recompute live. The baseline run is unchanged.",
+            )
+
+            base_iqs = results.get("investment_quality_score", {}) or {}
+            base_jc  = results.get("j_curve", {}) or {}
+            base_fin = results.get("financial_roi", {}) or {}
+
+            sl_a, sl_b = st.columns(2)
+            with sl_a:
+                carbon_uplift = st.slider(
+                    "Carbon price uplift (%)",
+                    min_value=-50, max_value=300, value=0, step=5,
+                    help=("Bumps the carbon-tax-avoided line. Useful for "
+                          "stress-testing CBAM, India CCTS, or SEC pricing scenarios."),
+                )
+                capex_uplift = st.slider(
+                    "ESG capex change (%)",
+                    min_value=-50, max_value=200, value=0, step=5,
+                    help="Scales every quarter's ESG-linked capex.",
+                )
+            with sl_b:
+                benefit_uplift = st.slider(
+                    "Benefit realisation change (%)",
+                    min_value=-50, max_value=200, value=0, step=5,
+                    help=("Scales the per-quarter ESG benefit. Negative values "
+                          "model 'savings come in slower than projected'."),
+                )
+                discount_rate = st.slider(
+                    "Discount rate / hurdle (%)",
+                    min_value=0.0, max_value=25.0,
+                    value=float(results.get("kpi_engine", {})
+                                .get("financial_summary", {})
+                                .get("cost_of_capital_latest", 12) or 12),
+                    step=0.5,
+                    help="Annualised hurdle rate used for the NPV column.",
+                )
+
+            sim = simulate(results, WhatIfInputs(
+                carbon_price_uplift_pct=float(carbon_uplift),
+                capex_uplift_pct=float(capex_uplift),
+                benefit_uplift_pct=float(benefit_uplift),
+                discount_rate_pct=float(discount_rate),
+            ))
+
+            section_header(
+                "Scenario vs baseline",
+                "Three side-by-side reads: live IQS, projected IQS, the delta.",
+            )
+            r1, r2, r3, r4 = st.columns(4)
+            with r1:
+                kpi_card(
+                    "Baseline IQS",
+                    f"{base_iqs.get('score', 0)}",
+                    f"Grade {base_iqs.get('grade', 'N/A')}",
+                    key="whatif_base_iqs",
+                )
+            with r2:
+                kpi_card(
+                    "Scenario IQS",
+                    f"{sim.iqs.get('score', 0)}",
+                    f"Grade {sim.iqs.get('grade', 'N/A')}",
+                    key="whatif_sim_iqs",
+                )
+            with r3:
+                delta = sim.delta_iqs
+                arrow = "▲" if delta > 0 else ("▼" if delta < 0 else "—")
+                kpi_card(
+                    "Δ IQS",
+                    f"{arrow} {abs(delta)}",
+                    "Scenario − Baseline",
+                    key="whatif_delta_iqs",
+                )
+            with r4:
+                breakeven_text = sim.j_curve.get("breakeven_quarter") or "Not reached"
+                kpi_card(
+                    "Scenario breakeven",
+                    breakeven_text,
+                    (f"Δ {sim.delta_breakeven_quarters:+d} quarters"
+                     if sim.delta_breakeven_quarters is not None
+                     else "vs baseline"),
+                    key="whatif_break",
+                )
+
+            r5, r6, r7 = st.columns(3)
+            with r5:
+                kpi_card(
+                    "Scenario savings",
+                    f"INR {sim.cost_savings_total} Cr",
+                    f"Baseline: INR {base_fin.get('cost_savings', {}).get('total', 0)} Cr",
+                    key="whatif_savings",
+                )
+            with r6:
+                kpi_card(
+                    "Scenario NPV",
+                    f"INR {sim.npv} Cr",
+                    f"@ {discount_rate}% discount rate",
+                    key="whatif_npv",
+                )
+            with r7:
+                kpi_card(
+                    "Scenario net position",
+                    f"INR {sim.j_curve.get('net_position', 0)} Cr",
+                    f"Baseline: INR {base_jc.get('net_position', 0)} Cr",
+                    key="whatif_net",
+                )
+
+            section_header(
+                "Quarterly trajectory under scenario",
+                "Same shape as the baseline J-curve, recomputed under the slider settings.",
+            )
+            scenario_quarters = pd.DataFrame(sim.j_curve.get("quarters", []))
+            if not scenario_quarters.empty:
+                if _PLOTLY:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=scenario_quarters["period"],
+                        y=scenario_quarters["cumulative_cost"],
+                        mode="lines+markers", name="Cumulative cost",
+                        line=dict(color="#D04A02", width=3),
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=scenario_quarters["period"],
+                        y=scenario_quarters["cumulative_benefit"],
+                        mode="lines+markers", name="Cumulative benefit",
+                        line=dict(color="#22C55E", width=3),
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=scenario_quarters["period"],
+                        y=scenario_quarters["net_position"],
+                        mode="lines+markers", name="Net position",
+                        line=dict(color="#3B82F6", width=2, dash="dot"),
+                    ))
+                    fig.update_layout(
+                        height=380, margin=dict(l=10, r=10, t=20, b=10),
+                        legend=dict(orientation="h", yanchor="bottom",
+                                    y=1.02, xanchor="right", x=1),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                safe_dataframe(scenario_quarters,
+                                use_container_width=True, hide_index=True)
+            else:
+                st.info("No quarterly data in the baseline run — re-run the pipeline first.")
+
+            with st.expander("ℹ️ How the simulator works"):
+                st.markdown(
+                    """
+- The slider values are applied as multipliers / additive lifts on the
+  cached ROI run; **no agents are re-executed**.
+- The IQS is recomputed using the same weight vector the ROI Agent
+  uses, so a slider-driven score is directly comparable to a real run.
+- NPV uses a per-quarter discount rate of `rate / 4`. Setting the rate
+  to 0 returns the undiscounted sum.
+- Breakeven follows the same "must go underwater first" rule as the
+  agent — pure-positive trajectories return *Not reached*.
+                    """
+                )

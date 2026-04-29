@@ -88,6 +88,11 @@ class User:
     role: str = "viewer"
     created_at: str = ""
     last_login: str = ""
+    # Organisation membership. Defaults to a per-user personal org auto-
+    # assigned at signup so single-user demos keep working without any
+    # explicit team setup. See ``utils.rbac.default_org_for``.
+    org_id: str = ""
+    org_name: str = ""
 
     def to_public_dict(self) -> dict:
         """Return a dict safe to place in session_state (no password hash)."""
@@ -98,6 +103,8 @@ class User:
             "role": self.role,
             "created_at": self.created_at,
             "last_login": self.last_login,
+            "org_id": self.org_id,
+            "org_name": self.org_name,
         }
 
     def to_record(self) -> dict:
@@ -109,6 +116,8 @@ class User:
             "role": self.role,
             "created_at": self.created_at,
             "last_login": self.last_login,
+            "org_id": self.org_id,
+            "org_name": self.org_name,
         }
 
 
@@ -180,15 +189,74 @@ class UserStore:
         username = (username or "").strip().lower()
         for record in self._load_users():
             if record.get("username", "").lower() == username:
-                return User(**record)
+                return _user_from_record(record)
         return None
 
     def find_by_email(self, email: str) -> Optional[User]:
         email = (email or "").strip().lower()
         for record in self._load_users():
             if record.get("email", "").lower() == email:
-                return User(**record)
+                return _user_from_record(record)
         return None
+
+    # -- Org / team management ---------------------------------------------
+    def list_org_members(self, org_id: str) -> list[User]:
+        """Return every user in the given org. Empty list when org is unknown."""
+        org_id = (org_id or "").strip()
+        if not org_id:
+            return []
+        return [
+            _user_from_record(rec)
+            for rec in self._load_users()
+            if (rec.get("org_id") or "").strip() == org_id
+        ]
+
+    def update_role(self, username: str, new_role: str) -> bool:
+        """Change a user's role. Returns True on success.
+
+        Validates the new role against ``utils.rbac.ROLES`` before
+        writing — a typo here would otherwise silently lock the user
+        into a role that grants nothing.
+        """
+        from utils.rbac import ROLES
+
+        new_role = (new_role or "").strip().lower()
+        if new_role not in ROLES:
+            raise ValueError(f"Unknown role '{new_role}'. Valid: {', '.join(ROLES)}")
+        return self._patch_user(username, {"role": new_role})
+
+    def set_user_org(self, username: str, org_id: str, org_name: str = "") -> bool:
+        """Move a user into ``org_id`` (with display name ``org_name``)."""
+        org_id = (org_id or "").strip()
+        if not org_id:
+            raise ValueError("org_id cannot be empty")
+        return self._patch_user(username, {
+            "org_id": org_id,
+            "org_name": (org_name or "").strip() or org_id,
+        })
+
+    def _patch_user(self, username: str, patch: dict) -> bool:
+        """Apply ``patch`` to the user record on disk. Best-effort but
+        loud: ``ValueError`` raised here propagates so the UI can
+        surface the failure to the operator.
+        """
+        username = (username or "").strip().lower()
+        if not username:
+            return False
+        with self._lock:
+            users = list(self._load_users(force_refresh=True))
+            updated = False
+            for rec in users:
+                if (rec.get("username") or "").lower() == username:
+                    rec.update(patch)
+                    updated = True
+                    break
+            if not updated:
+                return False
+            self._save_users(users)
+            self._cache = users
+            self._cache_loaded_at = time.time()
+            return True
 
     def create_user(self, user: User) -> User:
         """Persist a new user. Raises ValueError on duplicate username/email.
@@ -402,6 +470,19 @@ def get_user_store() -> UserStore:
     if _STORE is None:
         _STORE = UserStore()
     return _STORE
+
+
+def _user_from_record(record: dict) -> User:
+    """Construct a ``User`` from a JSON record, ignoring unknown fields.
+
+    Older snapshots written before the org-membership migration lack
+    ``org_id`` / ``org_name``; future schema additions may introduce
+    fields this build doesn't know about. ``User(**record)`` would crash
+    on either case, so we filter to the dataclass's declared fields.
+    """
+    known = {f.name for f in User.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+    payload = {k: v for k, v in (record or {}).items() if k in known}
+    return User(**payload)
 
 
 def _utcnow_iso() -> str:

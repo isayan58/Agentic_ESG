@@ -1,85 +1,487 @@
 {
-  "data_collector": {
-    "finished_at": "2026-04-27T02:50:33.015633",
+  "action_agent": {
+    "finished_at": "2026-04-27T22:43:40.167424",
     "history": [
       {
         "error": null,
-        "runtime_seconds": 0.032463,
+        "runtime_seconds": 0.009404,
         "status": "completed",
-        "timestamp": "2026-04-27T02:50:33.015633"
+        "timestamp": "2026-04-27T22:43:40.167424"
       },
       {
         "error": null,
-        "runtime_seconds": 0.031068,
+        "runtime_seconds": 0.008181,
         "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.971951"
+        "timestamp": "2026-04-27T22:39:50.168070"
       },
       {
         "error": null,
-        "runtime_seconds": 0.033263,
+        "runtime_seconds": 0.009267,
         "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.924841"
-      },
-      {
-        "error": null,
-        "runtime_seconds": 0.031185,
-        "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.880178"
-      },
-      {
-        "error": null,
-        "runtime_seconds": 0.03227,
-        "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.838874"
-      },
-      {
-        "error": null,
-        "runtime_seconds": 0.031576,
-        "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.795865"
-      },
-      {
-        "error": null,
-        "runtime_seconds": 0.033127,
-        "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.752376"
-      },
-      {
-        "error": null,
-        "runtime_seconds": 0.03058,
-        "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.710262"
-      },
-      {
-        "error": null,
-        "runtime_seconds": 0.029832,
-        "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.670429"
-      },
-      {
-        "error": null,
-        "runtime_seconds": 0.030869,
-        "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.631684"
-      },
-      {
-        "error": null,
-        "runtime_seconds": 0.040067,
-        "status": "completed",
-        "timestamp": "2026-04-27T02:50:32.590822"
+        "timestamp": "2026-04-27T22:37:47.491290"
       }
     ],
-    "last_run": "2026-04-27T02:50:33.015633",
-    "name": "Data Collector",
-    "run_count": 11,
-    "runtime_seconds": 0.032463,
-    "started_at": "2026-04-27T02:50:32.983170",
+    "last_run": "2026-04-27T22:43:40.167424",
+    "name": "Action Agent",
+    "run_count": 3,
+    "runtime_seconds": 0.009404,
+    "started_at": "2026-04-27T22:43:40.158020",
     "status": "completed",
-    "updated_at": "2026-04-26T21:20:33.015644+00:00"
+    "updated_at": "2026-04-27T17:13:40.167436+00:00"
+  },
+  "audit_agent": {
+    "finished_at": "2026-04-27T22:43:40.040109",
+    "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.319556,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:43:40.040109"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.369807,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:39:50.030244"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.314685,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:37:47.342204"
+      }
+    ],
+    "last_run": "2026-04-27T22:43:40.040109",
+    "name": "Audit Agent",
+    "run_count": 3,
+    "runtime_seconds": 0.319556,
+    "started_at": "2026-04-27T22:43:39.720553",
+    "status": "completed",
+    "updated_at": "2026-04-27T17:13:40.040122+00:00"
+  },
+  "carbon_accountant": {
+    "finished_at": "2026-04-27T22:43:39.575039",
+    "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.039297,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:43:39.575039"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.049408,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:39:49.513955"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.045838,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:37:46.878897"
+      }
+    ],
+    "last_run": "2026-04-27T22:43:39.575039",
+    "name": "Carbon Accountant",
+    "run_count": 3,
+    "runtime_seconds": 0.039297,
+    "started_at": "2026-04-27T22:43:39.535742",
+    "status": "completed",
+    "updated_at": "2026-04-27T17:13:39.575052+00:00"
+  },
+  "data_collector": {
+    "finished_at": "2026-04-27T22:44:15.676527",
+    "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.168295,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:44:15.676527"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.166285,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:43:39.508134"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 1.13976,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:39:49.421026"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.768808,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:37:46.797191"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.033565,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:05.224771"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031274,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:05.180217"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031224,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:05.132414"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.034321,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:05.088438"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031444,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:05.044327"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031358,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:05.000419"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.034923,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:04.956804"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.029944,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:04.912149"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.033275,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:04.870183"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031574,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:04.826325"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.043664,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:04.784916"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.030474,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.608375"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032443,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.566062"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.03008,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.516098"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032457,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.473846"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.033865,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.430602"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.030551,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.384465"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032505,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.341740"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032387,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.298876"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031644,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.254559"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031373,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.212351"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.04546,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.171029"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.033323,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.768417"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.03362,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.722928"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031258,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.672406"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.034329,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.628831"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.03252,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.584376"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032689,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.539930"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031433,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.494021"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.033663,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.452612"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.030235,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.407114"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.030193,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.367223"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.043137,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.328058"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031188,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.995548"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032606,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.952813"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.03359,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.903389"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032718,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.860855"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.030736,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.818078"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032495,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.775708"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031471,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.731303"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.029887,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.690131"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032188,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.648128"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.032883,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.605748"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.043389,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:41.562523"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.030699,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:46:46.492758"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.031818,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:46:46.450213"
+      }
+    ],
+    "last_run": "2026-04-27T22:44:15.676527",
+    "name": "Data Collector",
+    "run_count": 70,
+    "runtime_seconds": 0.168295,
+    "started_at": "2026-04-27T22:44:15.508232",
+    "status": "completed",
+    "updated_at": "2026-04-27T17:14:15.676546+00:00"
+  },
+  "regulatory_tracker": {
+    "finished_at": "2026-04-27T22:43:39.529183",
+    "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.00926,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:43:39.529183"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.010505,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:39:49.456694"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.010136,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:37:46.826676"
+      }
+    ],
+    "last_run": "2026-04-27T22:43:39.529183",
+    "name": "Regulatory Tracker",
+    "run_count": 3,
+    "runtime_seconds": 0.00926,
+    "started_at": "2026-04-27T22:43:39.519923",
+    "status": "completed",
+    "updated_at": "2026-04-27T17:13:39.529195+00:00"
   },
   "report_generator": {
-    "finished_at": "2026-04-27T02:50:33.132688",
+    "finished_at": "2026-04-27T22:43:40.147431",
     "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.051298,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:43:40.147431"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.061316,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:39:50.151140"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.055657,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:37:47.473857"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.012561,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:55:05.337616"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.011794,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:36:21.731569"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.012337,
+        "status": "completed",
+        "timestamp": "2026-04-27T04:01:37.880406"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.011904,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:47:42.103056"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.011814,
+        "status": "completed",
+        "timestamp": "2026-04-27T03:46:46.599939"
+      },
       {
         "error": null,
         "runtime_seconds": 0.011882,
@@ -93,12 +495,108 @@
         "timestamp": "2026-04-27T01:35:52.706208"
       }
     ],
-    "last_run": "2026-04-27T02:50:33.132688",
+    "last_run": "2026-04-27T22:43:40.147431",
     "name": "Report Generator",
-    "run_count": 2,
-    "runtime_seconds": 0.011882,
-    "started_at": "2026-04-27T02:50:33.120806",
+    "run_count": 10,
+    "runtime_seconds": 0.051298,
+    "started_at": "2026-04-27T22:43:40.096133",
     "status": "completed",
-    "updated_at": "2026-04-26T21:20:33.132699+00:00"
+    "updated_at": "2026-04-27T17:13:40.147445+00:00"
+  },
+  "risk_predictor": {
+    "finished_at": "2026-04-27T22:43:39.710254",
+    "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.125894,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:43:39.710254"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.12984,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:39:49.650652"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.129799,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:37:47.016385"
+      }
+    ],
+    "last_run": "2026-04-27T22:43:39.710254",
+    "name": "Risk Predictor",
+    "run_count": 3,
+    "runtime_seconds": 0.125894,
+    "started_at": "2026-04-27T22:43:39.584360",
+    "status": "completed",
+    "updated_at": "2026-04-27T17:13:39.710268+00:00"
+  },
+  "roi_agent": {
+    "finished_at": "2026-04-27T22:44:15.698047",
+    "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.012094,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:44:15.698047"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.037327,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:43:40.087759"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.036468,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:39:50.077138"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.054169,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:37:47.409958"
+      }
+    ],
+    "last_run": "2026-04-27T22:44:15.698047",
+    "name": "ESG ROI Agent",
+    "run_count": 4,
+    "runtime_seconds": 0.012094,
+    "started_at": "2026-04-27T22:44:15.685953",
+    "status": "completed",
+    "updated_at": "2026-04-27T17:14:15.698126+00:00"
+  },
+  "stakeholder_agent": {
+    "finished_at": "2026-04-27T22:43:40.182559",
+    "history": [
+      {
+        "error": null,
+        "runtime_seconds": 0.008428,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:43:40.182559"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.006906,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:39:50.182077"
+      },
+      {
+        "error": null,
+        "runtime_seconds": 0.006169,
+        "status": "completed",
+        "timestamp": "2026-04-27T22:37:47.504530"
+      }
+    ],
+    "last_run": "2026-04-27T22:43:40.182559",
+    "name": "Stakeholder Agent",
+    "run_count": 3,
+    "runtime_seconds": 0.008428,
+    "started_at": "2026-04-27T22:43:40.174131",
+    "status": "completed",
+    "updated_at": "2026-04-27T17:13:40.182570+00:00"
   }
 }

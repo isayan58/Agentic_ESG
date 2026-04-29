@@ -123,7 +123,66 @@ class Orchestrator:
                 data_collector_kwargs=data_collector_kwargs,
                 progress_callback=progress_callback,
             )
+        # Best-effort fan-out to configured notification routes. Any
+        # exception is swallowed inside the helper so a failed
+        # notification can never mask a successful pipeline run.
+        try:
+            self._notify_pipeline_complete(results, goal=goal)
+        except Exception:  # noqa: BLE001
+            pass
         return results
+
+    def _notify_pipeline_complete(self, results: dict, *, goal: str) -> None:
+        """Emit a `pipeline_run_completed` (or `_failed`) event."""
+        try:
+            from utils.notifications import Event, notify
+        except Exception:  # pragma: no cover
+            return
+
+        owner: str | None = None
+        actor: str | None = None
+        try:
+            import streamlit as st
+            user = (st.session_state.get("user") or {}) if hasattr(st, "session_state") else {}
+            owner = (user.get("org_id") or "").strip() or None
+            actor = (user.get("username") or "").strip() or None
+        except Exception:
+            owner = None
+        import os
+        owner = owner or os.getenv("ESG_DEFAULT_ORG") or None
+        if not owner:
+            return
+
+        agents = {k: v for k, v in (results or {}).items()
+                  if k in self.agents and isinstance(v, dict)}
+        errored = [k for k, v in agents.items() if "error" in v]
+        ok = [k for k in agents if k not in errored]
+
+        if errored:
+            event_type = "pipeline_run_failed"
+            severity = "warning"
+            title = f"Pipeline run completed with {len(errored)} agent error(s)"
+        else:
+            event_type = "pipeline_run_completed"
+            severity = "info"
+            title = f"Pipeline run completed ({len(ok)} agents)"
+
+        summary_lines = [f"Goal: {goal}"]
+        if ok:
+            summary_lines.append(f"OK: {', '.join(sorted(ok))}")
+        if errored:
+            summary_lines.append(f"Errored: {', '.join(sorted(errored))}")
+        notify(
+            Event(
+                type=event_type,
+                title=title,
+                summary="\n".join(summary_lines),
+                severity=severity,
+                actor=actor,
+                payload={"ok": ok, "errored": errored},
+            ),
+            owner=owner,
+        )
 
     def run_autonomous_pipeline(self, goal, progress_callback=None,
                                 data_collector_kwargs=None,
