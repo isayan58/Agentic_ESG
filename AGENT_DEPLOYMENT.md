@@ -113,11 +113,11 @@ All cloud SDKs are imported lazily inside `utils/real_connectors.py`. A missing 
 
 ---
 
-## 3. Per-agent dependency map
+## 3. Per-agent deployment manifests
 
-Every agent has a stable `run(**kwargs)` entry point that returns a results dict and publishes one canonical channel. Inputs come from either (a) channels other agents already published, or (b) CSV / JSON files via the fallback loaders in `utils/data_processing.py`.
+Every agent has a stable `run(**kwargs)` (inherited from `BaseAgent`) that calls the agent's own `execute(...)` method. `execute` returns a results dict and publishes one canonical channel. Inputs come from either (a) channels other agents already published, or (b) CSV / JSON files via the fallback loaders in `utils/data_processing.py`.
 
-The **canonical pipeline order** (from [`core/orchestrator.py:37-47`](core/orchestrator.py#L37-L47)):
+The **canonical pipeline order** ([`core/orchestrator.py:37-47`](core/orchestrator.py#L37-L47)):
 
 ```
 data_collector ─┬─► regulatory_tracker
@@ -133,19 +133,9 @@ roi ─────────┘                      ─► action_agent  (al
                                     └─► stakeholder_agent (also needs report, roi)
 ```
 
-Reading the table: an agent can either **subscribe** to its dependencies' channels (if they ran in the same process) or **be given the dependency results as kwargs / by republishing the channel manually**. There is no third option — agents do not call each other directly.
+Reading the graph: an agent can either **subscribe** to its dependencies' channels (if they ran in the same process) or **have the dependency results published into `state_manager` manually** before `run()`. There is no third option — agents do not call each other directly.
 
-| Agent | File | Reads channels (subscribes) | Reads CSV (fallback) | Publishes |
-| --- | --- | --- | --- | --- |
-| **Data Collector** | [`agents/data_collector.py`](agents/data_collector.py) | — | All `sample_*.csv` + real connectors via `connection_manager` | `dataset_<schema>` (one per ingested schema), `validated_<schema>`, `data_collection_results` |
-| **Regulatory Tracker** | [`agents/regulatory_tracker.py`](agents/regulatory_tracker.py) | `dataset_esg_metrics` | `sample_esg_metrics.csv`, `regulatory_frameworks.json` | `regulatory_results` |
-| **Carbon Accountant** | [`agents/carbon_accountant.py`](agents/carbon_accountant.py) | `dataset_emissions`, `dataset_supply_chain`, `dataset_energy` | `sample_emissions.csv`, `sample_supply_chain.csv`, `sample_energy.csv` | `carbon_results` |
-| **Risk Predictor** | [`agents/risk_predictor.py`](agents/risk_predictor.py) | `dataset_emissions`, `dataset_esg_metrics`, `dataset_supply_chain`, `dataset_financials`, `regulatory_results` | `sample_emissions.csv`, `sample_esg_metrics.csv`, `sample_supply_chain.csv`, `sample_financials.csv` | `risk_results` |
-| **Audit Agent** | [`agents/audit_agent.py`](agents/audit_agent.py) | `data_collection_results`, `regulatory_results`, `carbon_results`, `dataset_esg_metrics`, `dataset_supply_chain` | `sample_esg_metrics.csv`, `sample_supply_chain.csv` | `audit_results` |
-| **ESG ROI Agent** | [`agents/roi_agent.py`](agents/roi_agent.py) | `carbon_results`, `risk_results`, `dataset_esg_metrics`, `dataset_supply_chain`, `dataset_energy`, `dataset_diversity`, `dataset_financials` | `sample_esg_metrics.csv`, `sample_supply_chain.csv`, `sample_energy.csv`, `sample_diversity.csv`, `sample_financials.csv` | `roi_results` |
-| **Report Generator** | [`agents/report_generator.py`](agents/report_generator.py) | `carbon_results`, `regulatory_results`, `audit_results`, `data_collection_results`, `roi_results`, `risk_results`, `stakeholder_results` | — (reports are pure aggregation of upstream results) | `report_results` |
-| **Action Agent** | [`agents/action_agent.py`](agents/action_agent.py) | `risk_results`, `audit_results`, `carbon_results`, `regulatory_results`, `roi_results` | — | `action_results` |
-| **Stakeholder Agent** | [`agents/stakeholder_agent.py`](agents/stakeholder_agent.py) | — (configurable: when called from orchestrator it's seeded with `report_results`, `roi_results`, `action_results`) | — | `stakeholder_results` |
+The sections below give a function-level deployment manifest for each agent. Use them as a `cp`-list when packaging a deployment image, and as a "what symbols can I delete" checklist when shrinking the bundled modules. Every "Files" list is **additive** to the baseline in [§2.1](#21-required-python-modules).
 
 ### 3.1 The data-input resolution rule
 
@@ -164,7 +154,6 @@ import pandas as pd
 from core.state_manager import state_manager
 from agents.carbon_accountant import CarbonAccountantAgent
 
-# Inject client data directly
 state_manager.publish("dataset_emissions", pd.read_csv("/var/data/client_emissions.csv"))
 state_manager.publish("dataset_supply_chain", pd.read_csv("/var/data/client_supply.csv"))
 state_manager.publish("dataset_energy", pd.read_csv("/var/data/client_energy.csv"))
@@ -172,6 +161,317 @@ state_manager.publish("dataset_energy", pd.read_csv("/var/data/client_energy.csv
 agent = CarbonAccountantAgent()
 results = agent.run()
 ```
+
+### 3.2 Common surface (every agent)
+
+Every agent inherits from `BaseAgent` ([`core/base_agent.py`](core/base_agent.py)) and uses these symbols:
+
+| Symbol | Source | Role |
+| --- | --- | --- |
+| `BaseAgent` | `core.base_agent` | Abstract parent. Provides `__init__(name, description)`, `run(**kwargs)` (calls `execute(**kwargs)` and wraps it in telemetry), `execute(**kwargs)` (abstract — agents override), `log(msg, level)`, `_persist_snapshot(append_history=...)`, `get_status_dict()`. Agents set `self.status` directly when needed. |
+| `self.hf` | injected by `BaseAgent.__init__` | `HFClient` singleton. Surface used by agents: `.generate_text(prompt, agent="<key>", max_tokens=N)`, `.classify(text, labels)`, `.summarize(text)`, `.analyze_sentiment(text)`. All four route to a rule-based fallback when HF API is unavailable. |
+| `self.name`, `self.status`, `self.audit_trail` | `BaseAgent` instance state | Used by orchestrator / telemetry; never set by agents directly. |
+| `state_manager` | `core.state_manager` | `.publish(channel, data, agent_name)`, `.subscribe(channel)`. Some agents also use `.get_all_channels()` (audit only). |
+| `company_cfg` | `core.company_config` | Per-thread proxy over `data/company_profile.json`. Different agents read different attributes — see per-agent sections. |
+| `agent_telemetry` (transitive via `BaseAgent`) | `utils.agent_telemetry` | `.get(key)`, `.record(key, snapshot, append_history=...)`, `.slugify(name)`. Best-effort persistence to `data/agent_telemetry.json`. Never crashes the agent if the file is unwriteable. |
+
+These symbols are **always required**. The per-agent sections below enumerate only the *additional* surface beyond this baseline.
+
+### 3.3 Data Collector — `agents/data_collector.py`
+
+Ingests data from local samples, uploaded files, simulated connectors (SAP / Workday / etc.), and real connectors (S3 / BigQuery / Snowflake / Delta Lake / etc.); applies schema mapping; publishes canonical datasets that all downstream agents subscribe to.
+
+**Files to ship:**
+- `agents/data_collector.py`
+- `utils/data_processing.py` — loaders + `compute_data_quality()`
+- `utils/connectors.py` — simulated enterprise connectors (always required by `data_collector.__init__`)
+- `utils/schema_mapper.py` — `auto_detect_schema`, `suggest_column_mapping`, `apply_column_mapping`
+- `utils/connection_manager.py` + `utils/real_connectors.py` + `utils/connector_retry.py` — **only if** the deployment registers real connectors
+- `data/sample_*.csv` — sample fallbacks (only if no real client data is being injected)
+
+**External symbols used:**
+
+| Module | Symbols / attributes |
+| --- | --- |
+| `utils.data_processing` | `load_emissions`, `load_esg_metrics`, `load_supply_chain`, `load_energy`, `load_waste`, `load_diversity`, `load_financials`, `compute_data_quality` |
+| `utils.connectors` | `get_all_connectors` (called once in `__init__`) |
+| `utils.schema_mapper` | `auto_detect_schema`, `suggest_column_mapping`, `apply_column_mapping` (lazy-imported inside `_process_uploaded_files`) |
+| `company_cfg` | `.thresholds.audit_completeness_pass`, `.thresholds.completeness_warning`, `.thresholds.confidence_high`, `.thresholds.confidence_medium`, `.thresholds.confidence_audit_ready`, `.thresholds.quality_issue_completeness`, `.thresholds.low_confidence_alert`, `.thresholds.source_bonus_real`, `.thresholds.source_bonus_connector`, `.thresholds.source_bonus_sample`, `.confidence_weights.completeness`, `.confidence_weights.raw_confidence`, `.confidence_weights.freshness` |
+| `self.hf` | `.classify(text, labels)` (severity classification of quality issues), `.generate_text(prompt, max_tokens=220)` (collection-summary narrative) |
+
+**Channels published:**
+- `dataset_<schema>` for each ingested canonical schema (`emissions`, `esg_metrics`, `supply_chain`, `energy`, `waste`, `diversity`, `financials`)
+- `validated_<schema>` (post-validation copy of the same)
+- `validated_real_<schema>` (only when a real connector returned data)
+- `data_collection_results` (the run summary — quality scores, confidence, issue list)
+
+**Channels subscribed:** none.
+
+**CSV/JSON fallbacks (when no real source / no upload):** all seven `sample_*.csv` files via the loaders above.
+
+**External I/O:** HF Inference API (optional); enterprise/real connectors (optional, deployment-time choice).
+
+**Optional integrations:**
+- File upload pipeline (CSV / XLSX / XLS / JSON via pandas)
+- Real-source ingestion via `connection_manager.fetch_all_by_schema(use_cache=use_cache)`
+- Schema auto-detection on uploads — drops CSVs with unknown columns into the right canonical channel
+
+### 3.4 Regulatory Tracker — `agents/regulatory_tracker.py`
+
+Computes per-framework compliance against ESG metrics; runs a background thread that simulates polling external regulators (SEC / SEBI / GRI / CSRD / SOX) for new updates.
+
+**Files to ship:**
+- `agents/regulatory_tracker.py`
+- `utils/data_processing.py` — `load_regulatory_frameworks`, `load_esg_metrics`
+- `data/regulatory_frameworks.json` — required (the framework definitions live here)
+- `data/sample_esg_metrics.csv` (or `dataset_esg_metrics` channel) — required for compliance computation
+- `utils/framework_refresh.py` — **optional**, only if exposing the framework approval queue UI
+
+**External symbols used:**
+
+| Module | Symbols / attributes |
+| --- | --- |
+| `utils.data_processing` | `load_regulatory_frameworks`, `load_esg_metrics` (called directly — this agent does NOT route through `get_dataset`) |
+| `company_cfg` | `.frameworks_adopted`, `.listed_exchanges`, `.company_name` |
+| `self.hf` | `.generate_text(prompt)` (gap narratives, regulatory action plans) |
+| stdlib | `threading` (background updater), `json`, `datetime.timedelta` |
+
+**Channels published:** `regulatory_results`.
+
+**Channels subscribed:** none.
+
+**CSV/JSON fallbacks:** `data/regulatory_frameworks.json` (always), `sample_esg_metrics.csv` (when `dataset_esg_metrics` is unpublished).
+
+**External I/O:** HF Inference API (optional); the background "external regulatory data fetch" is a **simulation placeholder** — wire it to your real news / regulator-API source if you want live updates.
+
+**Optional integrations:**
+- Background daemon thread on a 24-hour tick (`_start_background_updater`) — disable in serverless deployments where threads don't survive between invocations.
+- The 45-row `DATA_FIELD_MAPPING` constant inside the file — that's the framework-requirement-to-metric-id mapping. Auditable / editable.
+
+### 3.5 Carbon Accountant — `agents/carbon_accountant.py`
+
+Computes Scope 1 / 2 / 3 totals, quarterly trends, supply chain hotspots, energy mix, emissions-to-cost linkage, and 3-year carbon-tax exposure.
+
+**Files to ship:**
+- `agents/carbon_accountant.py`
+- `utils/data_processing.py` — `load_emissions`, `load_supply_chain`, `load_energy`, `compute_scope_totals`, `compute_quarterly_trends`
+- Channels OR CSVs for: emissions, supply chain, energy
+
+**External symbols used:**
+
+| Module | Symbols / attributes |
+| --- | --- |
+| `core.data_access` | `get_dataset(schema_name, fallback_loader)` |
+| `utils.data_processing` | `load_emissions`, `load_supply_chain`, `load_energy`, `compute_scope_totals`, `compute_quarterly_trends` |
+| `company_cfg` | `.current_fy`, `.previous_fy`, `.revenue("current")`, `.revenue("previous")`, `.company_name`, `.sector` |
+| `self.hf` | `.generate_text(prompt, agent="carbon_accountant")` (carbon narrative + insights) |
+
+**Channels published:** `carbon_results`.
+
+**Channels subscribed:** none directly. Reads `dataset_emissions`, `dataset_supply_chain`, `dataset_energy` via `get_dataset` (channel-first, CSV-fallback).
+
+**CSV fallbacks:** `sample_emissions.csv`, `sample_supply_chain.csv`, `sample_energy.csv`.
+
+**External I/O:** HF Inference API (optional).
+
+**Optional integrations:** none — this agent is fully self-contained. **Strongest candidate for Topology B (single-agent batch).**
+
+### 3.6 Risk Predictor — `agents/risk_predictor.py`
+
+Climate / transition / supply-chain risk scoring; ESG rating prediction (MSCI / Sustainalytics / CDP); scenario analysis; market regime detection; downside protection score (H4 hypothesis).
+
+**Files to ship:**
+- `agents/risk_predictor.py`
+- `utils/data_processing.py` — `load_esg_metrics`, `load_supply_chain`, `load_emissions`, `load_financials`
+- Channels OR CSVs for: emissions, ESG metrics, supply chain, financials
+
+**External symbols used:**
+
+| Module | Symbols / attributes |
+| --- | --- |
+| `core.data_access` | `get_dataset(schema_name, fallback_loader)` |
+| `utils.data_processing` | `load_esg_metrics`, `load_supply_chain`, `load_emissions`, `load_financials` |
+| `company_cfg` | `.sector_risk` (`physical_risk`, `transition_risk_base`), `.risk_weights` (`physical`, `transition`, `emission`, `compliance_baseline`), `.thresholds` (`risk_low`, `risk_medium`, `rating_aaa`, `rating_aa`, `rating_a`), `.current_fy`, `.esg_rating_current`, `.esg_rating_target`, `.market_cap_local`, `.employees`, `.scenarios` |
+| `state_manager` | `.subscribe("regulatory_results")` (opportunistic — used to derive transition risk; falls back to `sector_risk.transition_risk_base` if absent) |
+| `self.hf` | `.generate_text(prompt)` (risk narrative + recommendations) |
+
+**Channels published:** `risk_results`.
+
+**Channels subscribed:** `regulatory_results` (optional — if not published, transition risk falls back to a sector default).
+
+**CSV fallbacks:** `sample_emissions.csv`, `sample_esg_metrics.csv`, `sample_supply_chain.csv`, `sample_financials.csv`.
+
+**External I/O:** HF Inference API (optional).
+
+**Optional integrations:** none. Runs cleanly without `regulatory_tracker` upstream — accept the transition-risk approximation.
+
+### 3.7 Audit Agent — `agents/audit_agent.py`
+
+Audit-readiness scoring (A–D grade); per-framework compliance checklist; evidence mapping; ESG Integrity Gap Detector (compares self-reported ESG metrics against operational emissions / energy data — flags greenwashing-style mismatches).
+
+**Files to ship:**
+- `agents/audit_agent.py`
+- `utils/data_processing.py` — `load_esg_metrics`, `load_regulatory_frameworks`, `load_emissions`, `load_energy`
+- `data/regulatory_frameworks.json` — required
+- Channels OR CSVs for: ESG metrics, emissions, energy
+
+**External symbols used:**
+
+| Module | Symbols / attributes |
+| --- | --- |
+| `core.data_access` | `get_dataset(schema_name, fallback_loader)` |
+| `utils.data_processing` | `load_esg_metrics`, `load_regulatory_frameworks`, `load_emissions`, `load_energy` |
+| `company_cfg` | `.thresholds` (`audit_completeness_pass`, `audit_grade_a`, `audit_grade_b`, `audit_grade_c`), `.audit_weights`, `.current_fy` |
+| `state_manager` | `.subscribe("data_collection_results")`, `.subscribe("regulatory_results")`, `.get_all_channels()` (used by the audit-trail compiler to enumerate every published channel) |
+| `self.hf` | `.generate_text(prompt)` (findings summary + audit recommendations) |
+| stdlib | `datetime` |
+
+**Channels published:** `audit_results`.
+
+**Channels subscribed:** `data_collection_results` (preferred; falls back to running its own completeness check), `regulatory_results` (preferred; falls back to running its own checklist).
+
+**CSV fallbacks:** `sample_esg_metrics.csv`, `sample_emissions.csv`, `sample_energy.csv`, plus `regulatory_frameworks.json`.
+
+**External I/O:** HF Inference API (optional).
+
+**Optional integrations:** the integrity-gap detector is the only piece that needs `dataset_emissions` and `dataset_energy` directly (for the cross-check). Without those datasets it skips the check rather than crashing.
+
+### 3.8 ESG ROI Agent — `agents/roi_agent.py`
+
+Dual ROI (financial + strategic), J-Curve payback model, Investment Quality Score (A+ → D), ESG-to-financial KPI engine, optional peer benchmarking.
+
+**Files to ship:**
+- `agents/roi_agent.py`
+- `core/kpi_engine.py` — **mandatory** (this is the only agent that uses it)
+- `utils/data_processing.py` — six loaders
+- `utils/industry_standards.py` — **only if** running peer benchmarking
+- `utils/gap_suggestions.py` — **only if** running peer benchmarking
+- Channels OR CSVs for: financials, ESG metrics, emissions, energy, supply chain, diversity
+
+**External symbols used:**
+
+| Module | Symbols / attributes |
+| --- | --- |
+| `core.data_access` | `get_dataset(schema_name, fallback_loader)` |
+| `core.kpi_engine` | `kpi_engine.compute_all(fin_df, esg_df, emissions_df, energy_df, sc_df, div_df)` |
+| `utils.data_processing` | `load_financials`, `load_esg_metrics`, `load_emissions`, `load_energy`, `load_supply_chain`, `load_diversity` |
+| `utils.industry_standards` (optional) | `compute_gap_vs_standard()` (peer benchmarking only) |
+| `company_cfg` | `.market_cap_local`, `.employees`, `.esg_rating_current`, `.company_name` |
+| `state_manager` | `.subscribe("carbon_results")` (to derive Scope 1+2 totals) |
+| `self.hf` | `.generate_text(prompt)` (ROI narrative + recommendations) |
+| optional: orchestrator | `orchestrator.post_message("roi_agent", message)` (only when invoked from the orchestrator with `orchestrator=` kwarg) |
+| stdlib | `datetime` |
+
+**Channels published:** `roi_results`.
+
+**Channels subscribed:** `carbon_results` (preferred; falls back to per-company-profile defaults).
+
+**CSV fallbacks:** all six `sample_*.csv` files.
+
+**External I/O:** HF Inference API (optional); orchestrator message-board (optional).
+
+**Optional integrations:** Peer benchmarking depends on `utils/industry_standards.py`. Drop that file and the agent skips the benchmarking section silently.
+
+### 3.9 Report Generator — `agents/report_generator.py`
+
+Compiles every other agent's published results into an executive summary, pillar-level (E / S / G) narratives, framework compliance sections, and dashboard / distribution recommendations.
+
+**Files to ship:**
+- `agents/report_generator.py`
+- `utils/data_processing.py` — `load_company_profile`, `load_esg_metrics`, `compute_esg_summary`
+- `utils/feedback_store.py` — **optional**, only if you want past user feedback to seed the prompt context
+
+**External symbols used:**
+
+| Module | Symbols / attributes |
+| --- | --- |
+| `core.data_access` | `get_dataset("esg_metrics", load_esg_metrics)` |
+| `utils.data_processing` | `load_company_profile`, `load_esg_metrics`, `compute_esg_summary` |
+| `utils.feedback_store` (optional) | `load_recent_feedback(limit)` |
+| `company_cfg` | `.company_name`, `.sector`, `.employees`, `.revenue_local("current")`, `.market_cap_local`, `.current_fy`, `.previous_fy`, `.commitments_text()` |
+| `state_manager` | `.subscribe("carbon_results")`, `.subscribe("regulatory_results")`, `.subscribe("audit_results")`, `.subscribe("data_collection_results")`, `.subscribe("roi_results")`, `.subscribe("risk_results")`, `.subscribe("stakeholder_results")` |
+| `self.hf` | `.generate_text(prompt)` (executive summary, section narratives, recommendations, dashboard templates, actionable insights — five distinct calls) |
+| stdlib | `datetime` |
+
+**Channels published:** `report_results`.
+
+**Channels subscribed:** all seven other agents' result channels. Empty subscribers don't crash — they show as "no data" sections in the report.
+
+**CSV fallbacks:** `sample_esg_metrics.csv`, `data/company_profile.json` (already mandatory baseline).
+
+**External I/O:** HF Inference API (optional).
+
+**Optional integrations:** `feedback_store` is only used to load up to N most-recent feedback entries into the prompts. Skip it for a stateless deployment — narrative quality drops slightly but the report still generates.
+
+### 3.10 Action Agent — `agents/action_agent.py`
+
+Generates prioritised action items (Critical / High / Medium / Low) from upstream risk + audit + carbon + regulatory + ROI results; computes implementation friction (transaction cost, liquidity risk, friction score, recommended execution mode); produces target metrics with deadlines.
+
+**Files to ship:**
+- `agents/action_agent.py`
+- (No `utils/data_processing` dependency — this agent reads no CSVs.)
+
+**External symbols used:**
+
+| Module | Symbols / attributes |
+| --- | --- |
+| `company_cfg` | `.action_costs`, `.thresholds` (`transition_risk_trigger`, `evidence_score_trigger`, `renewable_low_trigger`), `.currency_unit`, `.primary_office()` |
+| `state_manager` | `.subscribe("risk_results")`, `.subscribe("audit_results")`, `.subscribe("carbon_results")`, `.subscribe("regulatory_results")`, `.subscribe("roi_results")` |
+| `self.hf` | `.generate_text(prompt)` (action description enhancement + roadmap narrative) |
+| stdlib | `datetime`, `datetime.timedelta` |
+
+**Channels published:** `action_results`.
+
+**Channels subscribed:** five upstream `*_results` channels.
+
+**CSV fallbacks:** none — this agent does not read CSVs at all. Pure aggregator over upstream channels.
+
+**External I/O:** HF Inference API (optional).
+
+**Optional integrations:** none. Single-purpose, stateless past its inputs.
+
+### 3.11 Stakeholder Agent — `agents/stakeholder_agent.py`
+
+Tailors communications to four audiences (investor / regulator / employee / public) — generates per-audience subject lines, message bodies, business-case narratives, J-Curve framing, and distribution-channel recommendations.
+
+**Files to ship:**
+- `agents/stakeholder_agent.py`
+- (No `utils/data_processing` dependency — this agent reads no CSVs.)
+
+**External symbols used:**
+
+| Module | Symbols / attributes |
+| --- | --- |
+| `company_cfg` | `.company_name`, `.esg_rating_target` |
+| `state_manager` | `.subscribe("report_results")`, `.subscribe("action_results")`, `.subscribe("carbon_results")`, `.subscribe("risk_results")`, `.subscribe("roi_results")` |
+| `self.hf` | `.generate_text(prompt)` (5 calls — per-audience messages, business case, J-Curve framing, performance summary, distribution plan), `.analyze_sentiment(text)` (audience-specific tone analysis) |
+| `AUDIENCE_PROFILES` | dict constant defined inside this file (lines 12–37). Configure tone / focus / format per audience here. |
+
+**Channels published:** `stakeholder_results`.
+
+**Channels subscribed:** five upstream `*_results` channels (all optional — agent will degrade narrative content rather than fail when channels are empty).
+
+**CSV fallbacks:** none.
+
+**External I/O:** HF Inference API (optional).
+
+**Optional integrations:** none.
+
+### 3.12 Quick-reference matrix
+
+| Agent | Subscribes (channels) | Publishes | CSV fallbacks via `data_processing` | Mandatory `core/` extras beyond baseline |
+| --- | --- | --- | --- | --- |
+| Data Collector | — | `dataset_<schema>`, `validated_<schema>`, `data_collection_results` | all seven `sample_*.csv` | — (uses `utils.connectors`, `utils.schema_mapper`) |
+| Regulatory Tracker | — | `regulatory_results` | `regulatory_frameworks.json`, `sample_esg_metrics.csv` | — |
+| Carbon Accountant | — | `carbon_results` | emissions / supply_chain / energy | — |
+| Risk Predictor | `regulatory_results` (opt) | `risk_results` | emissions / esg_metrics / supply_chain / financials | — |
+| Audit Agent | `data_collection_results` (opt), `regulatory_results` (opt) | `audit_results` | esg_metrics / emissions / energy + `regulatory_frameworks.json` | — |
+| ROI Agent | `carbon_results` (opt) | `roi_results` | financials / esg_metrics / emissions / energy / supply_chain / diversity | `core.kpi_engine` |
+| Report Generator | all 7 other agent channels | `report_results` | esg_metrics + `company_profile.json` | — (optionally `utils.feedback_store`) |
+| Action Agent | `risk_results`, `audit_results`, `carbon_results`, `regulatory_results`, `roi_results` | `action_results` | none | — |
+| Stakeholder Agent | `report_results`, `action_results`, `carbon_results`, `risk_results`, `roi_results` | `stakeholder_results` | none | — |
+
+"opt" = the channel is preferred but the agent has a sensible fallback when it's missing. All other listed channels are *recommended* upstream agents — without them the result is still produced but with reduced fidelity (Action / Stakeholder agents are the most impacted, since they read nothing else).
 
 ---
 
