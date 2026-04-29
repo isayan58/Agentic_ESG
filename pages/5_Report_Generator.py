@@ -233,6 +233,54 @@ tr:nth-child(even) {{ background: #f8f9fa; }}
     with col2:
         st.download_button("📥 Download HTML Report", report_html, "esg_report_2024.html", "text/html")
 
+    # ── XBRL / iXBRL exports ────────────────────────────────────────
+    # Closes the SEC Climate Rule + CSRD ESRS digital-tagging gap.
+    # Permission-gated: only users who can ``manage_xbrl`` (admin /
+    # analyst) see the buttons. Lower roles still get HTML / Markdown.
+    from utils.rbac import has_permission
+    from utils.auth import current_user as _cu_xbrl
+    if has_permission(_cu_xbrl(), "manage_xbrl"):
+        from utils.xbrl_export import (
+            build_xbrl_instance, build_inline_xbrl, build_facts_csv,
+        )
+        st.markdown("---")
+        st.markdown("### Regulatory digital filing (XBRL)")
+        st.caption(
+            "Both the SEC Climate Rule and CSRD ESRS require machine-readable "
+            "tagging. The exports below tag every quantitative fact in this "
+            "report against a configurable ESG taxonomy. Swap the synthetic "
+            "namespace in `utils/xbrl_export.py` for the regulator's "
+            "published taxonomy when filing for real."
+        )
+        xbrl_xml = build_xbrl_instance(results)
+        ixbrl_html = build_inline_xbrl(results)
+        facts_csv = build_facts_csv(results)
+        x1, x2, x3 = st.columns(3)
+        with x1:
+            st.download_button(
+                "📊 XBRL instance (.xbrl)",
+                xbrl_xml,
+                file_name="esg_report.xbrl",
+                mime="application/xml",
+                use_container_width=True,
+            )
+        with x2:
+            st.download_button(
+                "🧾 Inline XBRL (.html)",
+                ixbrl_html,
+                file_name="esg_report_ixbrl.html",
+                mime="application/xhtml+xml",
+                use_container_width=True,
+            )
+        with x3:
+            st.download_button(
+                "🔍 Facts CSV (debug)",
+                facts_csv,
+                file_name="esg_facts.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
     st.markdown("---")
     st.markdown("### Help the tool learn")
     st.markdown(
