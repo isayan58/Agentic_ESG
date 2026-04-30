@@ -1,4 +1,4 @@
-"""Persistent agent telemetry store.
+"""Persistent agent telemetry store, partitioned per user.
 
 Every agent run (success or error) produces a telemetry record — who ran,
 when, how long, success/error, recent audit tail. ``BaseAgent.run()`` calls
@@ -13,10 +13,25 @@ swap the ``_read_file`` / ``_write_file`` implementations for a real DB —
 every public function (``record``, ``load_all``, ``get``, ``history``) keeps
 its signature, so call sites don't change.
 
-Schema
-------
-Top-level dict keyed by ``agent_key`` (e.g. ``"data_collector"``, ``"roi_agent"``).
-Each entry::
+User partitioning
+-----------------
+The on-disk JSON is keyed first by ``user_id`` and then by ``agent_key``::
+
+    {
+      "alice":    { "data_collector": { ... }, "carbon_accountant": { ... } },
+      "bob":      { "data_collector": { ... } },
+      "_legacy":  { ... }   # pre-partitioning records, migrated on first read
+    }
+
+Public functions accept an optional ``user_id``; when omitted, the current
+Streamlit session's signed-in user is resolved via the same helper used by
+``core.state_manager`` (falling back to ``"_anonymous"`` for tests/scripts).
+This keeps two users in the same Python process from seeing each other's
+runs.
+
+Per-agent record shape (unchanged)
+----------------------------------
+::
 
     {
       "name":            "Data Collector",
@@ -60,6 +75,11 @@ _HISTORY_CAP = 50
 # single Python process, this lock keeps concurrent saves consistent.
 _LOCK = threading.Lock()
 
+# Reserved bucket for telemetry written before per-user partitioning landed.
+# We migrate the old flat-shape JSON into this bucket on first read.
+_LEGACY_USER = "_legacy"
+_GUEST_USER = "_anonymous"
+
 
 # ---------------------------------------------------------------------------
 # Key helpers
@@ -76,24 +96,70 @@ def slugify(value: str) -> str:
     return _slug_re.sub("_", (value or "").lower()).strip("_") or "agent"
 
 
+def _current_username() -> str:
+    """Mirror of ``core.state_manager._current_username``.
+
+    Resolved at every call so the same module can serve many users in the
+    same Python process. Falls back to ``"_anonymous"`` when streamlit is
+    unavailable, no user is signed in, or session state is uninitialised.
+    """
+    try:
+        import streamlit as st  # local import — avoid hard dep
+    except Exception:
+        return _GUEST_USER
+    try:
+        user = st.session_state.get("user")
+    except Exception:
+        return _GUEST_USER
+    if not user:
+        return _GUEST_USER
+    name = (user.get("username") or "").strip()
+    return name or _GUEST_USER
+
+
+def _resolve_user(user_id: Optional[str]) -> str:
+    return user_id if user_id else _current_username()
+
+
+def _looks_like_agent_record(value: Any) -> bool:
+    """Heuristic for detecting the pre-partitioning flat shape on disk."""
+    if not isinstance(value, dict):
+        return False
+    return any(k in value for k in ("status", "last_run", "history", "run_count"))
+
+
+def _ensure_partitioned(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return data in the new ``{user: {agent: rec}}`` shape.
+
+    If the file is the old flat ``{agent: rec}`` shape we move it under the
+    ``_legacy`` user. Idempotent — safe to call on already-partitioned data.
+    """
+    if not data:
+        return {}
+    if any(_looks_like_agent_record(v) for v in data.values()):
+        return {_LEGACY_USER: data}
+    # Already partitioned. Strip any non-dict values defensively.
+    return {k: v for k, v in data.items() if isinstance(v, dict)}
+
+
 # ---------------------------------------------------------------------------
 # Low-level file IO — swap these two to move off JSON without touching the
 # public API.
 # ---------------------------------------------------------------------------
-def _read_file() -> dict[str, Any]:
+def _read_file() -> dict[str, dict[str, Any]]:
     if not _TELEMETRY_FILE.exists():
         return {}
     try:
         with _TELEMETRY_FILE.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
-            return data if isinstance(data, dict) else {}
+            return _ensure_partitioned(data) if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         # Corrupt or unreadable — treat as empty so callers keep working.
         # The next successful ``record()`` will rewrite the file cleanly.
         return {}
 
 
-def _write_file(data: dict[str, Any]) -> None:
+def _write_file(data: dict[str, dict[str, Any]]) -> None:
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
     # Atomic write: temp file in same dir, then os.replace onto target.
     # Guarantees readers never see a half-written JSON blob.
@@ -116,26 +182,38 @@ def _write_file(data: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def load_all() -> dict[str, dict]:
-    """Return a copy of the entire telemetry snapshot."""
+def load_all(user_id: Optional[str] = None) -> dict[str, dict]:
+    """Return a copy of the calling user's telemetry snapshot.
+
+    Pass ``user_id`` explicitly for tests/CLI; production callers can omit
+    it and the current Streamlit session user is used.
+    """
+    uid = _resolve_user(user_id)
     with _LOCK:
-        return _read_file()
+        return _read_file().get(uid, {})
 
 
-def get(agent_key: str) -> Optional[dict]:
+def get(agent_key: str, user_id: Optional[str] = None) -> Optional[dict]:
     """Return the telemetry record for one agent, or ``None`` if absent."""
+    uid = _resolve_user(user_id)
     with _LOCK:
-        return _read_file().get(agent_key)
+        return _read_file().get(uid, {}).get(agent_key)
 
 
-def history(agent_key: str, limit: int = 20) -> list[dict]:
+def history(agent_key: str, limit: int = 20, user_id: Optional[str] = None) -> list[dict]:
     """Return the last ``limit`` run records for an agent (newest first)."""
-    rec = get(agent_key) or {}
+    rec = get(agent_key, user_id=user_id) or {}
     return (rec.get("history") or [])[:max(0, int(limit))]
 
 
-def record(agent_key: str, snapshot: dict, *, append_history: bool = True) -> None:
-    """Merge ``snapshot`` into an agent's record and persist.
+def record(
+    agent_key: str,
+    snapshot: dict,
+    *,
+    append_history: bool = True,
+    user_id: Optional[str] = None,
+) -> None:
+    """Merge ``snapshot`` into the user's record for ``agent_key`` and persist.
 
     Expected snapshot keys (any subset): ``name``, ``status``, ``last_run``,
     ``started_at``, ``finished_at``, ``runtime_seconds``, ``last_error``,
@@ -145,10 +223,12 @@ def record(agent_key: str, snapshot: dict, *, append_history: bool = True) -> No
     ``completed`` or ``error``, a compact history row is prepended. Running/idle
     updates don't pollute history — they just refresh the live fields.
     """
+    uid = _resolve_user(user_id)
     now_iso = datetime.now(timezone.utc).isoformat()
     with _LOCK:
         data = _read_file()
-        existing = data.get(agent_key) or {}
+        user_bucket = data.setdefault(uid, {})
+        existing = user_bucket.get(agent_key) or {}
         merged = {**existing, **{k: v for k, v in snapshot.items() if v is not None}}
 
         if append_history:
@@ -165,19 +245,28 @@ def record(agent_key: str, snapshot: dict, *, append_history: bool = True) -> No
                 merged["history"] = hist[:_HISTORY_CAP]
 
         merged["updated_at"] = now_iso
-        data[agent_key] = merged
+        user_bucket[agent_key] = merged
         _write_file(data)
 
 
-def reset(agent_key: Optional[str] = None) -> None:
-    """Clear telemetry — either for one agent or (if ``None``) the whole file.
+def reset(agent_key: Optional[str] = None, user_id: Optional[str] = None) -> None:
+    """Clear telemetry for one user — either one agent or the whole bucket.
 
-    Mostly a convenience for tests/admin tooling. No production code calls it.
+    Pass ``user_id="*"`` to wipe the entire file (admin/test only).
     """
-    with _LOCK:
-        if agent_key is None:
+    if user_id == "*":
+        with _LOCK:
             _write_file({})
-            return
+        return
+
+    uid = _resolve_user(user_id)
+    with _LOCK:
         data = _read_file()
-        data.pop(agent_key, None)
+        bucket = data.get(uid)
+        if not bucket:
+            return
+        if agent_key is None:
+            data.pop(uid, None)
+        else:
+            bucket.pop(agent_key, None)
         _write_file(data)
