@@ -11,6 +11,8 @@ import io
 import pandas as pd
 import requests as http_requests
 
+from core.sql_safe import preview_query
+
 # ── Optional driver availability ─────────────────────────────────────────────
 try:
     import sqlalchemy
@@ -257,7 +259,10 @@ class SQLDatabaseConnector(RealConnector):
                 conn.execute(sqlalchemy.text("SELECT 1"))
             # If a query is provided, do a limited test
             if query:
-                test_query = f"SELECT * FROM ({query}) AS t LIMIT 5"
+                try:
+                    test_query = preview_query(query, limit=5, alias="t")
+                except ValueError as ve:
+                    return {"success": False, "message": f"Unsafe query: {ve}"}
                 try:
                     df = pd.read_sql(test_query, engine)
                     return {
@@ -404,8 +409,12 @@ class GCPBigQueryConnector(RealConnector):
         if not project or not query:
             return {"success": False, "message": "Project ID and SQL query are required"}
         try:
+            try:
+                test_sql = preview_query(query, limit=5)
+            except ValueError as ve:
+                return {"success": False, "message": f"Unsafe query: {ve}"}
             client = self._get_client(project, credentials_json)
-            job = client.query(f"SELECT * FROM ({query}) LIMIT 5")
+            job = client.query(test_sql)
             df = job.to_dataframe()
             return {"success": True,
                     "message": f"Query OK — preview: {len(df)} rows x {len(df.columns)} columns",
@@ -756,7 +765,10 @@ class SnowflakeConnector(RealConnector):
                                  database, schema, role)
             try:
                 if query:
-                    test_query = f"SELECT * FROM ({query}) AS _t LIMIT 5"
+                    try:
+                        test_query = preview_query(query, limit=5, alias="_t")
+                    except ValueError as ve:
+                        return {"success": False, "message": f"Unsafe query: {ve}"}
                     df = self._query_to_dataframe(conn, test_query)
                     return {
                         "success": True,
