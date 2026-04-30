@@ -6,6 +6,7 @@ data-derived actuals to flag inconsistencies (the "73% mismatch" pattern).
 """
 from datetime import datetime
 from core.base_agent import BaseAgent
+from core.channels import Channel
 from core.state_manager import state_manager
 from core.data_access import get_dataset
 from core.company_config import company_cfg
@@ -26,8 +27,8 @@ class AuditAgent(BaseAgent):
         metrics_df = get_dataset("esg_metrics", load_esg_metrics)
 
         # Data from other agents
-        data_results = state_manager.subscribe("data_collection_results") or {}
-        regulatory_results = state_manager.subscribe("regulatory_results") or {}
+        data_results = state_manager.subscribe(Channel.DATA_COLLECTION) or {}
+        regulatory_results = state_manager.subscribe(Channel.REGULATORY) or {}
 
         # Data completeness audit
         completeness_audit = self._audit_data_completeness(data_results)
@@ -74,7 +75,7 @@ class AuditAgent(BaseAgent):
             ),
         }
 
-        state_manager.publish("audit_results", results, self.name)
+        state_manager.publish(Channel.AUDIT, results, self.name)
         return results
 
     def _audit_data_completeness(self, data_results):

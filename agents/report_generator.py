@@ -7,6 +7,7 @@ Hypothesis mapping:
 """
 from datetime import datetime
 from core.base_agent import BaseAgent
+from core.channels import Channel
 from core.state_manager import state_manager
 from core.data_access import get_dataset
 from core.company_config import company_cfg
@@ -32,13 +33,13 @@ class ReportGeneratorAgent(BaseAgent):
         metrics_df = get_dataset("esg_metrics", load_esg_metrics)
 
         # Gather data from other agents via state manager
-        carbon_results = state_manager.subscribe("carbon_results") or {}
-        regulatory_results = state_manager.subscribe("regulatory_results") or {}
-        audit_results = state_manager.subscribe("audit_results") or {}
-        data_results = state_manager.subscribe("data_collection_results") or {}
-        roi_results = state_manager.subscribe("roi_results") or {}
-        risk_results = state_manager.subscribe("risk_results") or {}
-        stakeholder_results = state_manager.subscribe("stakeholder_results") or {}
+        carbon_results = state_manager.subscribe(Channel.CARBON) or {}
+        regulatory_results = state_manager.subscribe(Channel.REGULATORY) or {}
+        audit_results = state_manager.subscribe(Channel.AUDIT) or {}
+        data_results = state_manager.subscribe(Channel.DATA_COLLECTION) or {}
+        roi_results = state_manager.subscribe(Channel.ROI) or {}
+        risk_results = state_manager.subscribe(Channel.RISK) or {}
+        stakeholder_results = state_manager.subscribe(Channel.STAKEHOLDER) or {}
         reporter_profile = regulatory_results.get("reporter_profile", {})
 
         fy_label = f"FY{company_cfg.current_fy}" if company_cfg.current_fy else "Current FY"
@@ -137,7 +138,7 @@ class ReportGeneratorAgent(BaseAgent):
             "audit_trail": audit_trail,
         }
 
-        state_manager.publish("report_results", results, self.name)
+        state_manager.publish(Channel.REPORT, results, self.name)
         return results
 
     def _generate_executive_summary(self, company, carbon_results, regulatory_results, roi_results):

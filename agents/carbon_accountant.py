@@ -1,6 +1,7 @@
 """Agent 3: Carbon Accountant — Scope 1/2/3 emissions tracking and analysis."""
 import pandas as pd
 from core.base_agent import BaseAgent
+from core.channels import Channel
 from core.state_manager import state_manager
 from core.data_access import get_dataset
 from core.company_config import company_cfg
@@ -105,7 +106,7 @@ class CarbonAccountantAgent(BaseAgent):
             "reporting_year": current_fy,
         }
 
-        state_manager.publish("carbon_results", results, self.name)
+        state_manager.publish(Channel.CARBON, results, self.name)
         return results
 
     def _identify_hotspots(self, supply_chain_df):

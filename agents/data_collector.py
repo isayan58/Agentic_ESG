@@ -1,6 +1,7 @@
 """Agent 1: Data Collector — Auto-discovers and ingests ESG data with quality scoring."""
 import pandas as pd
 from core.base_agent import BaseAgent
+from core.channels import Channel, dataset_channel, validated_channel
 from core.state_manager import state_manager
 from core.company_config import company_cfg
 from utils.data_processing import (
@@ -159,9 +160,9 @@ class DataCollectorAgent(BaseAgent):
 
         # Publish validated data to shared state
         for name, df in datasets.items():
-            state_manager.publish(f"validated_{name}", df.to_dict(), self.name)
+            state_manager.publish(validated_channel(name), df.to_dict(), self.name)
         for schema_name, payload in canonical_datasets.items():
-            state_manager.publish(f"dataset_{schema_name}", payload["data"], self.name)
+            state_manager.publish(dataset_channel(schema_name), payload["data"], self.name)
 
         results = {
             "datasets_loaded": len(datasets),
@@ -184,7 +185,7 @@ class DataCollectorAgent(BaseAgent):
             "data_quality_summary": data_quality_summary,
         }
 
-        state_manager.publish("data_collection_results", results, self.name)
+        state_manager.publish(Channel.DATA_COLLECTION, results, self.name)
         return results
 
     def _generate_data_quality_summary(self, quality_scores, missing_data_alerts):

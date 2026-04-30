@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from core.base_agent import BaseAgent
+from core.channels import Channel
 from core.state_manager import state_manager
 from core.data_access import get_dataset
 from core.company_config import company_cfg
@@ -83,7 +84,7 @@ class ROIAgent(BaseAgent):
         if orchestrator:
             self._post_suggestions(orchestrator, financial_roi, strategic_roi, iqs, j_curve)
 
-        state_manager.publish("roi_results", results, self.name)
+        state_manager.publish(Channel.ROI, results, self.name)
         return results
 
     # ── Financial ROI ──────────────────────────────────────────────────────
@@ -534,7 +535,7 @@ class ROIAgent(BaseAgent):
 
     def _derive_company_scope12(self) -> float:
         """Return Scope 1+2 tCO2e from carbon results in shared state."""
-        carbon = state_manager.subscribe("carbon_results") or {}
+        carbon = state_manager.subscribe(Channel.CARBON) or {}
         scope_curr = carbon.get("scope_totals_current", {})
         return float(scope_curr.get("Scope 1", 0) or 0) + float(scope_curr.get("Scope 2", 0) or 0)
 

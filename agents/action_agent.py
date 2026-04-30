@@ -1,6 +1,7 @@
 """Agent 7: Action Agent — Generates prioritized recommendations from ESG insights."""
 from datetime import datetime, timedelta
 from core.base_agent import BaseAgent
+from core.channels import Channel
 from core.state_manager import state_manager
 from core.company_config import company_cfg
 
@@ -16,11 +17,11 @@ class ActionAgent(BaseAgent):
         self.log("Generating action recommendations")
 
         # Gather insights from other agents
-        risk_results = state_manager.subscribe("risk_results") or {}
-        audit_results = state_manager.subscribe("audit_results") or {}
-        carbon_results = state_manager.subscribe("carbon_results") or {}
-        regulatory_results = state_manager.subscribe("regulatory_results") or {}
-        roi_results = state_manager.subscribe("roi_results") or {}
+        risk_results = state_manager.subscribe(Channel.RISK) or {}
+        audit_results = state_manager.subscribe(Channel.AUDIT) or {}
+        carbon_results = state_manager.subscribe(Channel.CARBON) or {}
+        regulatory_results = state_manager.subscribe(Channel.REGULATORY) or {}
+        roi_results = state_manager.subscribe(Channel.ROI) or {}
 
         # Generate recommendations from each source
         actions = []
@@ -67,7 +68,7 @@ class ActionAgent(BaseAgent):
             "roadmap_narrative": self._generate_roadmap_narrative(actions, summary),
         }
 
-        state_manager.publish("action_results", results, self.name)
+        state_manager.publish(Channel.ACTION, results, self.name)
         return results
 
     def _actions_from_risks(self, risk_results):

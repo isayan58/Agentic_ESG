@@ -3,6 +3,7 @@ import threading
 import json
 from datetime import datetime, timedelta
 from core.base_agent import BaseAgent
+from core.channels import Channel
 from core.state_manager import state_manager
 from core.data_access import get_dataset
 from core.company_config import company_cfg
@@ -324,7 +325,7 @@ class RegulatoryTrackerAgent(BaseAgent):
         if orchestrator and external_updates:
             self._post_regulatory_alerts(orchestrator, external_updates)
 
-        state_manager.publish("regulatory_results", results, self.name)
+        state_manager.publish(Channel.REGULATORY, results, self.name)
         return results
 
     def _post_regulatory_alerts(self, orchestrator, external_updates):

@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from agents.report_generator import ReportGeneratorAgent
 from utils.charts import emissions_donut, compliance_radar, chart_unavailable_message
+from core.channels import Channel
 from core.state_manager import state_manager
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import current_user, require_login, sidebar_auth_widget
@@ -74,7 +75,7 @@ if results and "error" not in results:
         st.metric("Carbon Intensity", f"{carbon.get('carbon_intensity', 'N/A')} tCO2e/$M")
 
     # Embedded emissions chart
-    carbon_data = state_manager.subscribe("carbon_results")
+    carbon_data = state_manager.subscribe(Channel.CARBON)
     if carbon_data and "scope_totals_current" in carbon_data:
         fig = emissions_donut(carbon_data["scope_totals_current"])
         render_chart(fig)

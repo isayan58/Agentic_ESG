@@ -5,6 +5,7 @@ Hypothesis mapping:
   H6 — J-Curve: short-term costs → long-term payback (communication framing)
 """
 from core.base_agent import BaseAgent
+from core.channels import Channel
 from core.state_manager import state_manager
 from core.company_config import company_cfg
 
@@ -48,11 +49,11 @@ class StakeholderAgent(BaseAgent):
         self.log("Generating stakeholder communications")
 
         # Gather data from other agents
-        report_results = state_manager.subscribe("report_results") or {}
-        action_results = state_manager.subscribe("action_results") or {}
-        carbon_results = state_manager.subscribe("carbon_results") or {}
-        risk_results = state_manager.subscribe("risk_results") or {}
-        roi_results = state_manager.subscribe("roi_results") or {}
+        report_results = state_manager.subscribe(Channel.REPORT) or {}
+        action_results = state_manager.subscribe(Channel.ACTION) or {}
+        carbon_results = state_manager.subscribe(Channel.CARBON) or {}
+        risk_results = state_manager.subscribe(Channel.RISK) or {}
+        roi_results = state_manager.subscribe(Channel.ROI) or {}
 
         # Build data context for message generation
         context = self._build_context(
@@ -88,7 +89,7 @@ class StakeholderAgent(BaseAgent):
             "context_data": context,
         }
 
-        state_manager.publish("stakeholder_results", results, self.name)
+        state_manager.publish(Channel.STAKEHOLDER, results, self.name)
         return results
 
     def _build_context(self, report_results, action_results, carbon_results,

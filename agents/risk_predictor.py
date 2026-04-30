@@ -7,6 +7,7 @@ Hypothesis mapping:
 """
 import pandas as pd
 from core.base_agent import BaseAgent
+from core.channels import Channel
 from core.state_manager import state_manager
 from core.data_access import get_dataset
 from core.company_config import company_cfg
@@ -70,7 +71,7 @@ class RiskPredictorAgent(BaseAgent):
             "overall_risk_score": climate_risks["overall_score"],
         }
 
-        state_manager.publish("risk_results", results, self.name)
+        state_manager.publish(Channel.RISK, results, self.name)
         return results
 
     def _assess_climate_risks(self, emissions_df, metrics_df):
@@ -82,7 +83,7 @@ class RiskPredictorAgent(BaseAgent):
 
         # Transition risks (regulatory, market, technology)
         transition_risk = sr.transition_risk_base
-        regulatory_data = state_manager.subscribe("regulatory_results")
+        regulatory_data = state_manager.subscribe(Channel.REGULATORY)
         if regulatory_data:
             compliance = regulatory_data.get("overall_compliance", sr.compliance_baseline)
             transition_risk = max(20, 100 - compliance)
