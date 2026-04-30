@@ -12,6 +12,8 @@ from utils.data_processing import (
 
 
 class CarbonAccountantAgent(BaseAgent):
+    output_channel = Channel.CARBON
+
     def __init__(self):
         super().__init__(
             name="Carbon Accountant",
@@ -106,7 +108,6 @@ class CarbonAccountantAgent(BaseAgent):
             "reporting_year": current_fy,
         }
 
-        state_manager.publish(Channel.CARBON, results, self.name)
         return results
 
     def _identify_hotspots(self, supply_chain_df):

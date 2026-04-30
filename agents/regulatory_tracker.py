@@ -142,6 +142,8 @@ DATA_FIELD_MAPPING = {
 
 
 class RegulatoryTrackerAgent(BaseAgent):
+    output_channel = Channel.REGULATORY
+
     def __init__(self):
         super().__init__(
             name="Regulatory Tracker",
@@ -325,7 +327,6 @@ class RegulatoryTrackerAgent(BaseAgent):
         if orchestrator and external_updates:
             self._post_regulatory_alerts(orchestrator, external_updates)
 
-        state_manager.publish(Channel.REGULATORY, results, self.name)
         return results
 
     def _post_regulatory_alerts(self, orchestrator, external_updates):

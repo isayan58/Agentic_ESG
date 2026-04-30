@@ -16,6 +16,8 @@ from utils.data_processing import (
 
 
 class AuditAgent(BaseAgent):
+    output_channel = Channel.AUDIT
+
     def __init__(self):
         super().__init__(
             name="Audit Agent",
@@ -75,7 +77,6 @@ class AuditAgent(BaseAgent):
             ),
         }
 
-        state_manager.publish(Channel.AUDIT, results, self.name)
         return results
 
     def _audit_data_completeness(self, data_results):

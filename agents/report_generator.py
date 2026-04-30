@@ -16,6 +16,8 @@ from utils.feedback_store import load_recent_feedback
 
 
 class ReportGeneratorAgent(BaseAgent):
+    output_channel = Channel.REPORT
+
     def __init__(self):
         super().__init__(
             name="Report Generator",
@@ -138,7 +140,6 @@ class ReportGeneratorAgent(BaseAgent):
             "audit_trail": audit_trail,
         }
 
-        state_manager.publish(Channel.REPORT, results, self.name)
         return results
 
     def _generate_executive_summary(self, company, carbon_results, regulatory_results, roi_results):

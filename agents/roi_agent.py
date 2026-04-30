@@ -26,6 +26,8 @@ from utils.data_processing import (
 
 
 class ROIAgent(BaseAgent):
+    output_channel = Channel.ROI
+
     def __init__(self):
         super().__init__(
             name="ESG ROI Agent",
@@ -84,7 +86,6 @@ class ROIAgent(BaseAgent):
         if orchestrator:
             self._post_suggestions(orchestrator, financial_roi, strategic_roi, iqs, j_curve)
 
-        state_manager.publish(Channel.ROI, results, self.name)
         return results
 
     # ── Financial ROI ──────────────────────────────────────────────────────

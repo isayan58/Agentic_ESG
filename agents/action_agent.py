@@ -7,6 +7,8 @@ from core.company_config import company_cfg
 
 
 class ActionAgent(BaseAgent):
+    output_channel = Channel.ACTION
+
     def __init__(self):
         super().__init__(
             name="Action Agent",
@@ -68,7 +70,6 @@ class ActionAgent(BaseAgent):
             "roadmap_narrative": self._generate_roadmap_narrative(actions, summary),
         }
 
-        state_manager.publish(Channel.ACTION, results, self.name)
         return results
 
     def _actions_from_risks(self, risk_results):

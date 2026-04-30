@@ -17,6 +17,8 @@ from utils.data_processing import (
 
 
 class RiskPredictorAgent(BaseAgent):
+    output_channel = Channel.RISK
+
     def __init__(self):
         super().__init__(
             name="Risk Predictor",
@@ -71,7 +73,6 @@ class RiskPredictorAgent(BaseAgent):
             "overall_risk_score": climate_risks["overall_score"],
         }
 
-        state_manager.publish(Channel.RISK, results, self.name)
         return results
 
     def _assess_climate_risks(self, emissions_df, metrics_df):

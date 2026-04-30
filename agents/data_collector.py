@@ -13,6 +13,12 @@ from utils.connectors import get_all_connectors
 
 
 class DataCollectorAgent(BaseAgent):
+    # Per-schema validated_*/dataset_* channels are still published inline
+    # mid-execute (we publish 14+ side channels, one per ingested schema).
+    # output_channel only handles the canonical end-of-run summary that
+    # downstream agents subscribe to.
+    output_channel = Channel.DATA_COLLECTION
+
     def __init__(self):
         super().__init__(
             name="Data Collector",
@@ -185,7 +191,6 @@ class DataCollectorAgent(BaseAgent):
             "data_quality_summary": data_quality_summary,
         }
 
-        state_manager.publish(Channel.DATA_COLLECTION, results, self.name)
         return results
 
     def _generate_data_quality_summary(self, quality_scores, missing_data_alerts):

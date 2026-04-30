@@ -39,6 +39,8 @@ AUDIENCE_PROFILES = {
 
 
 class StakeholderAgent(BaseAgent):
+    output_channel = Channel.STAKEHOLDER
+
     def __init__(self):
         super().__init__(
             name="Stakeholder Agent",
@@ -89,7 +91,6 @@ class StakeholderAgent(BaseAgent):
             "context_data": context,
         }
 
-        state_manager.publish(Channel.STAKEHOLDER, results, self.name)
         return results
 
     def _build_context(self, report_results, action_results, carbon_results,

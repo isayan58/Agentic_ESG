@@ -1,12 +1,27 @@
 """Abstract base class for all ESG Pilot agents."""
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import ClassVar
+
 from core.hf_client import hf_client
 from utils import agent_telemetry
 
 
 class BaseAgent(ABC):
-    """Base class that all ESG Pilot agents inherit from."""
+    """Base class that all ESG Pilot agents inherit from.
+
+    Subclasses set ``output_channel`` to the ``core.channels.Channel`` they
+    publish their final result on. ``run()`` then publishes for them, so
+    ``execute()`` stays a pure compute step that just returns a dict —
+    easier to unit-test and harder to accidentally couple to global state.
+    Mid-execute side channels (e.g. data_collector's per-schema feeds) stay
+    inline; ``output_channel`` only covers the canonical end-of-run result.
+    """
+
+    # Subclasses override this to opt into auto-publish. ``None`` means
+    # the agent doesn't have a single canonical output channel and is
+    # expected to manage any publishing itself (or none at all).
+    output_channel: ClassVar[str | None] = None
 
     def __init__(self, name, description):
         self.name = name
@@ -110,6 +125,17 @@ class BaseAgent(ABC):
             self.results = {"error": str(e)}
         # Terminal state → append a history row so the UI can plot trends.
         self._persist_snapshot(append_history=True)
+        # Auto-publish the canonical output for completed runs. Skipped on
+        # error so subscribers never see a {"error": ...} sentinel that
+        # used to be a real result. Lazy import to dodge import cycles
+        # during early bootstrap.
+        if self.status == "completed" and self.output_channel:
+            try:
+                from core.state_manager import state_manager
+                state_manager.publish(self.output_channel, self.results, self.name)
+            except Exception:
+                # Publish IO must never crash the run.
+                pass
         return self.results
 
     @abstractmethod
