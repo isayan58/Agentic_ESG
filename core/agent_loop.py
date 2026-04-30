@@ -14,6 +14,7 @@ from typing import Any, Callable
 import anthropic
 
 import config
+from core.budget import BudgetExceededError, RunBudget
 
 
 SYSTEM_PROMPT = """You are the orchestration agent for an ESG analytics pipeline.
@@ -112,7 +113,8 @@ class AnthropicAgentLoop:
     """Drive the orchestrator using a Claude tool-use loop with prompt caching."""
 
     def __init__(self, orchestrator, model: str | None = None,
-                 effort: str | None = None, max_tokens: int | None = None):
+                 effort: str | None = None, max_tokens: int | None = None,
+                 budget: RunBudget | None = None):
         api_key = config.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
             raise RuntimeError(
@@ -125,6 +127,12 @@ class AnthropicAgentLoop:
         self.model = model or config.ANTHROPIC_MODEL
         self.effort = effort or config.ANTHROPIC_EFFORT
         self.max_tokens = max_tokens or config.ANTHROPIC_MAX_TOKENS
+        # Budget caps prevent a runaway loop from silently burning tokens.
+        # Defaults are read from env so ops can tune without a code change.
+        self.budget = budget or RunBudget(
+            max_tokens=int(os.environ.get("ANTHROPIC_RUN_MAX_TOKENS", 500_000)),
+            max_cost_usd=float(os.environ.get("ANTHROPIC_RUN_MAX_COST_USD", 10.0)),
+        )
 
     def _execute_tool(self, tool_name: str, tool_input: dict, results: dict,
                       data_collector_kwargs: dict | None,
@@ -286,7 +294,25 @@ class AnthropicAgentLoop:
                     "cache_creation_input_tokens": getattr(
                         response.usage, "cache_creation_input_tokens", 0),
                 },
+                "budget": self.budget.snapshot(),
             })
+
+            try:
+                self.budget.add_usage(response.usage, self.model)
+            except BudgetExceededError as exc:
+                self.orchestrator.planning_log.append({
+                    "step": iteration,
+                    "agent": "budget-guardrail",
+                    "reason": str(exc),
+                    "stop_reason": "budget_exceeded",
+                    "tool_calls": [],
+                    "budget": self.budget.snapshot(),
+                })
+                results["__budget_exceeded__"] = {
+                    "error": str(exc),
+                    "budget": self.budget.snapshot(),
+                }
+                break
 
             if response.stop_reason == "end_turn" or not tool_use_blocks:
                 break
