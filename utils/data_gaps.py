@@ -217,13 +217,14 @@ def compute_data_gaps(conn_mgr, pipeline_results: dict | None) -> dict:
         if agent_key != "planning" and isinstance(res, dict) and "error" not in res
     ]
 
+    catalog_schemas = set(ESG_SCHEMAS.keys())
     return {
         "has_sources": has_sources,
         "using_sample_data": not has_sources,
         "source_count": len(sources_meta),
         "schema_coverage": {
-            "covered": len(registered_schemas),
-            "total": len(_SCHEMA_IMPACT),
+            "covered": len(registered_schemas & catalog_schemas),
+            "total": len(catalog_schemas),
         },
         "sources": source_rows,
         "missing_schemas": missing_schemas,

@@ -27,7 +27,7 @@ def _extract_numbers(prompt):
         "iqs_grade": r"investment quality[^:]*:\s*([A-Z+\-]+)",
         "total_actions": r"[Tt]otal actions[:\s]+(\d+)",
         "critical": r"[Cc]ritical[:\s]+(\d+)",
-        "total_emissions": r"[Tt]otal emissions[:\s]+([\d,.]+)",
+        "total_emissions": r"(?:[Tt]otal emissions|[Cc]arbon emissions|total_emissions|[Cc]arbon)[:=\s]+(\d[\d,.]*\d|\d)",
     }
     for k, pat in patterns.items():
         m = re.search(pat, prompt)
@@ -259,14 +259,19 @@ class HFClient:
         )
 
     def _fallback_report(self, prompt, ctx, company):
-        emis = ctx.get("total_emissions", "?")
-        yoy = ctx.get("yoy", "?")
-        comp = ctx.get("compliance", "?")
-        roi = ctx.get("roi_pct", "?")
-        iqs = ctx.get("iqs_grade", "?")
+        emis = ctx.get("total_emissions")
+        yoy = ctx.get("yoy")
+        comp = ctx.get("compliance", "—")
+        roi = ctx.get("roi_pct", "—")
+        iqs = ctx.get("iqs_grade", "N/A")
+        if emis:
+            yoy_clause = f" ({yoy}% YoY)" if yoy else ""
+            emissions_clause = f"total emissions of {emis} tCO2e{yoy_clause}"
+        else:
+            emissions_clause = "emissions data still being consolidated"
         return (
-            f"{company} closed the reporting period with total emissions of {emis} tCO2e "
-            f"({yoy}% YoY) and aggregate regulatory compliance at {comp}%. "
+            f"{company} closed the reporting period with {emissions_clause} "
+            f"and aggregate regulatory compliance at {comp}%. "
             f"ESG-linked financial ROI delivered {roi}% with an investment-quality grade of {iqs}, "
             f"signalling that sustainability spend is creating measurable enterprise value. "
             f"The forward agenda prioritises Scope 3 visibility, BRSR readiness, and capital-efficient decarbonisation."
