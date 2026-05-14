@@ -99,44 +99,157 @@ Sources that count as authoritative:
 - SOX: PCAOB, SEC (sec.gov) rule releases, AS standards
 - SEC Climate Rule: sec.gov rule releases and final rule text
 
-For each real update you find, return a JSON object with:
-{{
-  "framework": "<one of: BRSR, CSRD, GRI, SASB, SOX, SEC>",
-  "type": "new_requirement | amendment | deadline_change | guidance | assurance_change | withdrawal",
-  "title": "<short title>",
-  "description": "<2-3 sentence plain-English summary of what changed>",
-  "source_url": "<direct link to the authority's page>",
-  "effective_date": "<YYYY-MM-DD or null if not yet set>",
-  "impact": "high | medium | low",
-  "proposed_requirement": {{
-    "id": "<suggested id, e.g. BRSR-E13 or SEC-CLIM-1507>",
-    "section": "<official section / item number>",
-    "requirement": "<short requirement name>",
-    "data_fields": ["<snake_case_field_1>", ...],
-    "priority": "critical | high | medium | low"
-  }} or null (null when the update is a deadline change or guidance, not a new requirement)
-}}
-
-Return ONLY a JSON array of these objects, nothing else. If no real updates
-are found for a framework, simply omit it. Do not invent requirements — every
-entry must map to a real published change with a working source URL.
+After searching, call the ``report_framework_updates`` tool exactly once with
+the full list of updates you found. If no real updates were found, call the
+tool with an empty ``updates`` list. Do not invent requirements — every entry
+must map to a real published change with a working source URL.
 """
+
+
+# Tool schema for structured output. By forcing Claude to deliver results via
+# a tool call, the Anthropic API parses & validates the JSON for us — we never
+# have to strip prose / citation markup / control chars out of raw text again.
+_REPORT_TOOL = {
+    "name": "report_framework_updates",
+    "description": (
+        "Report the list of authoritative regulatory updates found via web "
+        "search. Call this exactly once at the end with every update you "
+        "found (or an empty list if none)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "updates": {
+                "type": "array",
+                "description": "All authoritative updates found.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "framework": {
+                            "type": "string",
+                            "enum": list(TRACKED_FRAMEWORKS),
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "new_requirement",
+                                "amendment",
+                                "deadline_change",
+                                "guidance",
+                                "assurance_change",
+                                "withdrawal",
+                            ],
+                        },
+                        "title": {"type": "string"},
+                        "description": {
+                            "type": "string",
+                            "description": "2-3 sentence plain-English summary.",
+                        },
+                        "source_url": {
+                            "type": "string",
+                            "description": "Direct link to the authority's page.",
+                        },
+                        "effective_date": {
+                            "type": ["string", "null"],
+                            "description": "YYYY-MM-DD, or null if not yet set.",
+                        },
+                        "impact": {
+                            "type": "string",
+                            "enum": ["high", "medium", "low"],
+                        },
+                        "proposed_requirement": {
+                            "type": ["object", "null"],
+                            "description": (
+                                "New requirement to add to the framework, or "
+                                "null when the update is a deadline change / "
+                                "guidance only."
+                            ),
+                            "properties": {
+                                "id": {"type": "string"},
+                                "section": {"type": "string"},
+                                "requirement": {"type": "string"},
+                                "data_fields": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "priority": {
+                                    "type": "string",
+                                    "enum": ["critical", "high", "medium", "low"],
+                                },
+                            },
+                            "required": ["id", "section", "requirement"],
+                        },
+                    },
+                    "required": [
+                        "framework",
+                        "type",
+                        "title",
+                        "description",
+                        "source_url",
+                        "impact",
+                    ],
+                },
+            },
+        },
+        "required": ["updates"],
+    },
+}
+
+
+def _extract_tool_updates(response) -> list[dict] | None:
+    """Return the ``updates`` list from the report tool call, if present.
+
+    Returns ``None`` if the model never invoked the tool — caller falls back
+    to the legacy text-parsing path.
+    """
+    for block in response.content:
+        if getattr(block, "type", None) != "tool_use":
+            continue
+        if getattr(block, "name", None) != _REPORT_TOOL["name"]:
+            continue
+        payload = getattr(block, "input", None) or {}
+        updates = payload.get("updates")
+        if isinstance(updates, list):
+            return updates
+    return None
 
 
 def _strip_to_json_array(text: str) -> str:
     """Pull the first top-level JSON array from Claude's response.
 
-    Claude's web-search responses often include prose and citation markup
-    around the JSON. We locate the outermost [...] substring that parses.
+    Legacy fallback only — kept for the rare case the model ignored the
+    tool and emitted text. Walks the string with a bracket counter so we
+    don't get fooled by citation markers like ``[1]`` after the real
+    array's closing bracket.
     """
-    fenced = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL)
+    fenced = re.search(r"```(?:json)?\s*(\[.*\])\s*```", text, re.DOTALL)
     if fenced:
         return fenced.group(1)
     start = text.find("[")
-    end = text.rfind("]")
-    if start != -1 and end != -1 and end > start:
-        return text[start:end + 1]
-    return text
+    if start == -1:
+        return text
+    depth = 0
+    in_str = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return text[start:]
 
 
 def _update_id(entry: dict) -> str:
@@ -174,39 +287,42 @@ def fetch_framework_updates(
     response = client.messages.create(
         model=model or config.ANTHROPIC_MODEL,
         max_tokens=4096,
-        tools=[{
-            "type": "web_search_20250305",
-            "name": "web_search",
-            "max_uses": max_searches,
-        }],
+        tools=[
+            {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": max_searches,
+            },
+            _REPORT_TOOL,
+        ],
         messages=[{"role": "user", "content": prompt}],
     )
-    # Concatenate text blocks (the tool-use + search results flow through
-    # server-side; final JSON lives in the last text block).
-    text_chunks = [
-        block.text for block in response.content
-        if getattr(block, "type", None) == "text"
-    ]
-    body = "\n".join(text_chunks).strip()
-    if not body:
-        return []
-    raw = _strip_to_json_array(body)
-    # ``strict=False`` tolerates raw control characters (literal \n, \t, …)
-    # inside string values — LLM output is frequently not RFC-strict, and
-    # rejecting the whole payload because of one unescaped newline loses
-    # real regulatory updates. If that still fails, strip the remaining
-    # disallowed control chars (NULs, etc.) and try once more before
-    # giving up with the original error.
-    try:
-        parsed = json.loads(raw, strict=False)
-    except json.JSONDecodeError as exc:
-        scrubbed = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", raw)
+    # Preferred path: the model called our reporting tool, so the Anthropic
+    # API has already parsed & validated the JSON for us.
+    parsed = _extract_tool_updates(response)
+    if parsed is None:
+        # Fallback for the rare case the model emitted text instead of
+        # invoking the tool. Concatenate any text blocks and try to recover
+        # a JSON array — tolerating raw control chars inside strings, then
+        # scrubbing the disallowed ones if that still fails.
+        text_chunks = [
+            block.text for block in response.content
+            if getattr(block, "type", None) == "text"
+        ]
+        body = "\n".join(text_chunks).strip()
+        if not body:
+            return []
+        raw = _strip_to_json_array(body)
         try:
-            parsed = json.loads(scrubbed, strict=False)
-        except json.JSONDecodeError:
-            raise RuntimeError(
-                f"Model did not return parseable JSON: {exc}"
-            ) from exc
+            parsed = json.loads(raw, strict=False)
+        except json.JSONDecodeError as exc:
+            scrubbed = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", raw)
+            try:
+                parsed = json.loads(scrubbed, strict=False)
+            except json.JSONDecodeError:
+                raise RuntimeError(
+                    f"Model did not return parseable JSON: {exc}"
+                ) from exc
     if not isinstance(parsed, list):
         raise RuntimeError("Expected a JSON array from the model.")
 
