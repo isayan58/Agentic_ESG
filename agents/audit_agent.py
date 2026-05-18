@@ -54,12 +54,28 @@ class AuditAgent(BaseAgent):
         # Audit trail compilation
         audit_trail = self._compile_full_audit_trail()
 
-        # AI-generated findings summary
-        findings_summary = self._generate_findings_summary(
+        # Claude-powered specific audit gap analysis (with HF fallback).
+        # The structured `gap_analysis` payload powers the new
+        # field-level table on the Audit page; legacy summary / bullet
+        # keys stay populated for backwards-compatible renderers.
+        from utils.gap_analyzer import analyze_audit_gaps
+        gap_analysis = analyze_audit_gaps(
+            readiness_score,
+            completeness_audit,
+            compliance_checklist,
+            integrity_gaps,
+            company_name=company_cfg.company_name,
+            fallback_summary=lambda: self._generate_findings_summary(
+                readiness_score, completeness_audit, compliance_checklist
+            ),
+            fallback_recommendations=lambda: self._generate_audit_recommendations(
+                readiness_score, completeness_audit, compliance_checklist, integrity_gaps
+            ),
+        )
+        findings_summary = gap_analysis.get("summary") or self._generate_findings_summary(
             readiness_score, completeness_audit, compliance_checklist
         )
-
-        audit_recommendations = self._generate_audit_recommendations(
+        audit_recommendations = gap_analysis.get("recommendations") or self._generate_audit_recommendations(
             readiness_score, completeness_audit, compliance_checklist, integrity_gaps
         )
 
@@ -72,6 +88,7 @@ class AuditAgent(BaseAgent):
             "audit_trail": audit_trail,
             "findings_summary": findings_summary,
             "audit_recommendations": audit_recommendations,
+            "gap_analysis": gap_analysis,
             "issues_count": sum(
                 1 for item in compliance_checklist if item["status"] != "Pass"
             ),

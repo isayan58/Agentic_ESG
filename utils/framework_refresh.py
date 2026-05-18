@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -214,44 +213,6 @@ def _extract_tool_updates(response) -> list[dict] | None:
     return None
 
 
-def _strip_to_json_array(text: str) -> str:
-    """Pull the first top-level JSON array from Claude's response.
-
-    Legacy fallback only — kept for the rare case the model ignored the
-    tool and emitted text. Walks the string with a bracket counter so we
-    don't get fooled by citation markers like ``[1]`` after the real
-    array's closing bracket.
-    """
-    fenced = re.search(r"```(?:json)?\s*(\[.*\])\s*```", text, re.DOTALL)
-    if fenced:
-        return fenced.group(1)
-    start = text.find("[")
-    if start == -1:
-        return text
-    depth = 0
-    in_str = False
-    escape = False
-    for i in range(start, len(text)):
-        ch = text[i]
-        if in_str:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_str = False
-            continue
-        if ch == '"':
-            in_str = True
-        elif ch == "[":
-            depth += 1
-        elif ch == "]":
-            depth -= 1
-            if depth == 0:
-                return text[start:i + 1]
-    return text[start:]
-
-
 def _update_id(entry: dict) -> str:
     """Stable id so the same published change isn't re-added on every refresh."""
     seed = json.dumps(
@@ -283,10 +244,13 @@ def fetch_framework_updates(
         )
 
     client = anthropic.Anthropic(api_key=api_key)
+    chosen_model = model or config.ANTHROPIC_MODEL
     prompt = _FETCH_PROMPT.format(frameworks=", ".join(frameworks))
     response = client.messages.create(
-        model=model or config.ANTHROPIC_MODEL,
-        max_tokens=4096,
+        model=chosen_model,
+        # Web search consumes a lot of output tokens; leave headroom so the
+        # model still has space to invoke the report tool after searching.
+        max_tokens=8192,
         tools=[
             {
                 "type": "web_search_20250305",
@@ -301,30 +265,47 @@ def fetch_framework_updates(
     # API has already parsed & validated the JSON for us.
     parsed = _extract_tool_updates(response)
     if parsed is None:
-        # Fallback for the rare case the model emitted text instead of
-        # invoking the tool. Concatenate any text blocks and try to recover
-        # a JSON array — tolerating raw control chars inside strings, then
-        # scrubbing the disallowed ones if that still fails.
+        # The model often replies in prose after web_search instead of
+        # invoking the tool. Feed its text answer into a fresh turn with
+        # ``tool_choice`` forced — the API then guarantees a tool call,
+        # so we get structured JSON without parsing prose ourselves.
         text_chunks = [
             block.text for block in response.content
             if getattr(block, "type", None) == "text"
         ]
-        body = "\n".join(text_chunks).strip()
-        if not body:
-            return []
-        raw = _strip_to_json_array(body)
-        try:
-            parsed = json.loads(raw, strict=False)
-        except json.JSONDecodeError as exc:
-            scrubbed = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", raw)
-            try:
-                parsed = json.loads(scrubbed, strict=False)
-            except json.JSONDecodeError:
-                raise RuntimeError(
-                    f"Model did not return parseable JSON: {exc}"
-                ) from exc
+        summary = "\n".join(text_chunks).strip()
+        if not summary:
+            # Nothing came back at all — likely hit max_tokens mid-search
+            # or the model produced only tool-use blocks with no text.
+            raise RuntimeError(
+                "Model returned no usable content "
+                f"(stop_reason={getattr(response, 'stop_reason', '?')})."
+            )
+        followup = client.messages.create(
+            model=chosen_model,
+            max_tokens=4096,
+            tools=[_REPORT_TOOL],
+            tool_choice={"type": "tool", "name": _REPORT_TOOL["name"]},
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Below is a regulatory research summary produced from "
+                    "authoritative-source web searches. Call the "
+                    "report_framework_updates tool exactly once with every "
+                    "update mentioned that has a real source URL. Use an "
+                    "empty list if none qualify.\n\n"
+                    f"---\n{summary}\n---"
+                ),
+            }],
+        )
+        parsed = _extract_tool_updates(followup)
+        if parsed is None:
+            raise RuntimeError(
+                "Model did not return structured updates even with "
+                "tool_choice forced."
+            )
     if not isinstance(parsed, list):
-        raise RuntimeError("Expected a JSON array from the model.")
+        raise RuntimeError("Expected a list of updates from the model.")
 
     cleaned = []
     for entry in parsed:

@@ -299,8 +299,16 @@ class RegulatoryTrackerAgent(BaseAgent):
             self.log(f"{fw_name}: {result['compliance_pct']}% compliant "
                      f"({result['covered']}/{result['total']} requirements)")
 
-        # Generate AI-powered gap analysis narrative
-        gap_narrative = self._generate_gap_narrative(framework_results)
+        # Claude-powered specific gap analysis (with HF fallback). The
+        # structured `gap_analysis` payload powers the new table in the
+        # Regulatory Tracker page; `gap_narrative` keeps the existing
+        # markdown rendering working.
+        from utils.gap_analyzer import analyze_regulatory_gaps
+        gap_analysis = analyze_regulatory_gaps(
+            framework_results,
+            fallback=lambda: self._generate_gap_narrative(framework_results),
+        )
+        gap_narrative = gap_analysis.get("summary") or self._generate_gap_narrative(framework_results)
         reporter_profile = self._classify_reporter_profile(framework_results)
 
         # Compute overall compliance
@@ -309,13 +317,14 @@ class RegulatoryTrackerAgent(BaseAgent):
 
         # Extract external updates if available
         external_updates = frameworks_data.get("external_updates", [])
-        
+
         regulatory_action_plan = self._generate_regulatory_action_plan(framework_results)
 
         results = {
             "framework_results": framework_results,
             "overall_compliance": overall_compliance,
             "gap_narrative": gap_narrative,
+            "gap_analysis": gap_analysis,
             "regulatory_action_plan": regulatory_action_plan,
             "reporter_profile": reporter_profile,
             "frameworks_analyzed": len(framework_results),

@@ -802,6 +802,16 @@ with main_tab2:
             else:
                 st.success("No missing data gaps detected!")
 
+            gap_analysis = results.get("gap_analysis") or {}
+            if gap_analysis.get("specific_gaps"):
+                st.markdown("---")
+                st.markdown("#### AI-Generated Specific Gaps")
+                from utils.gap_analyzer import render_specific_gaps
+                render_specific_gaps(
+                    st, gap_analysis,
+                    heading="Field-level data-quality gaps",
+                )
+
         with tab3:
             conf = results.get("confidence_scores", {})
             if conf:

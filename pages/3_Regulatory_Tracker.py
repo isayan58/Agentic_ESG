@@ -356,7 +356,17 @@ if results and "error" not in results:
                 )
 
     with tab4:
-        narrative = results.get("gap_narrative", "")
-        if narrative:
+        gap_analysis = results.get("gap_analysis") or {}
+        narrative = gap_analysis.get("summary") or results.get("gap_narrative", "")
+        if narrative or gap_analysis.get("specific_gaps"):
             st.markdown("#### AI-Generated Gap Analysis")
-            st.markdown(narrative)
+            if narrative and not gap_analysis.get("specific_gaps"):
+                # No structured rows (Claude unavailable or no API key)
+                # — render the legacy narrative on its own.
+                st.markdown(narrative)
+            else:
+                from utils.gap_analyzer import render_specific_gaps
+                render_specific_gaps(
+                    st, gap_analysis,
+                    heading="Field-level gaps blocking compliance",
+                )

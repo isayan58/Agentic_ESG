@@ -155,4 +155,12 @@ if results and "error" not in results:
     # Findings summary
     st.markdown("---")
     st.markdown("#### AI Findings Summary")
-    st.markdown(results.get("findings_summary", ""))
+    gap_analysis = results.get("gap_analysis") or {}
+    if gap_analysis.get("specific_gaps"):
+        from utils.gap_analyzer import render_specific_gaps
+        render_specific_gaps(
+            st, gap_analysis,
+            heading="Field-level audit gaps",
+        )
+    else:
+        st.markdown(results.get("findings_summary", ""))

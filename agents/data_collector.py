@@ -161,8 +161,27 @@ class DataCollectorAgent(BaseAgent):
         # ── Phase 7: Assign verifiable trust / confidence scoring ──
         confidence_scores = self._compute_confidence_scores(datasets, quality_scores)
 
-        # ── Phase 8: Generate AI-driven data quality summary ──
-        data_quality_summary = self._generate_data_quality_summary(quality_scores, self.missing_data_alerts)
+        # ── Phase 8: Claude-powered specific data-quality gap analysis ──
+        # Falls back to the legacy HF bullets on missing API key /
+        # network failure. The structured `gap_analysis` powers the new
+        # field-level table on the Data Collector page.
+        canonical_summary = {
+            name: {"source": payload["source"], "records": len(payload["data"])}
+            for name, payload in canonical_datasets.items()
+        }
+        from utils.gap_analyzer import analyze_data_quality_gaps
+        gap_analysis = analyze_data_quality_gaps(
+            quality_scores,
+            self.missing_data_alerts,
+            canonical_datasets=canonical_summary,
+            connector_statuses=self.connector_statuses,
+            fallback_summary=lambda: self._generate_data_quality_summary(
+                quality_scores, self.missing_data_alerts
+            ),
+        )
+        data_quality_summary = gap_analysis.get("recommendations") or self._generate_data_quality_summary(
+            quality_scores, self.missing_data_alerts
+        )
 
         # Publish validated data to shared state
         for name, df in datasets.items():
@@ -178,17 +197,12 @@ class DataCollectorAgent(BaseAgent):
             "overall_confidence": round(overall_confidence, 1),
             "quality_issues": quality_issues,
             "dataset_names": list(datasets.keys()),
-            "canonical_datasets": {
-                name: {
-                    "source": payload["source"],
-                    "records": len(payload["data"]),
-                }
-                for name, payload in canonical_datasets.items()
-            },
+            "canonical_datasets": canonical_summary,
             "connector_statuses": self.connector_statuses,
             "missing_data_alerts": self.missing_data_alerts,
             "confidence_scores": confidence_scores,
             "data_quality_summary": data_quality_summary,
+            "gap_analysis": gap_analysis,
         }
 
         return results
