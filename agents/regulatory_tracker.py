@@ -286,6 +286,8 @@ class RegulatoryTrackerAgent(BaseAgent):
         self.frameworks_cache = frameworks_data
         
         metrics_df = get_dataset("esg_metrics", load_esg_metrics)
+        if not metrics_df.empty and "metric_id" not in metrics_df.columns:
+            metrics_df = load_esg_metrics()
 
         if not frameworks_data or "frameworks" not in frameworks_data:
             return {"error": "No regulatory framework data available"}
