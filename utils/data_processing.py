@@ -5,23 +5,50 @@ import pandas as pd
 from config import DATA_DIR
 
 
+def _norm_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalise all column names to lowercase snake_case.
+
+    Strips surrounding whitespace, lowercases every character, and
+    collapses interior whitespace runs to a single underscore.  Applied
+    at every DataFrame entry point so downstream code that expects
+    lowercase names (e.g. df["metric_id"], df["status"]) always works
+    regardless of what capitalisation the source file used.
+
+    Examples: "Metric_ID" → "metric_id", "STATUS" → "status",
+              "Revenue INR Crores" → "revenue_inr_crores"
+    """
+    if df.empty and df.columns.empty:
+        return df
+    df = df.copy()
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(r"\s+", "_", regex=True)
+    )
+    return df
+
+
 def load_csv(filename):
     """Load a CSV file from the data directory.
 
     Falls back to sample_data/company/<name> (stripping the leading
     "sample_" prefix) so locally-placed data files are picked up
     without requiring a manual upload through the UI.
+
+    Column names are normalised to lowercase snake_case on load so
+    upstream capitalisation differences never reach agent code.
     """
     path = os.path.join(DATA_DIR, filename)
     if os.path.exists(path):
-        return pd.read_csv(path)
+        return _norm_cols(pd.read_csv(path))
     canonical = filename[len("sample_"):] if filename.startswith("sample_") else filename
     alt_path = os.path.join(os.path.dirname(DATA_DIR), "sample_data", "company", canonical)
     if os.path.exists(alt_path):
         try:
-            return pd.read_csv(alt_path)
+            return _norm_cols(pd.read_csv(alt_path))
         except UnicodeDecodeError:
-            return pd.read_csv(alt_path, encoding="latin-1")
+            return _norm_cols(pd.read_csv(alt_path, encoding="latin-1"))
     return pd.DataFrame()
 
 

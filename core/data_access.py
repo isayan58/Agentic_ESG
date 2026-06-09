@@ -9,20 +9,25 @@ from __future__ import annotations
 import pandas as pd
 
 from core.state_manager import state_manager
+from utils.data_processing import _norm_cols
 
 
 def _to_dataframe(data) -> pd.DataFrame:
-    """Best-effort conversion from shared-state payloads to DataFrame."""
+    """Best-effort conversion from shared-state payloads to DataFrame.
+
+    Column names are normalised to lowercase snake_case so payloads
+    stored with any capitalisation are always readable by agent code.
+    """
     if isinstance(data, pd.DataFrame):
-        return data.copy()
+        return _norm_cols(data.copy())
     if isinstance(data, dict):
         try:
-            return pd.DataFrame(data)
+            return _norm_cols(pd.DataFrame(data))
         except Exception:
             return pd.DataFrame()
     if isinstance(data, list):
         try:
-            return pd.DataFrame(data)
+            return _norm_cols(pd.DataFrame(data))
         except Exception:
             return pd.DataFrame()
     return pd.DataFrame()

@@ -7,7 +7,7 @@ from core.company_config import company_cfg
 from utils.data_processing import (
     load_emissions, load_esg_metrics, load_supply_chain,
     load_energy, load_waste, load_diversity, load_financials,
-    compute_data_quality,
+    compute_data_quality, _norm_cols,
 )
 from utils.connectors import get_all_connectors
 
@@ -48,7 +48,7 @@ class DataCollectorAgent(BaseAgent):
                 for schema_name, df in by_schema.items():
                     if not df.empty:
                         key = f"real_{schema_name}"
-                        datasets[key] = df
+                        datasets[key] = _norm_cols(df)
                         quality = compute_data_quality(df)
                         quality_scores[key] = quality
                         self.log(f"Real source [{schema_name}]: {len(df)} records, "
@@ -83,7 +83,7 @@ class DataCollectorAgent(BaseAgent):
                 try:
                     df = connector.fetch()
                     if df is not None and not df.empty:
-                        datasets[f"connector_{conn_key}"] = df
+                        datasets[f"connector_{conn_key}"] = _norm_cols(df)
                         quality_scores[f"connector_{conn_key}"] = compute_data_quality(df)
                         self.log(f"Connected: {connector.name} — {len(df)} records ingested")
                     self.connector_statuses[conn_key] = connector.get_status()
@@ -107,11 +107,11 @@ class DataCollectorAgent(BaseAgent):
                 try:
                     ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
                     if ext == "csv":
-                        df = pd.read_csv(file_data)
+                        df = _norm_cols(pd.read_csv(file_data))
                     elif ext in ("xlsx", "xls"):
-                        df = pd.read_excel(file_data)
+                        df = _norm_cols(pd.read_excel(file_data))
                     elif ext == "json":
-                        df = pd.read_json(file_data)
+                        df = _norm_cols(pd.read_json(file_data))
                     else:
                         self.log(f"Skipping unsupported format: {file_name}")
                         continue
