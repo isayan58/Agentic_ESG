@@ -28,6 +28,8 @@ class RiskPredictorAgent(BaseAgent):
     def execute(self, **kwargs):
         self.log("Running risk analysis")
         metrics_df = get_dataset("esg_metrics", load_esg_metrics)
+        if not metrics_df.empty and "status" not in metrics_df.columns:
+            metrics_df = load_esg_metrics()
         supply_chain_df = get_dataset("supply_chain", load_supply_chain)
         emissions_df = get_dataset("emissions", load_emissions)
         financials_df = get_dataset("financials", load_financials)

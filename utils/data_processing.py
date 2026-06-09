@@ -6,10 +6,22 @@ from config import DATA_DIR
 
 
 def load_csv(filename):
-    """Load a CSV file from the data directory."""
+    """Load a CSV file from the data directory.
+
+    Falls back to sample_data/company/<name> (stripping the leading
+    "sample_" prefix) so locally-placed data files are picked up
+    without requiring a manual upload through the UI.
+    """
     path = os.path.join(DATA_DIR, filename)
     if os.path.exists(path):
         return pd.read_csv(path)
+    canonical = filename[len("sample_"):] if filename.startswith("sample_") else filename
+    alt_path = os.path.join(os.path.dirname(DATA_DIR), "sample_data", "company", canonical)
+    if os.path.exists(alt_path):
+        try:
+            return pd.read_csv(alt_path)
+        except UnicodeDecodeError:
+            return pd.read_csv(alt_path, encoding="latin-1")
     return pd.DataFrame()
 
 

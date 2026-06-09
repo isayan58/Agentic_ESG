@@ -27,6 +27,8 @@ class AuditAgent(BaseAgent):
     def execute(self, **kwargs):
         self.log("Starting audit verification")
         metrics_df = get_dataset("esg_metrics", load_esg_metrics)
+        if not metrics_df.empty and "metric_id" not in metrics_df.columns:
+            metrics_df = load_esg_metrics()
 
         # Data from other agents
         data_results = state_manager.subscribe(Channel.DATA_COLLECTION) or {}
