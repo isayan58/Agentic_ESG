@@ -611,7 +611,7 @@ hero(
         ("9",   "Agents"),
         ("6",   "Frameworks"),
         ("60",  "Sec Pipeline"),
-        ("100", "% Autonomous"),
+        ("S1·S2·S3", "Scopes"),
     ],
     chips=[
         "BRSR · CSRD · GRI · SASB · SOX · SEC",

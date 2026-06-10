@@ -34,10 +34,10 @@ hero(
         "and ROI dashboards. New here? Create a free account in seconds."
     ),
     stats=[
-        ("9",  "Agents"),
-        ("6",  "Frameworks"),
-        ("14", "Day Sessions"),
-        ("3",  "Scopes"),
+        ("9",        "Agents"),
+        ("6",        "Frameworks"),
+        ("<60s",     "Pipeline"),
+        ("S1·S2·S3", "Scopes"),
     ],
     chips=[
         "Secure — bcrypt password hashing",

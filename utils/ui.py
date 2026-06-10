@@ -767,34 +767,41 @@ button[data-baseweb="tab"][aria-selected="true"] {
     font-family: var(--font-display);
     font-size: var(--text-2xl); font-weight: 800; line-height: 1;
     letter-spacing: -0.03em;
+    display: inline-flex; align-items: baseline;
+    /* NOTE: no background-clip/text-fill here — applied per child so reel digits stay visible */
+}
+/* Digit reel wrapper — clips to one character height */
+.esg-reel-wrap {
+    display: inline-block; overflow: hidden;
+    height: 1em; vertical-align: top;
+}
+/* Reel track scrolls upward; animation name set inline per digit */
+.esg-reel-track {
+    display: flex; flex-direction: column;
+}
+/* Each digit in the reel gets the gradient text directly */
+.esg-reel-d {
+    display: block; height: 1em; line-height: 1;
+    font-family: var(--font-display); font-weight: 800;
+    font-size: var(--text-2xl); letter-spacing: -0.03em;
     background: linear-gradient(135deg, var(--pwc-orange-dark) 0%, var(--pwc-orange) 40%, var(--pwc-amber) 100%);
     background-size: 200% 100%;
     -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent;
     animation: esg-hero-shine 6s ease-in-out infinite;
 }
-/* Slot-machine digit reel for count-up animation */
-.esg-stat-reel-wrap {
-    overflow: hidden;
-    height: 1.05em;
-    display: inline-flex;
-    align-items: flex-start;
+/* Non-numeric stat value (e.g. "S1·S2·S3") — gradient text + pop-in */
+.esg-stat-static {
+    background: linear-gradient(135deg, var(--pwc-orange-dark) 0%, var(--pwc-orange) 40%, var(--pwc-amber) 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: esg-hero-shine 6s ease-in-out infinite,
+               esg-stat-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) var(--pop-delay, 0s) both;
 }
-.esg-stat-reel {
-    display: flex; flex-direction: column; align-items: center;
-    animation: esg-reel var(--reel-dur, 1.4s) cubic-bezier(0.22, 1, 0.36, 1) var(--reel-delay, 0s) both;
-}
-@keyframes esg-reel {
-    from { transform: translateY(0); }
-    to   { transform: translateY(var(--reel-to, 0)); }
-}
-/* Pop-in for non-numeric stats */
 @keyframes esg-stat-pop {
     from { opacity: 0; transform: translateY(6px) scale(0.78); }
     to   { opacity: 1; transform: none; }
-}
-.esg-stat-pop {
-    animation: esg-stat-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) var(--pop-delay, 0s) both;
 }
 .esg-stat-label {
     font-size: var(--text-xs); font-weight: 700;
@@ -1784,38 +1791,45 @@ def hero(
             f'</span>'
         )
 
-    # Build stat strip — slot-machine reel for integers, pop-in for others
+    # Build stat strip — explicit-keyframe slot-machine reel per digit
     stat_items_html = ""
+    extra_css = ""
     if stats:
         for i, (val, label) in enumerate(stats):
             v_str = str(val).strip()
             delay = f"{0.20 + i * 0.14:.2f}s"
             if v_str.isdigit():
-                # Build a vertical digit reel for each character in the number.
-                # Each character slot scrolls from "0" down to the target digit.
+                # For each digit position generate a named keyframe that scrolls
+                # from translateY(0) to translateY(-d * 1em).  Using concrete em
+                # values (not var()) makes this work in every modern browser.
                 digit_reels = ""
-                for ch in v_str:
+                for j, ch in enumerate(v_str):
                     d = int(ch)
-                    # Stack digits 0→d, clip to one line height, animate translateY
-                    # from 0 to -(d * 100)% so the reel stops on the right digit.
-                    digits_stack = "".join(f"<span>{k}</span>" for k in range(d + 1))
-                    to_pct = f"{-d * 100}%"
+                    anim_name = f"esg-reel-{i}-{j}"
+                    extra_css += (
+                        f"@keyframes {anim_name}{{"
+                        f"from{{transform:translateY(0)}}"
+                        f"to{{transform:translateY(-{d}em)}}}}"
+                    )
+                    stack = "".join(
+                        f'<span class="esg-reel-d">{k}</span>'
+                        for k in range(d + 1)
+                    )
                     digit_reels += (
-                        f'<span class="esg-stat-reel-wrap">'
-                        f'<span class="esg-stat-reel" '
-                        f'style="--reel-to:{to_pct};--reel-dur:1.35s;--reel-delay:{delay};">'
-                        f'{digits_stack}'
+                        f'<span class="esg-reel-wrap">'
+                        f'<span class="esg-reel-track" '
+                        f'style="animation:{anim_name} 1.2s cubic-bezier(.22,1,.36,1) {delay} both;">'
+                        f'{stack}'
                         f'</span></span>'
                     )
                 num_html = (
-                    f'<span class="esg-stat-num" aria-label="{v_str}" '
-                    f'style="display:inline-flex;align-items:baseline;">'
+                    f'<span class="esg-stat-num" aria-label="{html.escape(v_str)}">'
                     f'{digit_reels}</span>'
                 )
             else:
                 num_html = (
-                    f'<span class="esg-stat-num esg-stat-pop" '
-                    f'style="--pop-delay:{delay}" aria-label="{v_str}">'
+                    f'<span class="esg-stat-num esg-stat-static" '
+                    f'style="--pop-delay:{delay}" aria-label="{html.escape(v_str)}">'
                     f'{html.escape(v_str)}</span>'
                 )
             stat_items_html += (
@@ -1824,7 +1838,8 @@ def hero(
                 f'<span class="esg-stat-label">{html.escape(str(label))}</span>'
                 f'</div>'
             )
-        stat_strip_html = f'<div class="esg-stat-strip">{stat_items_html}</div>'
+        css_block = f"<style>{extra_css}</style>" if extra_css else ""
+        stat_strip_html = f'{css_block}<div class="esg-stat-strip">{stat_items_html}</div>'
     else:
         stat_strip_html = ""
 

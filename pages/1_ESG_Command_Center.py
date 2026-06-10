@@ -45,10 +45,10 @@ hero(
         "business lens behind every metric."
     ),
     stats=[
-        ("9",   "Agents"),
-        ("6",   "Frameworks"),
-        ("60",  "Sec Pipeline"),
-        ("3",   "Scopes"),
+        ("9",        "Agents"),
+        ("6",        "Frameworks"),
+        ("<60s",     "Pipeline"),
+        ("S1·S2·S3", "Scopes"),
     ],
     chips=[
         "BRSR · CSRD · GRI · SASB · SOX · SEC",
