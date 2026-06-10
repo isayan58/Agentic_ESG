@@ -128,12 +128,14 @@ st.markdown(
         .home-stat-value {
             font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
             font-weight: 800;
-            font-size: 2.2rem;
+            font-size: clamp(1.35rem, 3.2vw, 2.2rem);
             background: linear-gradient(135deg, #C23A00 0%, #FD5108 45%, #E0301E 75%, #FFB600 120%);
             -webkit-background-clip: text; background-clip: text;
             -webkit-text-fill-color: transparent;
             letter-spacing: -0.028em;
             line-height: 1;
+            min-width: 0;
+            overflow: hidden;
         }
         .home-stat-label {
             color: #5b6473;
@@ -172,17 +174,17 @@ st.markdown(
             background: linear-gradient(135deg, rgba(253, 81, 8, 0.0), rgba(255, 182, 0, 0.0));
             -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
             -webkit-mask-composite: xor; mask-composite: exclude;
-            transition: background 260ms ease;
+            transition: background 240ms ease;
         }
         .home-feature:hover {
-            transform: translateY(-4px);
+            transform: translateY(-3px);
             box-shadow:
-                0 20px 40px rgba(253, 81, 8, 0.14),
-                0 2px 6px rgba(15, 23, 42, 0.05);
-            border-color: transparent;
+                0 16px 36px rgba(253, 81, 8, 0.16),
+                0 2px 6px rgba(15, 23, 42, 0.06);
+            border-color: rgba(253, 81, 8, 0.30);
         }
         .home-feature:hover::before {
-            background: linear-gradient(135deg, rgba(253, 81, 8, 0.55), rgba(255, 182, 0, 0.55));
+            background: linear-gradient(135deg, rgba(253, 81, 8, 0.45), rgba(255, 182, 0, 0.45));
         }
         .home-feature .feature-icon {
             position: relative;

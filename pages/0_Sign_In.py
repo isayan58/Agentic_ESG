@@ -61,6 +61,16 @@ if existing:
     st.stop()
 
 
+st.markdown(
+    """
+    <style>
+    /* Constrain the auth forms to a readable card width */
+    [data-testid="stTabs"] { max-width: 640px; margin: 0 auto; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 tab_signin, tab_signup = st.tabs(["Sign in", "Create account"])
 
 # ---------------------------------------------------------------------------
@@ -161,13 +171,11 @@ with tab_signup:
                     role=role,
                 )
             except RateLimitExceeded as exc:
-                # Render distinctly from validation errors so users see
-                # "try again in ~Xs" rather than a generic red error chrome.
                 user = None
                 st.warning(f"🚧 {exc}", icon="🚧")
             except ValueError as exc:
                 st.error(str(exc))
-            except Exception as exc:  # defensive — backend hiccup
+            except Exception as exc:
                 st.error(f"Could not create account: {exc}")
             else:
                 st.success(
@@ -182,7 +190,7 @@ with tab_signup:
 # ---------------------------------------------------------------------------
 # Footer — backend + session transparency
 # ---------------------------------------------------------------------------
-st.markdown("---")
+st.markdown("<div style='max-width:640px;margin:0 auto;'>", unsafe_allow_html=True)
 with st.expander("About this sign-in"):
     st.markdown(
         f"""
@@ -193,3 +201,4 @@ with st.expander("About this sign-in"):
 - You can sign out at any time from the sidebar widget on every page.
 """
     )
+st.markdown("</div>", unsafe_allow_html=True)

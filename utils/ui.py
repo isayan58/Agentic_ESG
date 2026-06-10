@@ -268,7 +268,7 @@ _STATIC_CSS = """
     display: flex; align-items: center; justify-content: space-between;
     gap: var(--space-4);
     padding: 12px var(--space-5);
-    margin: 0 0 var(--space-3) 0;
+    margin: 0 0 var(--space-5) 0;
     border-radius: var(--radius-lg);
     background:
         radial-gradient(600px 180px at 0% 0%, rgba(253, 81, 8, 0.14), transparent 60%),
@@ -379,18 +379,17 @@ _STATIC_CSS = """
     padding-left: calc(var(--space-3) - 3px) !important;
 }
 /* Everything else (the supporting agent pages + Settings) reads as
-   secondary: tighter, smaller, slightly muted. Sign In is hidden
-   post-login by an existing rule, so it doesn't need shrinking.      */
+   secondary: slightly smaller and subdued, but still legible (WCAG AA). */
 [data-testid="stSidebarNav"] a:not([href*="ESG_Command_Center"]):not([href*="ESG_ROI_Agent"]) {
-    font-size: 0.78rem !important;
-    padding-top: 4px !important;
-    padding-bottom: 4px !important;
-    opacity: 0.78;
+    font-size: 0.84rem !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+    opacity: 0.88;
     letter-spacing: 0;
 }
 [data-testid="stSidebarNav"] a:not([href*="ESG_Command_Center"]):not([href*="ESG_ROI_Agent"]) span,
 [data-testid="stSidebarNav"] a:not([href*="ESG_Command_Center"]):not([href*="ESG_ROI_Agent"]) p {
-    font-size: 0.78rem !important;
+    font-size: 0.84rem !important;
     font-weight: 500 !important;
 }
 [data-testid="stSidebarNav"] a:not([href*="ESG_Command_Center"]):not([href*="ESG_ROI_Agent"]):hover {
@@ -824,6 +823,11 @@ button[data-baseweb="tab"][aria-selected="true"] {
 
 /* Chips (status, info) ------------------------------------------------ */
 .esg-chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+@media (max-width: 640px) {
+    .esg-chip-row { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; scrollbar-width: none; }
+    .esg-chip-row::-webkit-scrollbar { display: none; }
+    .esg-chip-row .esg-chip { flex-shrink: 0; }
+}
 .esg-chip {
     display: inline-flex; align-items: center; gap: var(--space-2);
     padding: 4px var(--space-3); border-radius: var(--radius-pill);
