@@ -34,9 +34,6 @@ inject_global_css()
 pwc_header()
 sidebar_auth_widget()
 require_login("Sign in to run the 9-agent pipeline and view ESG Command Center.")
-# Hydrate (or rebuild) this user's persistent ConnectionManager as early
-# as possible so the Run buttons below see sources the user registered
-# in a previous session.
 get_session_connection_manager()
 
 hero(
@@ -47,10 +44,15 @@ hero(
         "Run the full pipeline, monitor agent health in real time, and drill into the "
         "business lens behind every metric."
     ),
+    stats=[
+        ("9",   "Agents"),
+        ("6",   "Frameworks"),
+        ("60",  "Sec Pipeline"),
+        ("3",   "Scopes"),
+    ],
     chips=[
-        "9 Agents · Orchestrated",
-        "Shared-state pub/sub",
         "BRSR · CSRD · GRI · SASB · SOX · SEC",
+        "Shared-state pub/sub",
         "AI-generated reports, dashboards, and insights",
     ],
 )

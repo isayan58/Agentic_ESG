@@ -548,18 +548,21 @@ div.stButton > button[kind="primary"] {
 }
 div.stButton > button[kind="primary"]::after {
     content: ""; position: absolute; inset: 0;
-    background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
-    transform: translateX(-120%);
-    transition: transform 700ms var(--ease-standard);
+    background: linear-gradient(120deg, transparent 25%, rgba(255,255,255,0.52) 50%, transparent 75%);
+    transform: translateX(-130%);
+    transition: transform 550ms var(--ease-standard);
     pointer-events: none;
 }
 div.stButton > button[kind="primary"]:hover:not(:disabled) {
-    transform: translateY(-1px);
+    transform: translateY(-2px) scale(1.012);
     background-position: 100% 0%;
-    box-shadow: 0 14px 32px rgba(253, 81, 8, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    box-shadow:
+        0 20px 48px rgba(253, 81, 8, 0.55),
+        0  6px 16px rgba(253, 81, 8, 0.30),
+        inset 0 1px 0 rgba(255, 255, 255, 0.38);
 }
 div.stButton > button[kind="primary"]:hover:not(:disabled)::after {
-    transform: translateX(120%);
+    transform: translateX(130%);
 }
 div.stButton > button[kind="primary"]:active:not(:disabled) {
     transform: translateY(0);
@@ -644,19 +647,20 @@ button[data-baseweb="tab"][aria-selected="true"] {
 .esg-hero {
     position: relative;
     background:
-        radial-gradient(1200px 380px at 0% 0%,   rgba(253, 81, 8, 0.18), transparent 60%),
-        radial-gradient(1000px 360px at 100% 0%, rgba(255, 182, 0, 0.16), transparent 60%),
-        radial-gradient(700px 280px at 50% 120%, rgba(224, 48, 30, 0.10), transparent 70%),
+        radial-gradient(1400px 440px at 0% 0%,   rgba(253, 81, 8, 0.22), transparent 60%),
+        radial-gradient(1200px 400px at 100% 0%, rgba(255, 182, 0, 0.20), transparent 60%),
+        radial-gradient( 900px 340px at 50% 120%, rgba(224, 48, 30, 0.13), transparent 70%),
         linear-gradient(180deg, #fffaf4 0%, #ffffff 100%);
-    border: 1px solid var(--border);
+    border: 1px solid rgba(253, 81, 8, 0.18);
     border-radius: var(--radius-xl);
-    padding: calc(var(--space-8) + 8px) var(--space-8) var(--space-7);
+    padding: calc(var(--space-8) + 12px) var(--space-8) var(--space-8);
     margin-bottom: var(--space-6);
     overflow: hidden;
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.8),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9),
         0 1px 2px rgba(15, 23, 42, 0.04),
-        0 24px 60px rgba(253, 81, 8, 0.12);
+        0 32px 80px rgba(253, 81, 8, 0.18),
+        0 0 0 1px rgba(253, 81, 8, 0.06);
 }
 .esg-hero::before {
     content: ""; position: absolute; inset: -40% -10% auto -10%; height: 80%;
@@ -737,6 +741,65 @@ button[data-baseweb="tab"][aria-selected="true"] {
 @media (max-width: 768px) {
     .esg-hero { padding: var(--space-6) var(--space-5); border-radius: var(--radius-lg); }
     .esg-hero h1 { font-size: var(--text-2xl); }
+}
+
+/* Stat strip — animated count-up numbers row inside hero -------------- */
+.esg-stat-strip {
+    display: inline-flex; align-items: stretch;
+    margin: var(--space-4) 0 var(--space-3) 0;
+    background: rgba(255, 255, 255, 0.76);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(253, 81, 8, 0.20);
+    border-radius: var(--radius-pill);
+    box-shadow: 0 4px 18px rgba(253, 81, 8, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    overflow: hidden;
+}
+.esg-stat-item {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: var(--space-3) var(--space-6); gap: 1px;
+    position: relative;
+}
+.esg-stat-item:not(:last-child)::after {
+    content: ""; position: absolute; right: 0; top: 20%; bottom: 20%;
+    width: 1px; background: rgba(253, 81, 8, 0.16);
+}
+.esg-stat-num {
+    font-family: var(--font-display);
+    font-size: var(--text-2xl); font-weight: 800; line-height: 1;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, var(--pwc-orange-dark) 0%, var(--pwc-orange) 40%, var(--pwc-amber) 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: esg-hero-shine 6s ease-in-out infinite;
+}
+/* Slot-machine digit reel for count-up animation */
+.esg-stat-reel-wrap {
+    overflow: hidden;
+    height: 1.05em;
+    display: inline-flex;
+    align-items: flex-start;
+}
+.esg-stat-reel {
+    display: flex; flex-direction: column; align-items: center;
+    animation: esg-reel var(--reel-dur, 1.4s) cubic-bezier(0.22, 1, 0.36, 1) var(--reel-delay, 0s) both;
+}
+@keyframes esg-reel {
+    from { transform: translateY(0); }
+    to   { transform: translateY(var(--reel-to, 0)); }
+}
+/* Pop-in for non-numeric stats */
+@keyframes esg-stat-pop {
+    from { opacity: 0; transform: translateY(6px) scale(0.78); }
+    to   { opacity: 1; transform: none; }
+}
+.esg-stat-pop {
+    animation: esg-stat-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) var(--pop-delay, 0s) both;
+}
+.esg-stat-label {
+    font-size: var(--text-xs); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text-muted);
 }
 
 /* PwC header bar ------------------------------------------------------ */
@@ -932,7 +995,12 @@ button[data-baseweb="tab"][aria-selected="true"] {
 }
 .esg-agent-card.status-running {
     border-color: var(--status-running);
-    background: linear-gradient(180deg, rgba(224, 48, 30, 0.04), var(--surface-raised) 60%);
+    background: linear-gradient(180deg, rgba(224, 48, 30, 0.05), var(--surface-raised) 60%);
+    animation: esg-running-pulse 2.2s ease-in-out infinite;
+}
+@keyframes esg-running-pulse {
+    0%, 100% { box-shadow: 0 0 0 0   rgba(253, 81, 8, 0.10), 0  6px 16px rgba(253, 81, 8, 0.08); }
+    50%      { box-shadow: 0 0 0 8px rgba(253, 81, 8, 0.05), 0 18px 36px rgba(253, 81, 8, 0.22); }
 }
 .esg-agent-card.status-error {
     border-color: var(--status-error);
@@ -940,6 +1008,24 @@ button[data-baseweb="tab"][aria-selected="true"] {
 }
 .esg-agent-card.status-completed {
     background: linear-gradient(180deg, rgba(46, 133, 64, 0.04), var(--surface-raised) 60%);
+}
+/* Shimmer sweep on idle cards */
+@keyframes esg-shimmer {
+    0%   { background-position: -500px 0; }
+    100% { background-position:  500px 0; }
+}
+.esg-agent-card.status-idle { position: relative; overflow: hidden; }
+.esg-agent-card.status-idle::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 20%,
+        rgba(253, 81, 8, 0.07) 50%,
+        transparent 80%
+    );
+    background-size: 500px 100%;
+    animation: esg-shimmer 2.8s ease-in-out infinite;
+    pointer-events: none; border-radius: inherit;
 }
 .esg-agent-card .esg-agent-head {
     display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
@@ -1094,23 +1180,59 @@ button[data-baseweb="tab"][aria-selected="true"] {
     .esg-statusbar .esg-sb-search { max-width: 100%; }
 }
 
-/* Activity log -------------------------------------------------------- */
+/* Progress bar — gradient + breathing glow ---------------------------- */
+@keyframes esg-progress-glow {
+    from { box-shadow: 0 0  6px rgba(253, 81, 8, 0.28), 0 2px  8px rgba(253, 81, 8, 0.14); }
+    to   { box-shadow: 0 0 20px rgba(253, 81, 8, 0.58), 0 2px 16px rgba(253, 81, 8, 0.32); }
+}
+[data-testid="stProgress"] div[role="progressbar"],
+[data-testid="stProgress"] > div:first-child {
+    background: rgba(253, 81, 8, 0.10) !important;
+    border-radius: 999px !important;
+    height: 8px !important;
+    overflow: visible !important;
+}
+[data-testid="stProgress"] div[role="progressbar"] > div,
+[data-testid="stProgress"] > div:first-child > div {
+    background: linear-gradient(
+        90deg,
+        var(--pwc-orange)      0%,
+        var(--pwc-tomato)     40%,
+        var(--pwc-amber)     100%
+    ) !important;
+    border-radius: 999px !important;
+    height: 100% !important;
+    animation: esg-progress-glow 1.6s ease-in-out infinite alternate !important;
+    transition: width 0.4s ease-out !important;
+    min-width: 8px !important;
+}
+
+/* Activity log — terminal-style live ticker --------------------------- */
+@keyframes esg-log-entry {
+    from { opacity: 0; transform: translateX(-5px); background: rgba(253, 81, 8, 0.06); }
+    to   { opacity: 1; transform: translateX(0);    background: transparent; }
+}
 .esg-log-shell {
-    background: var(--surface-sunken);
-    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: linear-gradient(180deg, #fdf8f3 0%, var(--surface-sunken) 100%);
+    border: 1px solid rgba(253, 81, 8, 0.18);
+    border-left: 3px solid var(--pwc-orange);
+    border-radius: var(--radius-md);
     padding: var(--space-3); max-height: 380px; overflow-y: auto;
     font-family: var(--font-mono); font-size: var(--text-xs);
-    box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.04);
+    box-shadow:
+        inset 0 1px 3px rgba(253, 81, 8, 0.05),
+        0 8px 24px rgba(253, 81, 8, 0.07),
+        0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .esg-log-row {
     display: grid; grid-template-columns: 110px 90px 1fr;
     gap: var(--space-3); padding: 6px var(--space-2);
     border-radius: var(--radius-xs);
-    border-bottom: 1px solid rgba(241, 217, 196, 0.6);
+    border-bottom: 1px solid rgba(253, 81, 8, 0.07);
     transition: background var(--dur-fast) var(--ease-standard);
 }
-.esg-log-row:last-child { border-bottom: none; }
-.esg-log-row:hover { background: rgba(255, 255, 255, 0.6); }
+.esg-log-row:last-child { border-bottom: none; animation: esg-log-entry 0.30s ease-out; }
+.esg-log-row:hover { background: rgba(253, 81, 8, 0.04); }
 .esg-log-row .esg-log-time { color: var(--text-muted); }
 .esg-log-row .esg-log-tag  { font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
 .esg-log-row .esg-log-tag.info    { color: var(--pwc-info); }
@@ -1636,7 +1758,14 @@ def hero(
     *,
     emoji: str = "",
     eyebrow: Optional[str] = None,
+    stats: Optional[Sequence[tuple]] = None,
 ) -> None:
+    """Render the branded hero banner.
+
+    ``stats`` accepts a list of ``(value, label)`` tuples, e.g.
+    ``[("9", "Agents"), ("6", "Frameworks"), ("<60s", "Pipeline")]``.
+    Pure-integer values animate with a CSS count-up; others display statically.
+    """
     inject_global_css()
     safe_title = html.escape(title)
     prefix = f"{emoji} " if emoji else ""
@@ -1654,9 +1783,55 @@ def hero(
             f'<span class="esg-eyebrow-dot" aria-hidden="true"></span>{html.escape(eyebrow)}'
             f'</span>'
         )
+
+    # Build stat strip — slot-machine reel for integers, pop-in for others
+    stat_items_html = ""
+    if stats:
+        for i, (val, label) in enumerate(stats):
+            v_str = str(val).strip()
+            delay = f"{0.20 + i * 0.14:.2f}s"
+            if v_str.isdigit():
+                # Build a vertical digit reel for each character in the number.
+                # Each character slot scrolls from "0" down to the target digit.
+                digit_reels = ""
+                for ch in v_str:
+                    d = int(ch)
+                    # Stack digits 0→d, clip to one line height, animate translateY
+                    # from 0 to -(d * 100)% so the reel stops on the right digit.
+                    digits_stack = "".join(f"<span>{k}</span>" for k in range(d + 1))
+                    to_pct = f"{-d * 100}%"
+                    digit_reels += (
+                        f'<span class="esg-stat-reel-wrap">'
+                        f'<span class="esg-stat-reel" '
+                        f'style="--reel-to:{to_pct};--reel-dur:1.35s;--reel-delay:{delay};">'
+                        f'{digits_stack}'
+                        f'</span></span>'
+                    )
+                num_html = (
+                    f'<span class="esg-stat-num" aria-label="{v_str}" '
+                    f'style="display:inline-flex;align-items:baseline;">'
+                    f'{digit_reels}</span>'
+                )
+            else:
+                num_html = (
+                    f'<span class="esg-stat-num esg-stat-pop" '
+                    f'style="--pop-delay:{delay}" aria-label="{v_str}">'
+                    f'{html.escape(v_str)}</span>'
+                )
+            stat_items_html += (
+                f'<div class="esg-stat-item">'
+                f'{num_html}'
+                f'<span class="esg-stat-label">{html.escape(str(label))}</span>'
+                f'</div>'
+            )
+        stat_strip_html = f'<div class="esg-stat-strip">{stat_items_html}</div>'
+    else:
+        stat_strip_html = ""
+
     st.markdown(
         f'<div class="esg-hero" role="region" aria-label="{safe_title}">'
-        f'{eyebrow_html}<h1>{prefix}{safe_title}</h1>{subtitle_html}{chip_html}'
+        f'{eyebrow_html}<h1>{prefix}{safe_title}</h1>{subtitle_html}'
+        f'{stat_strip_html}{chip_html}'
         f'</div>',
         unsafe_allow_html=True,
     )

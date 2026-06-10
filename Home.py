@@ -607,6 +607,12 @@ hero(
     title="The autonomous platform for enterprise ESG.",
     eyebrow=eyebrow,
     subtitle=subtitle,
+    stats=[
+        ("9",   "Agents"),
+        ("6",   "Frameworks"),
+        ("60",  "Sec Pipeline"),
+        ("100", "% Autonomous"),
+    ],
     chips=[
         "BRSR · CSRD · GRI · SASB · SOX · SEC",
         "Top-line · Bottom-line · Risk",

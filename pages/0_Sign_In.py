@@ -33,6 +33,12 @@ hero(
         "Authenticate to unlock the 9-agent autonomous pipeline, ESG Command Center, "
         "and ROI dashboards. New here? Create a free account in seconds."
     ),
+    stats=[
+        ("9",  "Agents"),
+        ("6",  "Frameworks"),
+        ("14", "Day Sessions"),
+        ("3",  "Scopes"),
+    ],
     chips=[
         "Secure — bcrypt password hashing",
         "14-day signed session cookie",
