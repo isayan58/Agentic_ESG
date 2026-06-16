@@ -70,12 +70,18 @@ class ROIAgent(BaseAgent):
 
         roi_recommendations = self._generate_roi_recommendations(kpi_results, financial_roi, strategic_roi, iqs)
 
+        # --- IQS Improvement Playbook ---
+        iqs_improvement = self._generate_iqs_improvement_plan(
+            iqs, kpi_results, financial_roi, strategic_roi
+        )
+
         results = {
             "kpi_engine": kpi_results,
             "financial_roi": financial_roi,
             "strategic_roi": strategic_roi,
             "j_curve": j_curve,
             "investment_quality_score": iqs,
+            "iqs_improvement": iqs_improvement,
             "peer_benchmarking": peer_benchmarking,
             "narrative": narrative,
             "roi_recommendations": roi_recommendations,
@@ -569,6 +575,247 @@ class ROIAgent(BaseAgent):
         raw = self.hf.generate_text(prompt, max_tokens=260, agent="roi_agent")
         bullets = [line.strip('-•* ').strip() for line in raw.splitlines() if line.strip()]
         return bullets if bullets else [raw.strip()]
+
+    # ── IQS Improvement Playbook ───────────────────────────────────────────
+
+    def _generate_iqs_improvement_plan(
+        self, iqs: dict, kpi_results: dict, financial_roi: dict, strategic_roi: dict
+    ) -> dict:
+        """Diagnose which IQS components are lagging and produce a per-component
+        improvement plan with effort estimates and expected score lift.
+
+        Each component contributes to the 0-100 IQS via its weight.  The
+        gap between a component's current score and the 100-point ceiling,
+        multiplied by the component's weight, is the *maximum addressable
+        lift* for that component.  We rank components by that gap and build
+        a concrete action for each.
+        """
+        components = iqs.get("components", {})
+        weights = iqs.get("weights", {
+            "financial_roi": 0.25,
+            "channel_performance": 0.25,
+            "strategic_value": 0.20,
+            "esg_momentum": 0.15,
+            "risk_reduction": 0.15,
+        })
+
+        # Per-component diagnosis
+        component_plans = []
+        for key, weight in weights.items():
+            score = float(components.get(key, 0))
+            gap = round(100 - score, 1)
+            max_lift = round(gap * weight, 1)
+            component_plans.append(
+                self._diagnose_component(key, score, gap, max_lift, kpi_results,
+                                         financial_roi, strategic_roi)
+            )
+
+        # Sort by potential lift — highest first so the user sees quick wins
+        component_plans.sort(key=lambda x: x["max_iqs_lift"], reverse=True)
+
+        # Overall gap and grade trajectory
+        current_score = iqs.get("score", 0)
+        current_grade = iqs.get("grade", "N/A")
+        total_addressable_lift = round(sum(p["max_iqs_lift"] for p in component_plans), 1)
+        projected_score = min(100, round(current_score + total_addressable_lift * 0.6, 1))
+        projected_grade = self._score_to_grade(projected_score)
+
+        # AI narrative for the improvement plan
+        top_actions = [p["top_action"] for p in component_plans[:3]]
+        narrative = self._generate_iqs_narrative(
+            current_score, projected_score, current_grade, projected_grade, top_actions
+        )
+
+        return {
+            "current_score": current_score,
+            "current_grade": current_grade,
+            "projected_score": projected_score,
+            "projected_grade": projected_grade,
+            "total_addressable_lift": total_addressable_lift,
+            "component_plans": component_plans,
+            "narrative": narrative,
+        }
+
+    def _diagnose_component(
+        self, key: str, score: float, gap: float, max_lift: float,
+        kpi_results: dict, financial_roi: dict, strategic_roi: dict
+    ) -> dict:
+        """Return a diagnosis dict for one IQS component."""
+        label_map = {
+            "financial_roi": "Financial ROI",
+            "channel_performance": "Channel Performance",
+            "strategic_value": "Strategic Value",
+            "esg_momentum": "ESG Momentum",
+            "risk_reduction": "Risk Reduction",
+        }
+        label = label_map.get(key, key.replace("_", " ").title())
+
+        status = "Strong" if score >= 75 else ("Moderate" if score >= 50 else "Weak")
+
+        if key == "financial_roi":
+            roi_pct = financial_roi.get("roi_pct", 0)
+            actions = []
+            if roi_pct < 20:
+                actions.append({
+                    "action": "Increase emission reduction savings by populating avg_confidence on datasets",
+                    "effort": "Medium",
+                    "expected_lift": "+8–12 IQS pts",
+                    "owner": "Data Engineering",
+                })
+            actions.append({
+                "action": "Build framework field-mappings to unlock compliance % — moves datasets from 0% to reportable",
+                "effort": "High",
+                "expected_lift": "+5–10 IQS pts",
+                "owner": "ESG / Compliance Analyst",
+            })
+            actions.append({
+                "action": "Reduce energy costs via renewable procurement — directly raises carbon-tax-avoided savings",
+                "effort": "Medium",
+                "expected_lift": "+4–8 IQS pts",
+                "owner": "Facilities & Sustainability",
+            })
+            top_action = actions[0]["action"]
+
+        elif key == "channel_performance":
+            channels = {c["channel"]: c for c in kpi_results.get("value_channels", [])}
+            weak_channels = [
+                c["channel"] for c in kpi_results.get("value_channels", [])
+                if c.get("score", 100) < 60
+            ]
+            actions = []
+            if "Risk" in weak_channels or not weak_channels:
+                actions.append({
+                    "action": "Repair EcoVadis supplier connector (currently 0 records) to lift supply-chain risk channel",
+                    "effort": "Low",
+                    "expected_lift": "+6–10 IQS pts",
+                    "owner": "Data Engineering",
+                })
+            if "Human Capital" in weak_channels:
+                actions.append({
+                    "action": "Onboard HR/Workday diversity dataset — currently the only genuinely missing domain",
+                    "effort": "Medium",
+                    "expected_lift": "+4–7 IQS pts",
+                    "owner": "CHRO / HR Systems",
+                })
+            actions.append({
+                "action": f"Strengthen thin connectors (ERP: 12 records, HR: 10 records, CDP API: 7 records) to improve channel scores",
+                "effort": "Medium",
+                "expected_lift": "+5–9 IQS pts",
+                "owner": "Data Engineering",
+            })
+            top_action = actions[0]["action"]
+
+        elif key == "strategic_value":
+            brand_p = strategic_roi.get("brand_premium_score", 0)
+            coc_bps = strategic_roi.get("cost_of_capital_reduction_bps", 0)
+            actions = []
+            if coc_bps < 50:
+                actions.append({
+                    "action": "Implement board-level climate governance disclosures (SEC-CLIM-1501, CSRD-G1) to reduce cost of capital",
+                    "effort": "High",
+                    "expected_lift": "+6–10 IQS pts",
+                    "owner": "Board / Company Secretary",
+                })
+            if brand_p < 10:
+                actions.append({
+                    "action": "Publish sustainability commitments and ESG rating trajectory via Stakeholder Agent communications",
+                    "effort": "Low",
+                    "expected_lift": "+3–5 IQS pts",
+                    "owner": "Communications / IR",
+                })
+            actions.append({
+                "action": "Operationalise ICFR controls (SOX-404) — converts 4,896 existing records into audit-ready evidence",
+                "effort": "High",
+                "expected_lift": "+5–8 IQS pts",
+                "owner": "Internal Audit / Finance",
+            })
+            top_action = actions[0]["action"]
+
+        elif key == "esg_momentum":
+            cagr = kpi_results.get("cagr", {})
+            capex_cagr = cagr.get("esg_capex_cagr", 0)
+            actions = []
+            if capex_cagr < 5:
+                actions.append({
+                    "action": "Increase ESG CapEx allocation by 10–15% to signal momentum to rating agencies and investors",
+                    "effort": "Medium",
+                    "expected_lift": "+5–8 IQS pts",
+                    "owner": "CFO / Sustainability Office",
+                })
+            actions.append({
+                "action": "Set and publish SBTi-aligned targets with interim milestones — improves momentum score by adding verifiable trajectory",
+                "effort": "Medium",
+                "expected_lift": "+4–7 IQS pts",
+                "owner": "Sustainability Head",
+            })
+            actions.append({
+                "action": "Wire real_materiality_assessment (25,776 records) into CSRD-DM framework mapper to activate CAGR signal",
+                "effort": "Medium",
+                "expected_lift": "+3–6 IQS pts",
+                "owner": "Data Engineering / ESG Analyst",
+            })
+            top_action = actions[0]["action"]
+
+        else:  # risk_reduction
+            actions = []
+            actions.append({
+                "action": "Engage top 5 high-risk suppliers in ESG audit programme to reduce supply chain risk channel score",
+                "effort": "High",
+                "expected_lift": "+5–8 IQS pts",
+                "owner": "Procurement",
+            })
+            actions.append({
+                "action": "Complete CEO/CFO certification workflow (SOX-302, SOX-906) to close governance risk gap",
+                "effort": "Medium",
+                "expected_lift": "+4–6 IQS pts",
+                "owner": "Legal / CFO",
+            })
+            actions.append({
+                "action": "Populate avg_confidence on 18 datasets currently at 0 — directly lifts audit-ready signal used by risk channel",
+                "effort": "Low",
+                "expected_lift": "+3–5 IQS pts",
+                "owner": "Data Engineering",
+            })
+            top_action = actions[0]["action"]
+
+        return {
+            "component": label,
+            "component_key": key,
+            "current_score": score,
+            "status": status,
+            "gap_to_100": gap,
+            "max_iqs_lift": max_lift,
+            "top_action": top_action,
+            "actions": actions,
+        }
+
+    def _generate_iqs_narrative(
+        self, current: float, projected: float, current_grade: str,
+        projected_grade: str, top_actions: list
+    ) -> str:
+        prompt = (
+            f"Write a 3-sentence IQS improvement briefing for {company_cfg.company_name}. "
+            f"Current IQS: {current}/100 (Grade {current_grade}). "
+            f"Achievable projected IQS: {projected}/100 (Grade {projected_grade}) by addressing key gaps. "
+            f"Top three actions: {'; '.join(top_actions[:3])}. "
+            f"Tone: direct, actionable, board-ready."
+        )
+        raw = self.hf.generate_text(prompt, max_tokens=180, agent="roi_agent")
+        return raw.strip()
+
+    @staticmethod
+    def _score_to_grade(score: float) -> str:
+        if score >= 90:
+            return "A+"
+        if score >= 80:
+            return "A"
+        if score >= 70:
+            return "B+"
+        if score >= 60:
+            return "B"
+        if score >= 50:
+            return "C"
+        return "D"
 
     def _post_suggestions(self, orchestrator, financial_roi, strategic_roi, iqs, j_curve):
         """Post strategic suggestions to orchestrator's message board."""

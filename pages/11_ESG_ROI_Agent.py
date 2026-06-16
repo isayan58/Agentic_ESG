@@ -118,10 +118,11 @@ if results:
     if "error" in results:
         st.error(results["error"])
     else:
-        tab_company, tab_peers, tab_whatif = st.tabs([
+        tab_company, tab_peers, tab_whatif, tab_iqs = st.tabs([
             "📊 Your Company",
             "🏢 Peer Benchmarking",
             "🔮 What-if Simulator",
+            "📈 Improve IQS",
         ])
 
         # ══════════════════════════════════════════════════════════════════════
@@ -880,3 +881,159 @@ if results:
   agent — pure-positive trajectories return *Not reached*.
                     """
                 )
+
+        # ══════════════════════════════════════════════════════════════════════
+        # TAB 4 — IMPROVE IQS
+        # Diagnoses each IQS component, ranks improvement opportunities by
+        # addressable lift, and surfaces a concrete action plan per component.
+        # ══════════════════════════════════════════════════════════════════════
+        with tab_iqs:
+            improvement = results.get("iqs_improvement", {})
+
+            if not improvement:
+                st.info("Re-run the ESG ROI Analysis to generate the IQS improvement plan.")
+            else:
+                current_score = improvement.get("current_score", 0)
+                current_grade = improvement.get("current_grade", "N/A")
+                projected_score = improvement.get("projected_score", 0)
+                projected_grade = improvement.get("projected_grade", "N/A")
+                total_lift = improvement.get("total_addressable_lift", 0)
+
+                # ── Header strip ──────────────────────────────────────────
+                section_header(
+                    "IQS Improvement Playbook",
+                    "Ranked improvement opportunities across all five IQS components.",
+                )
+
+                h1, h2, h3, h4 = st.columns(4)
+                with h1:
+                    kpi_card(
+                        "Current IQS",
+                        f"{current_score}/100",
+                        f"Grade {current_grade}",
+                        key="iqs_imp_current",
+                    )
+                with h2:
+                    kpi_card(
+                        "Projected IQS",
+                        f"{projected_score}/100",
+                        f"Grade {projected_grade} (if top actions completed)",
+                        key="iqs_imp_projected",
+                    )
+                with h3:
+                    kpi_card(
+                        "Total Addressable Lift",
+                        f"+{total_lift} pts",
+                        "Across all 5 components",
+                        key="iqs_imp_lift",
+                    )
+                with h4:
+                    grade_delta = (
+                        f"{current_grade} → {projected_grade}"
+                        if current_grade != projected_grade
+                        else "Grade unchanged"
+                    )
+                    kpi_card(
+                        "Grade Trajectory",
+                        grade_delta,
+                        "Achievable with focused execution",
+                        key="iqs_imp_grade",
+                    )
+
+                # ── AI narrative ──────────────────────────────────────────
+                narrative_text = improvement.get("narrative", "")
+                if narrative_text:
+                    st.markdown(f"> {narrative_text}")
+
+                st.divider()
+
+                # ── Component plans ───────────────────────────────────────
+                section_header(
+                    "Component-by-Component Action Plan",
+                    "Sorted by maximum IQS lift — tackle the top of the list first.",
+                )
+
+                component_plans = improvement.get("component_plans", [])
+
+                # Summary table — one row per component
+                if component_plans:
+                    summary_rows = []
+                    for p in component_plans:
+                        status_icon = (
+                            "🟢" if p["status"] == "Strong"
+                            else ("🟡" if p["status"] == "Moderate" else "🔴")
+                        )
+                        summary_rows.append({
+                            "Component": p["component"],
+                            "Score": f"{p['current_score']}/100",
+                            "Status": f"{status_icon} {p['status']}",
+                            "Gap to 100": p["gap_to_100"],
+                            "Max IQS Lift": f"+{p['max_iqs_lift']} pts",
+                            "Top Action": p["top_action"],
+                        })
+                    safe_dataframe(
+                        pd.DataFrame(summary_rows),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                st.divider()
+
+                # ── Detailed expandable cards per component ───────────────
+                section_header(
+                    "Detailed Action Cards",
+                    "Expand each component to see the full action list with effort and expected lift.",
+                )
+
+                for plan in component_plans:
+                    status_icon = (
+                        "🟢" if plan["status"] == "Strong"
+                        else ("🟡" if plan["status"] == "Moderate" else "🔴")
+                    )
+                    label = (
+                        f"{status_icon} **{plan['component']}** — "
+                        f"Score {plan['current_score']}/100 · "
+                        f"Max lift +{plan['max_iqs_lift']} pts"
+                    )
+                    with st.expander(label, expanded=(plan == component_plans[0])):
+                        sc1, sc2, sc3 = st.columns(3)
+                        with sc1:
+                            st.metric("Current Score", f"{plan['current_score']}/100")
+                        with sc2:
+                            st.metric("Gap to Perfect", f"{plan['gap_to_100']} pts")
+                        with sc3:
+                            st.metric("Max IQS Lift", f"+{plan['max_iqs_lift']} pts")
+
+                        st.markdown("**Actions to improve this component:**")
+                        for i, action in enumerate(plan.get("actions", []), 1):
+                            effort_color = (
+                                "🟢" if action["effort"] == "Low"
+                                else ("🟡" if action["effort"] == "Medium" else "🔴")
+                            )
+                            st.markdown(
+                                f"**{i}. {action['action']}**  \n"
+                                f"Effort: {effort_color} {action['effort']} · "
+                                f"Expected lift: `{action['expected_lift']}` · "
+                                f"Owner: *{action['owner']}*"
+                            )
+
+                # ── Weight breakdown reminder ─────────────────────────────
+                with st.expander("ℹ️ How IQS is calculated"):
+                    st.markdown(
+                        """
+The Investment Quality Score (0–100) is a weighted composite of five components:
+
+| Component | Weight | What drives it |
+|---|---|---|
+| Financial ROI | 25% | ROI % on ESG capex, emission savings, energy cost reduction |
+| Channel Performance | 25% | Average score across Growth, Cost, Risk, Human Capital, Capital Efficiency channels |
+| Strategic Value | 20% | Cost of capital reduction + brand premium score |
+| ESG Momentum | 15% | ESG CapEx CAGR + Revenue CAGR |
+| Risk Reduction | 15% | Risk channel score from KPI engine |
+
+**Grade thresholds:** A+ (90+) · A (80+) · B+ (70+) · B (60+) · C (50+) · D (<50)
+
+The "Max IQS Lift" per component = gap-to-100 × component weight.
+Realistically, expect to capture ~60% of the addressable lift — the projected score uses this factor.
+                        """
+                    )
