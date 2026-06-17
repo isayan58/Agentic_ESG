@@ -1,7 +1,9 @@
 """Agent 2: Regulatory Tracker — Monitors ESG frameworks and performs gap analysis."""
+import os
 import threading
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 from core.base_agent import BaseAgent
 from core.channels import Channel
 from core.state_manager import state_manager
@@ -141,6 +143,37 @@ DATA_FIELD_MAPPING = {
 }
 
 
+_MONITOR_STATE_FILE = Path(__file__).resolve().parent.parent / "data" / "regulatory_monitor_state.json"
+
+
+def _load_monitor_state() -> dict:
+    """Load persisted regulatory monitor state (survives process restarts)."""
+    try:
+        if _MONITOR_STATE_FILE.exists():
+            with _MONITOR_STATE_FILE.open("r", encoding="utf-8") as fh:
+                return json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _save_monitor_state(state: dict) -> None:
+    """Atomically persist regulatory monitor state to disk."""
+    import tempfile
+    _MONITOR_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".reg_monitor_", suffix=".json",
+                                dir=str(_MONITOR_STATE_FILE.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, indent=2, default=str)
+        os.replace(tmp, _MONITOR_STATE_FILE)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 class RegulatoryTrackerAgent(BaseAgent):
     output_channel = Channel.REGULATORY
 
@@ -149,51 +182,95 @@ class RegulatoryTrackerAgent(BaseAgent):
             name="Regulatory Tracker",
             description="Monitors global ESG frameworks and performs compliance gap analysis.",
         )
-        self.frameworks_cache = None
-        self.last_updated = None
         self.update_interval_hours = 24
         self.background_thread = None
         self.running = True
+
+        # Restore persisted state so the monitor survives process restarts
+        _persisted = _load_monitor_state()
+        self.frameworks_cache = None
+        self.last_updated = _persisted.get("last_updated")
+        self._persisted_external_updates = _persisted.get("external_updates", [])
+
         self._start_background_updater()
 
     def _start_background_updater(self):
-        """Start a background thread that updates regulatory data every 24 hours."""
+        """Start a background thread that updates regulatory data every 24 hours.
+
+        On restart the persisted ``last_updated`` timestamp is checked so the
+        thread skips the initial wait if a fetch was already done recently,
+        ensuring the always-on monitor survives process restarts without losing
+        its schedule.
+        """
+        def _seconds_since_last_fetch() -> float:
+            if not self.last_updated:
+                return float("inf")
+            try:
+                last = datetime.fromisoformat(self.last_updated)
+                return (datetime.now() - last).total_seconds()
+            except (ValueError, TypeError):
+                return float("inf")
+
         def background_update():
+            # On the first iteration, sleep only the *remaining* interval so
+            # a fresh restart doesn't immediately re-fetch if it was done recently.
+            first_run = True
             while self.running:
                 try:
-                    # Wait for 24 hours or until stopped
-                    for _ in range(self.update_interval_hours * 60):
-                        if not self.running:
-                            break
-                        threading.Event().wait(60)  # Check every minute
-                    
+                    if first_run:
+                        elapsed = _seconds_since_last_fetch()
+                        remaining = max(0, self.update_interval_hours * 3600 - elapsed)
+                        first_run = False
+                    else:
+                        remaining = self.update_interval_hours * 3600
+
+                    # Sleep in 60-second chunks so stop() is responsive
+                    slept = 0
+                    while slept < remaining and self.running:
+                        threading.Event().wait(min(60, remaining - slept))
+                        slept += 60
+
                     if self.running:
                         self.log("Auto-updating regulatory frameworks from external sources...")
                         self._fetch_and_update_frameworks()
                 except Exception as e:
                     self.log(f"Error in background updater: {str(e)}")
-        
+
         self.background_thread = threading.Thread(target=background_update, daemon=True)
         self.background_thread.start()
 
     def _fetch_and_update_frameworks(self):
-        """Fetch regulatory data from external sources and update cache."""
+        """Fetch regulatory data from external sources, update cache, and persist."""
         try:
-            # Simulate fetching from external sources (news APIs, regulatory databases, etc.)
             external_updates = self._fetch_external_regulatory_data()
-            
+
             if external_updates:
-                # Load current frameworks
                 current_frameworks = load_regulatory_frameworks()
-                
-                # Merge external updates with current frameworks
                 updated_frameworks = self._merge_framework_updates(current_frameworks, external_updates)
-                
-                # Cache the updated frameworks
                 self.frameworks_cache = updated_frameworks
                 self.last_updated = datetime.now().isoformat()
-                
-                self.log(f"Regulatory frameworks updated at {self.last_updated}. Found {len(external_updates)} updates.")
+
+                # Persist so restarts don't lose the last-fetch time or updates
+                accumulated = list(self._persisted_external_updates)
+                new_items = (
+                    external_updates.get("deadline_changes", []) +
+                    external_updates.get("new_requirements", [])
+                )
+                seen_descs = {u.get("description") for u in accumulated}
+                for item in new_items:
+                    if item.get("description") not in seen_descs:
+                        accumulated.append(item)
+                        seen_descs.add(item.get("description"))
+                self._persisted_external_updates = accumulated
+                _save_monitor_state({
+                    "last_updated": self.last_updated,
+                    "external_updates": accumulated,
+                })
+
+                self.log(
+                    f"Regulatory frameworks updated at {self.last_updated}. "
+                    f"Found {len(new_items)} new items."
+                )
         except Exception as e:
             self.log(f"Failed to update regulatory frameworks: {str(e)}")
 
@@ -267,22 +344,29 @@ class RegulatoryTrackerAgent(BaseAgent):
         frameworks_data = load_regulatory_frameworks()
         self.last_updated = datetime.now().isoformat()
 
-        # Preserve any in-memory external_updates metadata that the background
-        # thread has accumulated (these are not persisted to disk).
+        # Merge persisted external updates (survive restarts) + any new
+        # in-memory updates from the current session's background thread.
+        merged_ext = list(frameworks_data.get("external_updates") or [])
+        seen_descs = {u.get("description") for u in merged_ext}
+        for u in self._persisted_external_updates:
+            if u.get("description") not in seen_descs:
+                merged_ext.append(u)
+                seen_descs.add(u.get("description"))
         if self.frameworks_cache:
             cached_ext = self.frameworks_cache.get("external_updates") or []
-            if cached_ext:
-                merged = list(frameworks_data.get("external_updates") or [])
-                seen = {u.get("description") for u in merged}
-                for u in cached_ext:
-                    if u.get("description") not in seen:
-                        merged.append(u)
-                frameworks_data["external_updates"] = merged
+            for u in cached_ext:
+                if u.get("description") not in seen_descs:
+                    merged_ext.append(u)
+                    seen_descs.add(u.get("description"))
             if self.frameworks_cache.get("last_external_update"):
                 frameworks_data.setdefault(
                     "last_external_update",
                     self.frameworks_cache["last_external_update"],
                 )
+        if merged_ext:
+            frameworks_data["external_updates"] = merged_ext
+        if self.last_updated:
+            frameworks_data.setdefault("last_external_update", self.last_updated)
         self.frameworks_cache = frameworks_data
         
         metrics_df = get_dataset("esg_metrics", load_esg_metrics)

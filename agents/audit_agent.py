@@ -4,6 +4,8 @@ management, and ESG Integrity Gap detection.
 The Integrity Gap Detector compares self-reported ESG metrics against
 data-derived actuals to flag inconsistencies (the "73% mismatch" pattern).
 """
+import hashlib
+import json
 from datetime import datetime
 from core.base_agent import BaseAgent
 from core.channels import Channel
@@ -364,6 +366,21 @@ class AuditAgent(BaseAgent):
             })
 
         trail.sort(key=lambda x: x["timestamp"])
+
+        # Hash-chain: each entry records SHA-256(prev_hash + entry_json)
+        # so any tampering with a past entry breaks every subsequent hash.
+        prev_hash = "0" * 64  # genesis sentinel
+        for entry in trail:
+            payload = json.dumps(
+                {k: v for k, v in entry.items() if k != "chain_hash"},
+                sort_keys=True,
+                default=str,
+            )
+            entry["chain_hash"] = hashlib.sha256(
+                (prev_hash + payload).encode()
+            ).hexdigest()
+            prev_hash = entry["chain_hash"]
+
         return trail
 
     def _generate_findings_summary(self, readiness, completeness_audit, checklist):

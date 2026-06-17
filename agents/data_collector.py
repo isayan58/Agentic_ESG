@@ -49,7 +49,7 @@ class DataCollectorAgent(BaseAgent):
                     if not df.empty:
                         key = f"real_{schema_name}"
                         datasets[key] = _norm_cols(df)
-                        quality = compute_data_quality(df)
+                        quality = compute_data_quality(df, source_tier="real")
                         quality_scores[key] = quality
                         self.log(f"Real source [{schema_name}]: {len(df)} records, "
                                  f"completeness={quality['completeness']}%")
@@ -71,7 +71,7 @@ class DataCollectorAgent(BaseAgent):
             df = loader()
             if not df.empty:
                 datasets[name] = df
-                quality = compute_data_quality(df)
+                quality = compute_data_quality(df, source_tier="sample")
                 quality_scores[name] = quality
                 self.log(f"Loaded {name}: {quality['total_records']} records, "
                          f"completeness={quality['completeness']}%")
@@ -84,7 +84,7 @@ class DataCollectorAgent(BaseAgent):
                     df = connector.fetch()
                     if df is not None and not df.empty:
                         datasets[f"connector_{conn_key}"] = _norm_cols(df)
-                        quality_scores[f"connector_{conn_key}"] = compute_data_quality(df)
+                        quality_scores[f"connector_{conn_key}"] = compute_data_quality(df, source_tier="connector")
                         self.log(f"Connected: {connector.name} — {len(df)} records ingested")
                     self.connector_statuses[conn_key] = connector.get_status()
                 except Exception as e:
@@ -133,7 +133,7 @@ class DataCollectorAgent(BaseAgent):
                         datasets[key] = df
                         self.log(f"Ingested uploaded file: {file_name} (schema undetected, stored as-is)")
 
-                    quality_scores[key] = compute_data_quality(datasets[key])
+                    quality_scores[key] = compute_data_quality(datasets[key], source_tier="real")
                 except Exception as e:
                     self.log(f"Error processing {file_name}: {e}")
 

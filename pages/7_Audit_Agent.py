@@ -144,10 +144,33 @@ if results and "error" not in results:
     with tab4:
         trail = results.get("audit_trail", [])
         if trail:
+            # Verify chain integrity
+            import hashlib, json as _json
+            chain_intact = True
+            prev_hash = "0" * 64
             for entry in trail:
+                stored_hash = entry.get("chain_hash", "")
+                payload = _json.dumps(
+                    {k: v for k, v in entry.items() if k != "chain_hash"},
+                    sort_keys=True, default=str,
+                )
+                expected = hashlib.sha256((prev_hash + payload).encode()).hexdigest()
+                if stored_hash != expected:
+                    chain_intact = False
+                    break
+                prev_hash = stored_hash
+
+            if chain_intact:
+                st.success(f"✅ Audit trail integrity verified — {len(trail)} entries, hash-chain intact")
+            else:
+                st.error("⚠️ Audit trail integrity check FAILED — chain hash mismatch detected")
+
+            for entry in trail:
+                chain_hash = entry.get("chain_hash", "")
+                short_hash = f"`…{chain_hash[-8:]}`" if chain_hash else ""
                 st.markdown(
                     f"- `{entry['timestamp'][:19]}` — **{entry['event']}** "
-                    f"(by {entry['agent']}) — {entry['status']}"
+                    f"(by {entry['agent']}) — {entry['status']} {short_hash}"
                 )
         else:
             st.info("No audit trail entries yet. Run the full pipeline to populate.")

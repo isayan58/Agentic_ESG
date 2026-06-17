@@ -155,8 +155,14 @@ class SupplierPortalConnector(BaseConnector):
     def fetch(self):
         self.connect()
         # Load existing supply chain data and enrich with portal data
-        path = os.path.join(DATA_DIR, "sample_supply_chain.csv")
-        if os.path.exists(path):
+        sample_root = os.path.join(os.path.dirname(DATA_DIR), "sample_data")
+        candidates = [
+            os.path.join(DATA_DIR, "sample_supply_chain.csv"),
+            os.path.join(sample_root, "ESG Datasets", "supply_chain.csv"),
+            os.path.join(sample_root, "company", "supply_chain.csv"),
+        ]
+        path = next((p for p in candidates if os.path.exists(p)), None)
+        if path is not None:
             df = pd.read_csv(path)
             np.random.seed(45)
             df["self_reported_emissions"] = (
