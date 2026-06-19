@@ -19,6 +19,20 @@ ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")
 ANTHROPIC_EFFORT = os.environ.get("ANTHROPIC_EFFORT", "high")  # low|medium|high|xhigh|max
 ANTHROPIC_MAX_TOKENS = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "16000"))
 
+# ── ESG Pilot chatbot (LangGraph + MCP) ──────────────────────────────────
+# When enabled, the chat drawer drives the conversation through a LangGraph
+# create_react_agent backed by the esg-data / esg-pipeline / esg-charts MCP
+# servers, with a SQLite checkpointer for durable per-user memory. Falls back
+# to the legacy in-file tool-use loop when disabled or when the LangGraph /
+# MCP stack is unavailable. Toggle off with PILOT_USE_LANGGRAPH=0.
+PILOT_USE_LANGGRAPH = os.environ.get("PILOT_USE_LANGGRAPH", "1") not in ("0", "false", "False")
+# Checkpointer DB — keyed by thread_id = username for cross-session,
+# cross-device conversation memory in place of st.session_state.
+PILOT_CHECKPOINT_DB = os.environ.get(
+    "PILOT_CHECKPOINT_DB",
+    os.path.join(os.path.expanduser("~"), ".cache", "esg", "pilot_memory.sqlite"),
+)
+
 # Ports
 STREAMLIT_PORT = int(os.environ.get("STREAMLIT_PORT", 8501))
 GRADIO_PORT = int(os.environ.get("GRADIO_PORT", 7860))

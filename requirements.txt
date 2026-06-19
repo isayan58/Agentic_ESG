@@ -2,6 +2,16 @@ streamlit==1.56.0
 gradio==6.13.0
 huggingface-hub>=0.25.0
 anthropic>=0.97.0
+
+# ESG Pilot chatbot — LangGraph + MCP re-platform (see core/pilot_agent.py,
+# mcp_servers/). LangGraph drives the conversation loop; MCP serves the tools;
+# the SQLite checkpointer gives durable per-user memory.
+langgraph>=1.0
+langchain-anthropic>=1.0
+langchain-mcp-adapters>=0.3
+langgraph-checkpoint-sqlite>=3.0
+mcp>=1.2
+
 pandas>=2.2.0
 pyarrow>=14.0.0
 plotly>=5.24.0

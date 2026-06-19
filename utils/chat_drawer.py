@@ -30,11 +30,28 @@ except Exception:
     _HAS_PLOTLY = False
 
 from utils.run_store import get_run_store
+from utils.run_summary import headline_metrics as _headline_metrics
+from utils.chart_spec import (
+    RENDER_CHART_DESCRIPTION,
+    RENDER_CHART_INPUT_SCHEMA,
+    figure_from_spec as _figure_from_tool_input,
+)
+
+# LangGraph + MCP Pilot — optional. When importable and configured, the
+# chat drawer routes conversations through it (durable memory + MCP tools);
+# otherwise it falls back to the legacy in-file tool-use loop below.
+try:
+    from core import pilot_agent
+    _HAS_PILOT_AGENT = True
+except Exception:
+    pilot_agent = None  # type: ignore
+    _HAS_PILOT_AGENT = False
 
 
 _DRAWER_OPEN_KEY = "_chat_drawer_open"
 _CHAT_HISTORY_KEY = "_chat_drawer_history"
 _CACHED_RUN_KEY = "_chat_drawer_cached_run"
+_HISTORY_REHYDRATED_KEY = "_chat_drawer_rehydrated"
 
 
 # ---------------------------------------------------------------------------
@@ -42,104 +59,14 @@ _CACHED_RUN_KEY = "_chat_drawer_cached_run"
 # emitting structured params than hand-authoring a full Plotly JSON spec,
 # and we lose nothing by building the figure server-side from these fields.
 # ---------------------------------------------------------------------------
+# The legacy in-file tool-use loop (``_ask_pilot``) advertises render_chart as
+# an Anthropic tool; the schema/description now live in ``utils.chart_spec`` so
+# the MCP ``esg-charts`` server and this fallback can never drift apart.
 _RENDER_CHART_TOOL = {
     "name": "render_chart",
-    "description": (
-        "Render a chart inline in the chat. Use when a chart would communicate "
-        "the answer better than prose — for trends over time, category "
-        "breakdowns, framework comparisons, IQS components, or distributions. "
-        "The chart appears immediately after the surrounding text. Don't "
-        "chart trivial single-value answers."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "title": {"type": "string"},
-            "chart_type": {
-                "type": "string",
-                "enum": ["bar", "horizontal_bar", "line", "pie", "scatter", "area"],
-            },
-            "x": {
-                "type": "array",
-                "items": {"type": ["string", "number"]},
-                "description": "Category labels (bar/pie) or x-axis values (line/scatter).",
-            },
-            "y": {
-                "type": "array",
-                "items": {"type": "number"},
-                "description": "Numeric values aligned with x.",
-            },
-            "x_label": {"type": "string"},
-            "y_label": {"type": "string"},
-        },
-        "required": ["title", "chart_type", "x", "y"],
-    },
+    "description": RENDER_CHART_DESCRIPTION,
+    "input_schema": RENDER_CHART_INPUT_SCHEMA,
 }
-
-
-# ---------------------------------------------------------------------------
-# Chart rendering
-# ---------------------------------------------------------------------------
-_PWC_PALETTE = ["#FD5108", "#E0301E", "#FFB600", "#D04A02", "#A23A02", "#7a2e0c"]
-
-
-def _figure_from_tool_input(spec: dict) -> Optional["go.Figure"]:
-    if not _HAS_PLOTLY:
-        return None
-    chart_type = (spec.get("chart_type") or "bar").lower()
-    title = spec.get("title") or ""
-    x = spec.get("x") or []
-    y = spec.get("y") or []
-    x_label = spec.get("x_label") or ""
-    y_label = spec.get("y_label") or ""
-    if not x or not y or len(x) != len(y):
-        return None
-
-    if chart_type == "bar":
-        fig = go.Figure(go.Bar(x=x, y=y, marker_color=_PWC_PALETTE[0]))
-    elif chart_type == "horizontal_bar":
-        fig = go.Figure(go.Bar(x=y, y=x, orientation="h", marker_color=_PWC_PALETTE[0]))
-        x_label, y_label = y_label, x_label
-    elif chart_type == "line":
-        fig = go.Figure(go.Scatter(
-            x=x, y=y, mode="lines+markers",
-            line=dict(color=_PWC_PALETTE[0], width=2.5),
-            marker=dict(color=_PWC_PALETTE[1], size=8),
-        ))
-    elif chart_type == "area":
-        fig = go.Figure(go.Scatter(
-            x=x, y=y, mode="lines", fill="tozeroy",
-            line=dict(color=_PWC_PALETTE[0], width=2),
-            fillcolor="rgba(253, 81, 8, 0.18)",
-        ))
-    elif chart_type == "scatter":
-        fig = go.Figure(go.Scatter(
-            x=x, y=y, mode="markers",
-            marker=dict(color=_PWC_PALETTE[0], size=10),
-        ))
-    elif chart_type == "pie":
-        fig = go.Figure(go.Pie(
-            labels=x, values=y,
-            marker=dict(colors=_PWC_PALETTE),
-            textinfo="label+percent",
-        ))
-    else:
-        return None
-
-    fig.update_layout(
-        title=dict(text=title, font=dict(size=14, color="#0f172a")),
-        xaxis_title=x_label,
-        yaxis_title=y_label,
-        margin=dict(l=12, r=12, t=44, b=12),
-        height=280,
-        plot_bgcolor="#ffffff",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter, system-ui, sans-serif", size=12, color="#0f172a"),
-        showlegend=(chart_type == "pie"),
-    )
-    fig.update_xaxes(gridcolor="#f1f5f9", zerolinecolor="#e2e8f0")
-    fig.update_yaxes(gridcolor="#f1f5f9", zerolinecolor="#e2e8f0")
-    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -176,57 +103,6 @@ def _load_run_results() -> Optional[dict]:
     results = snap.get("results") if isinstance(snap, dict) else None
     st.session_state[_CACHED_RUN_KEY] = results or {}
     return results
-
-
-def _headline_metrics(run: dict) -> str:
-    if not run:
-        return ""
-    roi    = run.get("roi_agent",          {}) or {}
-    audit  = run.get("audit_agent",        {}) or {}
-    carbon = run.get("carbon_accountant",  {}) or {}
-    risk   = run.get("risk_predictor",     {}) or {}
-    data   = run.get("data_collector",     {}) or {}
-    regs   = run.get("regulatory_tracker", {}) or {}
-    iqs    = roi.get("investment_quality_score", {}) or {}
-    readiness = audit.get("readiness_score", {}) or {}
-
-    lines: list[str] = ["HEADLINE METRICS FOR THIS RUN (always reference these):"]
-    if iqs:
-        lines.append(
-            f"  • IQS: {iqs.get('score','—')}/100  •  Grade: {iqs.get('grade','—')}"
-        )
-        comps = iqs.get("components") or {}
-        if comps:
-            lines.append("      components → " + " | ".join(
-                f"{k}: {v}" for k, v in comps.items()
-            ))
-    if readiness:
-        lines.append(
-            f"  • Audit readiness: {readiness.get('overall','—')}/100 "
-            f"(grade {readiness.get('grade','—')})"
-        )
-    if carbon:
-        lines.append(
-            f"  • Total emissions: {carbon.get('total_emissions_current','—')} tCO2e "
-            f"(YoY {carbon.get('yoy_change_pct','—')}%)"
-        )
-    if risk:
-        lines.append(
-            f"  • Risk: {risk.get('overall_risk_score','—')}/100 "
-            f"({risk.get('risk_level','—')})"
-        )
-    if data:
-        lines.append(
-            f"  • Data: {data.get('total_records','—')} records / "
-            f"{data.get('datasets_loaded','—')} datasets  •  "
-            f"completeness {data.get('overall_completeness','—')}%"
-        )
-    fw = (regs or {}).get("framework_results") or {}
-    if fw:
-        lines.append("  • Frameworks → " + "; ".join(
-            f"{n}: {f.get('compliance_pct','—')}%" for n, f in list(fw.items())[:6]
-        ))
-    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def _pipeline_context(run: dict, char_limit: int = 30000) -> str:
@@ -382,6 +258,60 @@ def _render_assistant_blocks(blocks: list[dict], chart_key_prefix: str) -> None:
                     key=f"{chart_key_prefix}_chart_{chart_idx}",
                 )
                 chart_idx += 1
+
+
+# ---------------------------------------------------------------------------
+# Answer dispatch — LangGraph + MCP Pilot when available, else legacy loop.
+# ---------------------------------------------------------------------------
+def _use_langgraph() -> bool:
+    """True when the conversation should run through the LangGraph + MCP Pilot.
+    Gated on the feature flag, the stack being importable, and an API key."""
+    return bool(
+        getattr(config, "PILOT_USE_LANGGRAPH", False)
+        and _HAS_PILOT_AGENT
+        and pilot_agent is not None
+        and pilot_agent.available()
+    )
+
+
+def _answer_question(question: str, username: str, run: Optional[dict]) -> list[dict]:
+    """Produce the assistant's display blocks for one turn.
+
+    Prefers the LangGraph + MCP Pilot (durable memory via the checkpointer,
+    MCP-served tools incl. live pipeline runs). Falls back to the legacy
+    in-file tool-use loop, which re-sends history and the run JSON each turn.
+    """
+    if _use_langgraph():
+        try:
+            return pilot_agent.ask_pilot(question, username)
+        except Exception as exc:
+            return [{"type": "text",
+                     "text": f"⚠️ Pilot (LangGraph) call failed: `{exc}`"}]
+    try:
+        return _ask_pilot(
+            question,
+            _history_for_api(st.session_state[_CHAT_HISTORY_KEY][:-1]),
+            run,
+        )
+    except Exception as exc:
+        return [{"type": "text", "text": f"⚠️ Pilot call failed: `{exc}`"}]
+
+
+def _rehydrate_history_from_checkpointer(username: str) -> None:
+    """On first drawer render in a fresh session, repopulate the visible
+    transcript from the LangGraph checkpointer so memory survives reloads and
+    follows the user across devices (replacing the old session-only history)."""
+    if st.session_state.get(_HISTORY_REHYDRATED_KEY):
+        return
+    st.session_state[_HISTORY_REHYDRATED_KEY] = True
+    if not _use_langgraph() or st.session_state.get(_CHAT_HISTORY_KEY):
+        return
+    try:
+        turns = pilot_agent.load_history(username)
+    except Exception:
+        turns = []
+    if turns:
+        st.session_state[_CHAT_HISTORY_KEY] = turns
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +491,10 @@ def render_chat_drawer() -> None:
     if _DRAWER_OPEN_KEY not in st.session_state:
         st.session_state[_DRAWER_OPEN_KEY] = False
 
+    # Pull durable conversation memory back into the visible transcript once
+    # per session (no-op on the legacy path or when nothing is stored).
+    _rehydrate_history_from_checkpointer(_current_username())
+
     # Inject scoped styles once per page render. Cheap and idempotent —
     # browsers de-duplicate identical <style> tags effectively, and this
     # keeps the rules co-located with the components they target.
@@ -622,12 +556,21 @@ def render_chat_drawer() -> None:
         if history:
             if st.button("Clear conversation", key="esg_pilot_clear"):
                 st.session_state[_CHAT_HISTORY_KEY] = []
+                # Also drop the durable thread so cleared memory stays cleared
+                # across reloads/devices, not just in this tab.
+                if _use_langgraph():
+                    try:
+                        pilot_agent.clear_history(_current_username())
+                    except Exception:
+                        pass
                 st.rerun()
 
-        question = st.chat_input(
-            "Ask about your run — try 'show me the IQS components'",
-            key="_pilot_input",
+        placeholder = (
+            "Ask, or say 'run the pipeline' — try 'show me the IQS components'"
+            if _use_langgraph()
+            else "Ask about your run — try 'show me the IQS components'"
         )
+        question = st.chat_input(placeholder, key="_pilot_input")
         if question:
             st.session_state[_CHAT_HISTORY_KEY].append({
                 "role": "user", "content": question,
@@ -636,15 +579,7 @@ def render_chat_drawer() -> None:
                 st.markdown(question)
             with st.chat_message("assistant"):
                 with st.spinner("Thinking…"):
-                    try:
-                        blocks = _ask_pilot(
-                            question,
-                            _history_for_api(st.session_state[_CHAT_HISTORY_KEY][:-1]),
-                            run,
-                        )
-                    except Exception as exc:
-                        blocks = [{"type": "text",
-                                   "text": f"⚠️ Pilot call failed: `{exc}`"}]
+                    blocks = _answer_question(question, _current_username(), run)
                 _render_assistant_blocks(blocks, chart_key_prefix="live")
             st.session_state[_CHAT_HISTORY_KEY].append({
                 "role": "assistant", "content": blocks,
