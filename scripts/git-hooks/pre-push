@@ -10,16 +10,20 @@
 # ~7 300 lines of work.
 #
 # This hook blocks any push to the ``hf-streamlit`` remote unless the
-# commit being pushed exactly matches ``origin/dev``'s tip. That makes
+# commit being pushed exactly matches ``origin/main``'s tip. That makes
 # the deploy contract explicit:
-#   1. Merge to ``origin/dev`` (via PR + CI) first.
+#   1. Merge to ``origin/main`` (via PR + CI) first.
 #   2. ``git fetch origin``.
-#   3. ``git push hf-streamlit dev:main``.
+#   3. ``git push hf-streamlit origin/main:main``.
+#
+# ``main`` is the integration branch the team actually works on, so it is
+# the deploy source. (Earlier this hook enforced ``origin/dev``; that
+# branch has since diverged and is no longer the release line.)
 #
 # Bypass (intentional)
 # --------------------
 # ``git push --no-verify hf-streamlit …`` skips the hook. Use only when
-# you genuinely need to deploy a non-dev SHA (e.g. an emergency
+# you genuinely need to deploy a non-main SHA (e.g. an emergency
 # hotfix from a feature branch).
 #
 # Installation
@@ -62,18 +66,18 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     continue
   fi
 
-  # Make sure we have an up-to-date origin/dev to compare against. If
+  # Make sure we have an up-to-date origin/main to compare against. If
   # the user hasn't fetched recently, the comparison would be stale.
-  if ! git fetch --quiet origin dev 2>/dev/null; then
-    deploy_messages+=("✗ Could not fetch origin/dev — check your network or 'origin' remote.")
+  if ! git fetch --quiet origin main 2>/dev/null; then
+    deploy_messages+=("✗ Could not fetch origin/main — check your network or 'origin' remote.")
     deploy_violation=1
     continue
   fi
 
-  origin_dev_sha="$(git rev-parse origin/dev)"
+  origin_main_sha="$(git rev-parse origin/main)"
 
-  if [[ "$local_sha" == "$origin_dev_sha" ]]; then
-    # Happy path: deploy commit matches origin/dev exactly.
+  if [[ "$local_sha" == "$origin_main_sha" ]]; then
+    # Happy path: deploy commit matches origin/main exactly.
     continue
   fi
 
@@ -81,13 +85,13 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   deploy_messages+=("")
   deploy_messages+=("✗ Refusing to deploy to ${remote_name} (HuggingFace Streamlit Space).")
   deploy_messages+=("")
-  deploy_messages+=("  You're pushing:    ${local_sha:0:12}  ($(git log -1 --format='%s' "$local_sha"))")
-  deploy_messages+=("  origin/dev tip is: ${origin_dev_sha:0:12}  ($(git log -1 --format='%s' "$origin_dev_sha"))")
+  deploy_messages+=("  You're pushing:     ${local_sha:0:12}  ($(git log -1 --format='%s' "$local_sha"))")
+  deploy_messages+=("  origin/main tip is: ${origin_main_sha:0:12}  ($(git log -1 --format='%s' "$origin_main_sha"))")
   deploy_messages+=("")
-  deploy_messages+=("  HF Space deploys MUST originate from origin/dev. To proceed:")
-  deploy_messages+=("    1. Merge your work to dev (PR + CI green).")
+  deploy_messages+=("  HF Space deploys MUST originate from origin/main. To proceed:")
+  deploy_messages+=("    1. Merge your work to main (PR + CI green).")
   deploy_messages+=("    2. git fetch origin")
-  deploy_messages+=("    3. git push ${remote_name} origin/dev:main")
+  deploy_messages+=("    3. git push ${remote_name} origin/main:main")
   deploy_messages+=("")
   deploy_messages+=("  Need to bypass for an emergency hotfix? Re-run with --no-verify:")
   deploy_messages+=("    git push --no-verify ${remote_name} <sha>:main")
