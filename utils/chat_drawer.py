@@ -40,12 +40,25 @@ from utils.chart_spec import (
 # LangGraph + MCP Pilot — optional. When importable and configured, the
 # chat drawer routes conversations through it (durable memory + MCP tools);
 # otherwise it falls back to the legacy in-file tool-use loop below.
+#
+# The import failure is logged (not swallowed) so a missing/incompatible
+# LangGraph/MCP install on a deploy target surfaces in the container logs
+# as the *reason* for the legacy fallback, instead of failing invisibly.
+import logging as _logging
+
+_pilot_log = _logging.getLogger("esg.pilot")
+_PILOT_IMPORT_ERROR: Optional[str] = None
 try:
     from core import pilot_agent
     _HAS_PILOT_AGENT = True
-except Exception:
+except Exception as _exc:  # noqa: BLE001 — any import error means fall back
     pilot_agent = None  # type: ignore
     _HAS_PILOT_AGENT = False
+    _PILOT_IMPORT_ERROR = repr(_exc)
+    _pilot_log.warning(
+        "ESG Pilot: LangGraph/MCP path unavailable — using legacy loop. "
+        "core.pilot_agent import failed: %s", _exc, exc_info=True,
+    )
 
 
 _DRAWER_OPEN_KEY = "_chat_drawer_open"
@@ -272,6 +285,30 @@ def _use_langgraph() -> bool:
         and pilot_agent is not None
         and pilot_agent.available()
     )
+
+
+def _engine_status() -> tuple[str, str]:
+    """(label, reason) describing which Pilot engine is active and why.
+    Surfaced in the drawer so 'is LangGraph working?' is answerable at a
+    glance, and the *reason* for any legacy fallback is visible in-app."""
+    if not getattr(config, "PILOT_USE_LANGGRAPH", False):
+        return "legacy", "PILOT_USE_LANGGRAPH is off"
+    if not _HAS_PILOT_AGENT or pilot_agent is None:
+        return "legacy", f"LangGraph/MCP import failed — {_PILOT_IMPORT_ERROR or 'unknown'}"
+    if not pilot_agent.available():
+        reason = ("ANTHROPIC_API_KEY not set" if not (
+            config.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY"))
+            else "LangGraph stack not importable")
+        return "legacy", reason
+    return "langgraph", "LangGraph + MCP active"
+
+
+def _render_engine_badge() -> None:
+    label, reason = _engine_status()
+    if label == "langgraph":
+        st.caption("🟢 Engine: **LangGraph + MCP** · durable memory · live tools")
+    else:
+        st.caption(f"🟡 Engine: **legacy loop** · {reason}")
 
 
 def _answer_question(question: str, username: str, run: Optional[dict]) -> list[dict]:
@@ -530,6 +567,8 @@ def render_chat_drawer() -> None:
             if st.button("✕", key="esg_pilot_close", help="Minimize"):
                 st.session_state[_DRAWER_OPEN_KEY] = False
                 st.rerun()
+
+        _render_engine_badge()
 
         run = _load_run_results()
         if not run:
