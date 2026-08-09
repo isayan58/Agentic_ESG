@@ -2698,6 +2698,377 @@ def switch(label: str, *, default: bool = False, key: Optional[str] = None) -> b
 
 
 # ---------------------------------------------------------------------------
+# Prioritized recommendation board
+# ---------------------------------------------------------------------------
+# The gap advisor used to dump a raw LLM markdown bullet list onto the page.
+# That reads as a wall of text: the client can't tell at a glance which item
+# to act on first, who to chase, or what it buys them. These helpers render
+# the same advice as ranked action cards — rank medal, impact/effort meter,
+# the literal columns to ask for, the owning team, and the analysis it
+# unblocks — so the page answers "what do I do Monday morning?" in one look.
+
+_IMPACT_STYLES = {
+    "high":   ("var(--pwc-tomato)",  "rgba(224, 48, 30, 0.10)",  "High impact"),
+    "medium": ("var(--pwc-amber)",   "rgba(255, 182, 0, 0.14)",  "Medium impact"),
+    "low":    ("var(--text-muted)",  "rgba(91, 100, 115, 0.08)", "Low impact"),
+}
+_EFFORT_STYLES = {
+    "low":    ("var(--pwc-success)", "rgba(46, 133, 64, 0.10)",  "Low effort"),
+    "medium": ("var(--pwc-amber)",   "rgba(255, 182, 0, 0.14)",  "Medium effort"),
+    "high":   ("var(--pwc-danger)",  "rgba(200, 16, 46, 0.09)",  "High effort"),
+}
+_IMPACT_WEIGHT = {"high": 3, "medium": 2, "low": 1}
+_EFFORT_WEIGHT = {"low": 1, "medium": 2, "high": 3}
+
+_RECOMMENDATION_CSS = """
+<style>
+.esg-rec-board { display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* Headline strip — the one-sentence verdict above the cards ----------- */
+.esg-rec-headline {
+    display: flex; align-items: flex-start; gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(253, 81, 8, 0.20);
+    background:
+        radial-gradient(520px 160px at 0% 0%, rgba(253, 81, 8, 0.10), transparent 62%),
+        linear-gradient(90deg, #ffffff 0%, var(--surface-muted) 100%);
+    box-shadow: var(--shadow-xs);
+}
+.esg-rec-headline .esg-rec-headline-icon { font-size: 1.25rem; line-height: 1.2; flex-shrink: 0; }
+.esg-rec-headline .esg-rec-headline-text {
+    font-family: var(--font-display); font-weight: 600;
+    font-size: var(--text-md); line-height: var(--lh-snug);
+    color: var(--text); letter-spacing: -0.01em;
+}
+
+/* Card --------------------------------------------------------------- */
+.esg-rec-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-5) var(--space-4) var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    transition:
+        transform var(--dur-base) var(--ease-standard),
+        box-shadow var(--dur-base) var(--ease-standard),
+        border-color var(--dur-base) var(--ease-standard);
+}
+.esg-rec-card::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg, var(--pwc-orange) 0%, var(--pwc-tomato) 100%);
+}
+.esg-rec-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--border-strong);
+}
+.esg-rec-card:focus-within {
+    outline: none;
+    box-shadow: var(--shadow-md), var(--ring-focus);
+}
+.esg-rec-card.is-quickwin::before {
+    background: linear-gradient(180deg, var(--pwc-success) 0%, #7cc47f 100%);
+}
+
+/* Rank medal --------------------------------------------------------- */
+.esg-rec-rank {
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    gap: 6px; padding-top: 2px;
+}
+.esg-rec-rank-badge {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 800; font-size: var(--text-md);
+    color: #fff; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--pwc-orange) 0%, var(--pwc-tomato) 100%);
+    box-shadow: var(--shadow-brand);
+}
+.esg-rec-card.is-quickwin .esg-rec-rank-badge {
+    background: linear-gradient(135deg, var(--pwc-success) 0%, #3fa757 100%);
+    box-shadow: 0 8px 22px rgba(46, 133, 64, 0.22);
+}
+.esg-rec-rank-label {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; color: var(--text-muted);
+}
+
+/* Card body ---------------------------------------------------------- */
+.esg-rec-body { min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.esg-rec-title {
+    margin: 0; padding: 0;   /* kill the h4 UA margin — the flex gap owns spacing */
+    font-family: var(--font-display); font-weight: 700;
+    font-size: var(--text-lg); line-height: var(--lh-tight);
+    color: var(--text); letter-spacing: -0.015em;
+}
+.esg-rec-chiprow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.esg-rec-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: var(--radius-pill);
+    font-size: var(--text-xs); font-weight: 650; letter-spacing: 0.01em;
+    border: 1px solid transparent; white-space: nowrap;
+}
+.esg-rec-chip .esg-rec-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0;
+}
+.esg-rec-chip.quickwin {
+    color: var(--pwc-success); background: rgba(46, 133, 64, 0.10);
+    border-color: rgba(46, 133, 64, 0.30);
+}
+.esg-rec-chip.schema {
+    color: var(--pwc-info); background: rgba(37, 99, 235, 0.08);
+    border-color: rgba(37, 99, 235, 0.26);
+    font-family: var(--font-mono); font-size: 0.68rem; font-weight: 600;
+}
+
+/* Detail rows -------------------------------------------------------- */
+.esg-rec-rows { display: flex; flex-direction: column; gap: 7px; }
+.esg-rec-row {
+    display: grid; grid-template-columns: 92px 1fr; gap: var(--space-3);
+    align-items: baseline;
+}
+.esg-rec-row-label {
+    font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.07em;
+    font-weight: 700; color: var(--text-muted); padding-top: 2px;
+}
+.esg-rec-row-value {
+    font-size: var(--text-sm); line-height: var(--lh-snug); color: var(--text-secondary);
+    min-width: 0; overflow-wrap: anywhere;
+}
+.esg-rec-row.unlocks .esg-rec-row-value { color: var(--text); font-weight: 550; }
+
+/* Column pills — the literal fields to request ----------------------- */
+.esg-rec-cols { display: flex; flex-wrap: wrap; gap: 5px; }
+.esg-rec-col {
+    font-family: var(--font-mono); font-size: 0.68rem; font-weight: 600;
+    padding: 2px 8px; border-radius: var(--radius-sm);
+    color: var(--pwc-orange-dark);
+    background: rgba(253, 81, 8, 0.07);
+    border: 1px solid rgba(253, 81, 8, 0.20);
+}
+
+/* Impact/effort meter ------------------------------------------------ */
+.esg-rec-meter { display: flex; align-items: center; gap: 3px; }
+.esg-rec-meter-seg {
+    width: 11px; height: 4px; border-radius: var(--radius-pill);
+    background: rgba(15, 23, 42, 0.12);
+}
+
+/* Empty / fallback --------------------------------------------------- */
+.esg-rec-empty {
+    padding: var(--space-6); text-align: center;
+    border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
+    background: var(--surface-muted); color: var(--text-muted);
+    font-size: var(--text-sm);
+}
+
+@media (max-width: 720px) {
+    .esg-rec-card { grid-template-columns: 1fr; }
+    .esg-rec-rank { flex-direction: row; align-items: center; gap: var(--space-2); }
+    .esg-rec-row { grid-template-columns: 1fr; gap: 2px; }
+}
+</style>
+"""
+
+
+def _norm_level(value: Any, fallback: str = "medium") -> str:
+    """Coerce free-text impact/effort from the LLM to one of our three levels."""
+    text = str(value or "").strip().lower()
+    for level in ("high", "medium", "low"):
+        if level in text:
+            return level
+    if text in {"med", "mid", "moderate"}:
+        return "medium"
+    return fallback
+
+
+def _meter_html(level: str, color: str) -> str:
+    """Three-segment meter: filled segments encode high/medium/low."""
+    filled = _IMPACT_WEIGHT.get(level, 2)
+    fill = f' style="background:{color};"'
+    segs = []
+    for i in range(3):
+        segs.append(f'<span class="esg-rec-meter-seg"{fill if i < filled else ""}></span>')
+    return f'<span class="esg-rec-meter" aria-hidden="true">{"".join(segs)}</span>'
+
+
+def normalize_recommendations(items: Iterable[dict]) -> list[dict]:
+    """Clean a raw LLM recommendation list into the shape the board renders.
+
+    Tolerant by design — the model may omit fields or spell levels loosely,
+    and a missing ``owner`` should never cost us the whole card.
+    """
+    cleaned: list[dict] = []
+    for raw in items or []:
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title") or raw.get("action") or "").strip()
+        if not title:
+            continue
+        cols = raw.get("columns") or []
+        if isinstance(cols, str):
+            cols = [c.strip() for c in cols.split(",")]
+        cleaned.append({
+            "title": title,
+            "artefact": str(raw.get("artefact") or raw.get("artifact") or "").strip(),
+            "columns": [str(c).strip() for c in cols if str(c).strip()][:8],
+            "owner": str(raw.get("owner") or "").strip(),
+            "unlocks": str(raw.get("unlocks") or "").strip(),
+            "schema": str(raw.get("schema") or "").strip(),
+            "impact": _norm_level(raw.get("impact"), "medium"),
+            "effort": _norm_level(raw.get("effort"), "medium"),
+        })
+    return cleaned
+
+
+def sort_recommendations(recs: Sequence[dict], mode: str = "Priority") -> list[dict]:
+    """Order cards by business priority, impact alone, or quickest first."""
+    if mode == "Impact":
+        return sorted(recs, key=lambda r: -_IMPACT_WEIGHT.get(r["impact"], 2))
+    if mode == "Quickest first":
+        return sorted(
+            recs,
+            key=lambda r: (_EFFORT_WEIGHT.get(r["effort"], 2),
+                           -_IMPACT_WEIGHT.get(r["impact"], 2)),
+        )
+    # Priority — impact per unit of effort, highest first.
+    return sorted(
+        recs,
+        key=lambda r: -(_IMPACT_WEIGHT.get(r["impact"], 2) * 10
+                        - _EFFORT_WEIGHT.get(r["effort"], 2)),
+    )
+
+
+def is_quick_win(rec: dict) -> bool:
+    """High value, cheap to get — the items worth chasing this week."""
+    return (_IMPACT_WEIGHT.get(rec.get("impact"), 2) >= 3
+            and _EFFORT_WEIGHT.get(rec.get("effort"), 2) <= 1)
+
+
+def recommendation_cards(
+    recs: Sequence[dict],
+    *,
+    headline: Optional[str] = None,
+    start_rank: int = 1,
+) -> None:
+    """Render prioritized recommendations as ranked action cards."""
+    inject_global_css()
+    st.markdown(_RECOMMENDATION_CSS, unsafe_allow_html=True)
+
+    if not recs:
+        st.markdown(
+            '<div class="esg-rec-empty">No recommendations match the current '
+            'filter — widen it to see the full advisory.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    parts: list[str] = ['<div class="esg-rec-board">']
+    if headline:
+        parts.append(
+            f'<div class="esg-rec-headline">'
+            f'<span class="esg-rec-headline-icon" aria-hidden="true">🧭</span>'
+            f'<span class="esg-rec-headline-text">{html.escape(headline)}</span></div>'
+        )
+
+    for offset, rec in enumerate(recs):
+        rank = start_rank + offset
+        quick = is_quick_win(rec)
+        imp_color, imp_bg, imp_label = _IMPACT_STYLES[rec["impact"]]
+        eff_color, eff_bg, eff_label = _EFFORT_STYLES[rec["effort"]]
+
+        chips = [
+            f'<span class="esg-rec-chip" style="color:{imp_color};background:{imp_bg};'
+            f'border-color:{imp_color};">{_meter_html(rec["impact"], imp_color)}'
+            f'{html.escape(imp_label)}</span>',
+            f'<span class="esg-rec-chip" style="color:{eff_color};background:{eff_bg};'
+            f'border-color:{eff_color};"><span class="esg-rec-dot"></span>'
+            f'{html.escape(eff_label)}</span>',
+        ]
+        if quick:
+            chips.append('<span class="esg-rec-chip quickwin">⚡ Quick win</span>')
+        if rec["schema"]:
+            chips.append(
+                f'<span class="esg-rec-chip schema">{html.escape(rec["schema"])}</span>'
+            )
+
+        rows: list[str] = []
+        if rec["artefact"]:
+            rows.append(
+                f'<div class="esg-rec-row"><span class="esg-rec-row-label">Ask for</span>'
+                f'<span class="esg-rec-row-value">{html.escape(rec["artefact"])}</span></div>'
+            )
+        if rec["columns"]:
+            cols = "".join(
+                f'<span class="esg-rec-col">{html.escape(c)}</span>'
+                for c in rec["columns"]
+            )
+            rows.append(
+                f'<div class="esg-rec-row"><span class="esg-rec-row-label">Columns</span>'
+                f'<span class="esg-rec-row-value"><span class="esg-rec-cols">{cols}</span></span></div>'
+            )
+        if rec["owner"]:
+            rows.append(
+                f'<div class="esg-rec-row"><span class="esg-rec-row-label">Owner</span>'
+                f'<span class="esg-rec-row-value">👤 {html.escape(rec["owner"])}</span></div>'
+            )
+        if rec["unlocks"]:
+            rows.append(
+                f'<div class="esg-rec-row unlocks"><span class="esg-rec-row-label">Unlocks</span>'
+                f'<span class="esg-rec-row-value">🔓 {html.escape(rec["unlocks"])}</span></div>'
+            )
+
+        parts.append(
+            f'<article class="esg-rec-card{" is-quickwin" if quick else ""}" '
+            f'tabindex="0" aria-label="Recommendation {rank}: {html.escape(rec["title"])}, '
+            f'{html.escape(imp_label)}, {html.escape(eff_label)}">'
+            f'<div class="esg-rec-rank">'
+            f'<span class="esg-rec-rank-badge" aria-hidden="true">{rank}</span>'
+            f'<span class="esg-rec-rank-label">{"Quick" if quick else "Rank"}</span></div>'
+            f'<div class="esg-rec-body">'
+            f'<h4 class="esg-rec-title">{html.escape(rec["title"])}</h4>'
+            f'<div class="esg-rec-chiprow">{"".join(chips)}</div>'
+            f'<div class="esg-rec-rows">{"".join(rows)}</div>'
+            f'</div></article>'
+        )
+
+    parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
+
+
+def recommendations_to_markdown(
+    recs: Sequence[dict], *, headline: Optional[str] = None
+) -> str:
+    """Flatten the board back to markdown for the download bundle."""
+    lines: list[str] = []
+    if headline:
+        lines.append(f"> {headline}\n")
+    for rank, rec in enumerate(recs, start=1):
+        tags = [f"{rec['impact'].title()} impact", f"{rec['effort'].title()} effort"]
+        if is_quick_win(rec):
+            tags.append("Quick win")
+        if rec["schema"]:
+            tags.append(f"`{rec['schema']}`")
+        lines.append(f"### {rank}. {rec['title']}")
+        lines.append(f"_{' · '.join(tags)}_\n")
+        if rec["artefact"]:
+            lines.append(f"- **Ask for:** {rec['artefact']}")
+        if rec["columns"]:
+            lines.append("- **Columns:** " + ", ".join(f"`{c}`" for c in rec["columns"]))
+        if rec["owner"]:
+            lines.append(f"- **Owner:** {rec['owner']}")
+        if rec["unlocks"]:
+            lines.append(f"- **Unlocks:** {rec['unlocks']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Feature info
 # ---------------------------------------------------------------------------
 def react_feature_status() -> dict:

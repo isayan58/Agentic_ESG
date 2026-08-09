@@ -21,6 +21,8 @@ from utils.ui import (
     badge, grade_pill, inject_global_css, pwc_header,
     log_panel, retry_button, drilldown, live_badge, collect_audit_trail,
     format_relative_time, esg_roi_featured_card,
+    recommendation_cards, recommendations_to_markdown,
+    normalize_recommendations, sort_recommendations, is_quick_win,
 )
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
@@ -736,8 +738,11 @@ if st.session_state.pipeline_results:
     cache = st.session_state.setdefault("mc_gap_advice_cache", {})
     cached = cache.get(cache_key)
 
-    st.markdown("##### Prioritized recommendations")
-    advice_slot = st.empty()
+    section_header(
+        "Prioritized recommendations",
+        "Ranked by business impact per unit of effort — chase the quick wins first.",
+    )
+    advice_slot = st.container()
 
     def _generate_gap_advice(report: dict, run_results: dict) -> str:
         api_key = config.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY", "")
@@ -748,28 +753,119 @@ if st.session_state.pipeline_results:
         prompt = (
             "You are an ESG data advisor talking to the client. Based on the "
             "data-gap report and this pipeline run's results, give 3–5 "
-            "prioritized recommendations. For each: (1) the concrete data "
-            "artefact to request (file / system / columns), (2) the source "
-            "system or team that likely owns it, and (3) the specific "
-            "downstream analysis it unlocks in this app. Order by business "
-            "impact. Be concrete — name columns and example sources, not "
+            "prioritized recommendations for closing the data gaps.\n\n"
+            "Be concrete — name real columns and example source systems, not "
             "abstract capability language. If the client already has good "
-            "coverage, say so and point to the one or two optional fields "
-            "that would most sharpen the current analysis. Markdown bullet "
-            "list, no preamble.\n\n"
+            "coverage, say so in the headline and point to the one or two "
+            "optional fields that would most sharpen the current analysis.\n\n"
+            "Respond with JSON only — no preamble, no markdown fence:\n"
+            "{\n"
+            '  "headline": "one sentence on overall data readiness",\n'
+            '  "recommendations": [\n'
+            "    {\n"
+            '      "title": "short imperative action, max 10 words",\n'
+            '      "artefact": "the concrete file/export/system to request",\n'
+            '      "columns": ["exact_column_name", "..."],\n'
+            '      "owner": "the team or source system that likely owns it",\n'
+            '      "unlocks": "the specific downstream analysis in this app",\n'
+            '      "schema": "target ESG schema name, or empty string",\n'
+            '      "impact": "high|medium|low",\n'
+            '      "effort": "high|medium|low"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
             f"GAP REPORT:\n{json.dumps(report, indent=2, default=str)}\n\n"
             f"PIPELINE RESULTS (summary):\n"
             f"{json.dumps({k: v for k, v in run_results.items() if k != 'planning'}, default=str)[:20000]}"
         )
         response = client.messages.create(
             model=config.ANTHROPIC_MODEL,
-            max_tokens=1400,
+            max_tokens=1600,
             messages=[{"role": "user", "content": prompt}],
         )
         return "".join(
             block.text for block in response.content
             if getattr(block, "type", None) == "text"
         ).strip() or "(no recommendations generated)"
+
+    def _parse_advice(text: str) -> tuple[bool, str, list[dict]]:
+        """Pull (parsed_ok, headline, recommendations) out of the model's reply.
+
+        ``parsed_ok`` is False when the reply isn't the JSON we asked for —
+        the caller then falls back to rendering the raw markdown, so a
+        malformed response (or the missing-API-key notice) degrades to the
+        old behaviour instead of a blank section. It stays True for a valid
+        payload carrying zero recommendations, which is a real answer
+        ("your coverage is fine"), not a parse failure.
+        """
+        blob = (text or "").strip()
+        if blob.startswith("```"):
+            blob = blob.split("```")[1] if "```" in blob[3:] else blob.lstrip("`")
+            if blob.lstrip().startswith("json"):
+                blob = blob.lstrip()[4:]
+        start, end = blob.find("{"), blob.rfind("}")
+        if start == -1 or end <= start:
+            return False, "", []
+        try:
+            payload = json.loads(blob[start:end + 1])
+        except (ValueError, TypeError):
+            return False, "", []
+        if not isinstance(payload, dict) or "recommendations" not in payload:
+            return False, "", []
+        return (
+            True,
+            str(payload.get("headline") or "").strip(),
+            normalize_recommendations(payload.get("recommendations") or []),
+        )
+
+    def _render_advice(text: str) -> tuple[str, list[dict]]:
+        """Render the advisory as cards, falling back to markdown."""
+        parsed_ok, headline, recs = _parse_advice(text)
+        if not parsed_ok:
+            advice_slot.markdown(text)
+            return "", []
+        if not recs:
+            # Valid reply, nothing to chase — never leak the raw JSON here.
+            advice_slot.success(
+                headline or "No data gaps worth chasing — coverage is sufficient "
+                "for every agent in this run.",
+                icon="✅",
+            )
+            return headline, []
+
+        with advice_slot:
+            quick_wins = [r for r in recs if is_quick_win(r)]
+            high_impact = [r for r in recs if r["impact"] == "high"]
+            fc1, fc2 = st.columns([2, 1])
+            with fc1:
+                view = st.radio(
+                    "View",
+                    ["All", f"Quick wins ({len(quick_wins)})",
+                     f"High impact ({len(high_impact)})"],
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key="mc_gap_rec_view",
+                )
+            with fc2:
+                order = st.selectbox(
+                    "Sort",
+                    ["Priority", "Impact", "Quickest first"],
+                    label_visibility="collapsed",
+                    key="mc_gap_rec_sort",
+                )
+
+            if view.startswith("Quick wins"):
+                shown = quick_wins
+            elif view.startswith("High impact"):
+                shown = high_impact
+            else:
+                shown = list(recs)
+
+            recommendation_cards(
+                sort_recommendations(shown, order),
+                headline=headline if view == "All" else None,
+            )
+        return headline, recs
 
     # Don't reuse a cached *failure* — earlier code path stored the error
     # string itself under cache_key, so a transient 4xx/5xx (rate limit,
@@ -778,28 +874,39 @@ if st.session_state.pipeline_results:
     # failure marker as a cache miss so the next render retries.
     _FAILURE_PREFIX = "⚠️ Recommendation generation failed"
     if cached and not (isinstance(cached, str) and cached.lstrip().startswith(_FAILURE_PREFIX)):
-        advice_slot.markdown(cached)
         advice_text = cached
+        advice_headline, advice_recs = _render_advice(advice_text)
     else:
-        advice_slot.markdown("_Generating prioritized recommendations from the gap report…_")
-        try:
-            advice_text = _generate_gap_advice(gap_report, results)
-            # Only cache successes — see the comment block above.
-            cache[cache_key] = advice_text
-        except Exception as exc:
-            advice_text = f"{_FAILURE_PREFIX}: `{exc}`"
-            # Drop any prior failure entry under this key so a fresh
-            # render retries instead of re-displaying yesterday's error.
-            cache.pop(cache_key, None)
-        advice_slot.markdown(advice_text)
+        with advice_slot:
+            with st.spinner("Generating prioritized recommendations from the gap report…"):
+                try:
+                    advice_text = _generate_gap_advice(gap_report, results)
+                    # Only cache successes — see the comment block above.
+                    cache[cache_key] = advice_text
+                except Exception as exc:
+                    advice_text = f"{_FAILURE_PREFIX}: `{exc}`"
+                    # Drop any prior failure entry under this key so a fresh
+                    # render retries instead of re-displaying yesterday's error.
+                    cache.pop(cache_key, None)
+        advice_headline, advice_recs = _render_advice(advice_text)
 
     # Downloadable full advisory bundle — recommendations + both gap tables,
     # with the same generation timestamp stamped into one CSV per row type.
+    # Cards are flattened back to markdown so the file reads the same way the
+    # page does. A parsed-but-empty reply exports just its headline, and only
+    # a genuinely unparsed reply falls through to its raw text — that way the
+    # download never ships the model's JSON to the client.
+    if advice_recs:
+        advice_body = recommendations_to_markdown(advice_recs, headline=advice_headline)
+    elif advice_headline:
+        advice_body = advice_headline
+    else:
+        advice_body = advice_text
     advice_md = (
         f"# ESG Pilot — Prioritized Recommendations\n"
         f"Generated at: {gap_generated_iso}\n"
         f"Downloaded at: {datetime.now().isoformat(timespec='seconds')}\n\n"
-        f"{advice_text}\n"
+        f"{advice_body}\n"
     )
     st.download_button(
         "⬇️ Download recommendations (Markdown)",
