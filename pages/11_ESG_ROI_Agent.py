@@ -8,6 +8,8 @@ from utils.ui import (
     hero, section_header, kpi_card, iqs_gauge, grade_pill, inject_global_css,
     page_agent_header_live,
     pwc_header,
+    callout, verdict_kpi, score_bars, journey_bar, glossary,
+    recommendation_cards, normalize_recommendations,
 )
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
@@ -114,6 +116,39 @@ if run_roi:
 
 results = st.session_state.get("roi_results")
 
+
+# ── Plain-English helpers ────────────────────────────────────────────────
+# Every headline figure on this page carries a verdict so a reader who has
+# never seen an IQS can still tell whether the number is good news. The
+# thresholds are deliberately conservative and documented in the glossary
+# blocks, so nobody has to take a colour on faith.
+def _verdict(value, good: float, watch: float, higher_is_better: bool = True) -> str:
+    """Bucket a number into good / watch / poor for verdict_kpi()."""
+    try:
+        val = float(value)
+    except (TypeError, ValueError):
+        return "neutral"
+    if higher_is_better:
+        if val >= good:
+            return "good"
+        return "watch" if val >= watch else "poor"
+    if val <= good:
+        return "good"
+    return "watch" if val <= watch else "poor"
+
+
+def _status_from_label(status: str) -> str:
+    """Map the agent's Strong/Moderate/Weak vocabulary to verdict tones."""
+    return {"Strong": "good", "Moderate": "watch"}.get(status, "poor")
+
+
+def _num(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 if results:
     if "error" in results:
         st.error(results["error"])
@@ -137,84 +172,132 @@ if results:
             cagr       = kpi.get("cagr", {})
             volatility = kpi.get("volatility", {})
 
+            roi_pct = _num(fin_roi.get("roi_pct"))
+            net_benefit = _num(fin_roi.get("net_financial_benefit"))
+            payback = fin_roi.get("payback_years", "N/A")
+            iqs_score = _num(iqs.get("score"))
+            iqs_grade = iqs.get("grade", "N/A")
+
+            # The one-sentence answer, before any number. A reader who stops
+            # here should still leave knowing whether ESG spend is working.
+            if roi_pct >= 15 and net_benefit > 0:
+                _headline = (
+                    f"**ESG spending is paying off.** Every ₹100 invested is returning "
+                    f"about **₹{100 + roi_pct:.0f}**, for a net gain of **INR {net_benefit} Cr** "
+                    f"after all costs. Overall investment quality grades **{iqs_grade}**."
+                )
+                _tone, _icon = "success", "✅"
+            elif net_benefit > 0:
+                _headline = (
+                    f"**ESG spending is modestly positive.** Every ₹100 invested returns about "
+                    f"**₹{100 + roi_pct:.0f}**, a net gain of **INR {net_benefit} Cr**. "
+                    f"Investment quality grades **{iqs_grade}** — there is room to improve, "
+                    f"see the **Improve IQS** tab."
+                )
+                _tone, _icon = "default", "📈"
+            else:
+                _headline = (
+                    f"**ESG spending has not paid back yet.** The net position is "
+                    f"**INR {net_benefit} Cr** and investment quality grades **{iqs_grade}**. "
+                    f"This is normal early on — see the J-curve below for when breakeven lands."
+                )
+                _tone, _icon = "warn", "⏳"
+            callout(_headline, title="The short version", tone=_tone, icon=_icon)
+
             gauge_col, kpi_col = st.columns([1, 2])
             with gauge_col:
-                iqs_gauge(iqs.get("score", 0), iqs.get("grade", "N/A"))
+                iqs_gauge(iqs_score, iqs_grade)
+                st.caption(
+                    "**Investment Quality Score** — one 0–100 number combining return, "
+                    "momentum, risk and strategic value. Higher is better; 70+ is a "
+                    "healthy programme."
+                )
             with kpi_col:
                 r1, r2 = st.columns(2)
                 with r1:
-                    kpi_card("Financial ROI", f"{fin_roi.get('roi_pct', 0)}%",
-                             "Payback-weighted return", key="roi_page_fin")
+                    verdict_kpi(
+                        "Financial ROI", f"{roi_pct}%",
+                        f"For every ₹100 spent on ESG, you get about ₹{100 + roi_pct:.0f} back.",
+                        verdict=_verdict(roi_pct, 15, 5),
+                        term="Weighted by how quickly each initiative pays back.",
+                    )
                 with r2:
-                    kpi_card("Net Benefit",
-                             f"INR {fin_roi.get('net_financial_benefit', 0)} Cr",
-                             "After ESG capex and friction", key="roi_page_net")
+                    verdict_kpi(
+                        "Net Benefit", f"INR {net_benefit} Cr",
+                        "Money left over once ESG capex and running costs are subtracted.",
+                        verdict="good" if net_benefit > 0 else "poor",
+                        verdict_label="In profit" if net_benefit > 0 else "Not yet",
+                        term="Cr = crore (10 million rupees).",
+                    )
                 r3, r4 = st.columns(2)
                 with r3:
-                    kpi_card("Payback",
-                             f"{fin_roi.get('payback_years', 'N/A')} years",
-                             "Breakeven horizon", key="roi_page_payback")
+                    verdict_kpi(
+                        "Payback", f"{payback} years",
+                        "How long until ESG investment has fully repaid itself.",
+                        verdict=_verdict(payback, 3, 6, higher_is_better=False),
+                        term="Shorter is better. Under 3 years is strong.",
+                    )
                 with r4:
-                    kpi_card("IQS Grade", iqs.get("grade", "N/A"),
-                             f"Score {iqs.get('score', 0)}/100", key="roi_page_grade")
-                if iqs.get("grade"):
-                    st.markdown(
-                        f"Board-ready signal: {grade_pill(iqs.get('grade', 'N/A'))}",
-                        unsafe_allow_html=True,
+                    verdict_kpi(
+                        "Investment Grade", str(iqs_grade),
+                        f"Overall report card for ESG as an investment. Score {iqs_score}/100.",
+                        verdict=_verdict(iqs_score, 70, 50),
+                        term="A+ (90+) · A (80+) · B+ (70+) · B (60+) · C (50+) · D (<50)",
                     )
 
-            section_header("In Plain English",
-                           "How each metric on this page translates to business impact.")
-            st.markdown("""
-            - **Top line** means growth: is ESG helping the company grow revenue and brand strength?
-            - **Bottom line** means profit: is ESG saving money, improving margins, or avoiding future costs?
-            - **Capital efficiency** means return on spend: is ESG capex creating value or just adding expense?
-            - **J-curve** means timing: does ESG hurt in the short term but pay back later?
-            """)
+            with st.expander("🧭 New here? How to read this page", expanded=False):
+                st.markdown(
+                    "Work top to bottom — each section answers one question:"
+                )
+                glossary([
+                    ("Top line", "Revenue. Is ESG helping the company grow and strengthen its brand?"),
+                    ("Bottom line", "Profit. Is ESG cutting costs, lifting margins, or avoiding future bills?"),
+                    ("Capital efficiency", "Return on spend. Is ESG capex creating value or just adding expense?"),
+                    ("J-curve", "Timing. Many ESG programmes cost money first and repay later — this shows when."),
+                    ("IQS", "Investment Quality Score, 0–100. One number for how good ESG spend looks as an investment."),
+                    ("Value channels", "The five routes ESG creates value: growth, cost, risk, people, capital efficiency."),
+                ])
+                st.caption(
+                    "Where the numbers come from: financial inputs (revenue, margins, cost "
+                    "of capital, ESG capex) → the KPI engine scores the five value channels "
+                    "→ the ROI layer computes savings, payback and investment quality → "
+                    "you get the decision signal above."
+                )
 
-            section_header("Business Architecture on This Page",
-                           "Four layers: finance inputs → KPI engine → ROI logic → decision signal.")
-            arch1, arch2, arch3, arch4 = st.columns(4)
-            for col, title, body in [
-                (arch1, "1. Financial Inputs", "Revenue, margins, cost of capital, and ESG capex come in from the financial dataset."),
-                (arch2, "2. KPI Engine", "The engine converts ESG and finance data into five value channels: growth, cost, risk, people, and capital efficiency."),
-                (arch3, "3. ROI Logic", "The ROI layer calculates savings, payback, strategic value, and investment quality."),
-                (arch4, "4. Decision Signal", "The output tells a leader whether ESG is helping growth, profit, resilience, and long-term value."),
-            ]:
-                with col:
-                    st.markdown(f"**{title}**")
-                    st.caption(body)
-
-            section_header("Top Line and Bottom Line",
-                           "Four primary financial signals after the pipeline run.")
+            section_header("The Company's Financial Health",
+                           "The backdrop ESG performance is measured against.")
+            rev_growth = _num(fin_summary.get("revenue_growth_pct"))
+            ebitda = _num(fin_summary.get("ebitda_margin_latest"))
+            coc = _num(fin_summary.get("cost_of_capital_latest"))
             tl1, tl2, tl3, tl4 = st.columns(4)
             with tl1:
-                kpi_card(
-                    "Revenue (Top Line)",
-                    f"INR {fin_summary.get('revenue_current_fy', 0)} Cr",
-                    f"{fin_summary.get('revenue_growth_pct', 0)}% growth",
-                    key="roi_tl_rev",
+                verdict_kpi(
+                    "Revenue", f"INR {fin_summary.get('revenue_current_fy', 0)} Cr",
+                    f"Total sales this financial year, growing {rev_growth}% year on year.",
+                    verdict=_verdict(rev_growth, 10, 3),
+                    term="Also called the 'top line' — it sits at the top of the P&L.",
                 )
             with tl2:
-                kpi_card(
-                    "EBITDA Margin",
-                    f"{fin_summary.get('ebitda_margin_latest', 0)}%",
-                    "Operating profit quality",
-                    key="roi_tl_ebitda",
+                verdict_kpi(
+                    "Profit Margin", f"{ebitda}%",
+                    f"₹{ebitda:.0f} of every ₹100 of sales is left as operating profit.",
+                    verdict=_verdict(ebitda, 20, 10),
+                    term="EBITDA margin — profit before interest, tax and depreciation.",
                 )
             with tl3:
-                kpi_card(
-                    "ROA / ROE",
+                verdict_kpi(
+                    "Return on Assets / Equity",
                     f"{fin_summary.get('roa_latest', 0)}% / {fin_summary.get('roe_latest', 0)}%",
-                    "Return on assets and equity",
-                    key="roi_tl_roa",
+                    "How hard the company's assets and shareholder money are working.",
+                    verdict=_verdict(fin_summary.get("roe_latest"), 15, 8),
+                    term="ROA uses everything the company owns; ROE uses owners' money only.",
                 )
             with tl4:
-                kpi_card(
-                    "Cost of Capital",
-                    f"{fin_summary.get('cost_of_capital_latest', 0)}%",
-                    "Risk-adjusted funding cost",
-                    key="roi_tl_coc",
+                verdict_kpi(
+                    "Cost of Capital", f"{coc}%",
+                    "The interest rate the company effectively pays to fund itself.",
+                    verdict=_verdict(coc, 8, 12, higher_is_better=False),
+                    term="Lower is better — strong ESG performance can reduce it.",
                 )
 
             section_header("Executive Briefing",
@@ -247,18 +330,40 @@ if results:
             ])
             safe_dataframe(hypotheses_df, use_container_width=True, hide_index=True)
 
-            section_header("Value Creation Channels",
-                           "Five channels — Growth, Cost, Risk, Human Capital, Capital Efficiency.")
-            channels = pd.DataFrame(kpi.get("value_channels", []))
-            if not channels.empty:
-                safe_dataframe(
-                    channels[["channel", "score", "trend", "financial_impact"]],
-                    use_container_width=True,
-                    hide_index=True,
+            section_header("Where ESG Creates Value",
+                           "Five routes ESG money turns into business value, each scored 0–100.")
+            callout(
+                "Think of these as five taps. A **high score** means that tap is "
+                "already flowing; a **low score** is where the next rupee of ESG "
+                "spend has the most room to work.",
+                icon="🚰",
+            )
+            channel_rows = kpi.get("value_channels", []) or []
+            if channel_rows:
+                score_bars([
+                    {
+                        "name": str(ch.get("channel", "")),
+                        "subtitle": f"Trend: {ch.get('trend', '—')}",
+                        "score": _num(ch.get("score")),
+                        "status": _verdict(ch.get("score"), 70, 50),
+                        "meta": str(ch.get("financial_impact", "")),
+                    }
+                    for ch in channel_rows
+                ])
+                st.caption(
+                    "Right-hand figure is the estimated rupee impact of that channel."
                 )
 
-            section_header("Finance Detail",
-                           "CAGR, volatility, and carbon-tax exposure context.")
+            section_header("Growth and Stability Detail",
+                           "For the finance-minded — how fast things are growing and "
+                           "how bumpy the ride is.")
+            with st.expander("📖 Decode these terms first", expanded=False):
+                glossary([
+                    ("CAGR", "Compound Annual Growth Rate — the steady yearly growth rate that would produce the change actually seen. Higher is better."),
+                    ("Volatility", "How much a number swings year to year. Lower means more predictable, which investors reward."),
+                    ("Carbon Tax Exposure", "What the company would owe if current emissions were taxed — a bill that grows as regulation tightens."),
+                    ("L / Cr", "Lakh (100 thousand) and Crore (10 million) rupees."),
+                ])
             finance_detail = pd.DataFrame([
                 {"Metric": "Revenue CAGR",       "Value": f"{cagr.get('revenue_cagr', 0)}%"},
                 {"Metric": "EBITDA CAGR",        "Value": f"{cagr.get('ebitda_cagr', 0)}%"},
@@ -271,50 +376,83 @@ if results:
             ])
             safe_dataframe(finance_detail, use_container_width=True, hide_index=True)
 
-            section_header("Investment Quality Components",
-                           "Sub-scores that roll up into the overall IQS.")
+            section_header("What Makes Up the Investment Grade",
+                           f"The five parts behind the {iqs_score}/100 score above.")
             components = iqs.get("components", {})
             if components:
-                comp_df = pd.DataFrame(
-                    [{"component": key.replace("_", " ").title(), "score": value}
-                     for key, value in components.items()]
+                score_bars([
+                    {
+                        "name": key.replace("_", " ").title(),
+                        "score": _num(value),
+                        "status": _verdict(value, 70, 50),
+                        "meta": f"{_num(value):.0f}/100",
+                    }
+                    for key, value in components.items()
+                ])
+                st.caption(
+                    "Weakest bar = biggest opportunity. The **Improve IQS** tab turns "
+                    "these into a ranked action plan."
                 )
-                safe_dataframe(comp_df, use_container_width=True, hide_index=True)
 
-            section_header("Strategic ROI",
-                           "Soft-value signals: funding cost, talent, and brand.")
+            section_header("Value That Doesn't Show Up in the P&L",
+                           "Real benefits that are harder to invoice: cheaper funding, "
+                           "lower attrition, stronger brand.")
+            bps = _num(strat_roi.get("cost_of_capital_reduction_bps"))
             col1, col2, col3 = st.columns(3)
             with col1:
-                kpi_card(
-                    "Cost of Capital Reduction",
-                    f"{strat_roi.get('cost_of_capital_reduction_bps', 0)} bps",
-                    "Lower-cost access to funding",
-                    key="strat_coc",
+                verdict_kpi(
+                    "Cheaper Funding", f"{bps:.0f} bps",
+                    f"Good ESG ratings cut borrowing cost by about {bps / 100:.2f} "
+                    f"percentage points.",
+                    verdict=_verdict(bps, 25, 10),
+                    term="bps = basis points. 100 bps = 1%.",
                 )
             with col2:
-                kpi_card(
-                    "Talent Retention Savings",
+                verdict_kpi(
+                    "Staff Retention Savings",
                     f"INR {strat_roi.get('talent_retention_savings', 0)}",
-                    "Avoided attrition cost",
-                    key="strat_talent",
+                    "Hiring and training costs avoided because fewer people left.",
+                    verdict="good" if _num(strat_roi.get("talent_retention_savings")) > 0 else "neutral",
+                    term="Replacing an employee typically costs 6–9 months of salary.",
                 )
             with col3:
-                kpi_card(
-                    "Brand Premium Score",
-                    str(strat_roi.get("brand_premium_score", 0)),
-                    "ESG-linked brand uplift",
-                    key="strat_brand",
+                verdict_kpi(
+                    "Brand Strength", str(strat_roi.get("brand_premium_score", 0)),
+                    "How much ESG credibility lifts brand value with customers "
+                    "and investors.",
+                    verdict=_verdict(strat_roi.get("brand_premium_score"), 70, 50),
+                    term="Scored 0–100 against sector peers.",
                 )
 
-            section_header("J-Curve",
-                           "Quarterly cost vs benefit view with breakeven detection.")
+            section_header("The Payback Curve (J-Curve)",
+                           "ESG usually costs money before it makes money. This is where "
+                           "you are on that curve.")
             j_curve = results.get("j_curve", {})
+            breakeven = j_curve.get("breakeven_quarter", "Not yet reached")
+            net_position = _num(j_curve.get("net_position"))
+            if breakeven and breakeven != "Not yet reached":
+                callout(
+                    f"Costs are recovered from **{breakeven}** onward. The running net "
+                    f"position today is **INR {net_position} Cr**. It is called a J-curve "
+                    f"because the line dips before it rises — like the letter J.",
+                    title="You have passed the dip",
+                    tone="success", icon="📈",
+                )
+            else:
+                callout(
+                    f"Breakeven has not been reached yet — the running net position is "
+                    f"**INR {net_position} Cr**. That is expected early in a programme: "
+                    f"spend comes first, savings accumulate later. It is called a J-curve "
+                    f"because the line dips before it rises.",
+                    title="Still in the dip — this is normal",
+                    tone="warn", icon="⏳",
+                )
             quarters = pd.DataFrame(j_curve.get("quarters", []))
             if not quarters.empty:
                 safe_dataframe(quarters, use_container_width=True, hide_index=True)
                 st.caption(
-                    f"Breakeven: {j_curve.get('breakeven_quarter', 'Not yet reached')} | "
-                    f"Current net position: INR {j_curve.get('net_position', 0)} Cr"
+                    "Each row is one quarter: what was spent, what came back, and the "
+                    "running total."
                 )
 
         # ══════════════════════════════════════════════════════════════════════
@@ -901,88 +1039,114 @@ if results:
 
                 # ── Header strip ──────────────────────────────────────────
                 section_header(
-                    "IQS Improvement Playbook",
-                    "Ranked improvement opportunities across all five IQS components.",
+                    "How to Raise Your Investment Grade",
+                    "Your score today, the score you could reach, and the specific "
+                    "work that closes the gap.",
                 )
 
-                h1, h2, h3, h4 = st.columns(4)
+                _gain = _num(projected_score) - _num(current_score)
+                if current_grade != projected_grade:
+                    _lead = (
+                        f"Doing the top actions below would lift you from "
+                        f"**{current_score}** to about **{projected_score}** out of 100 — "
+                        f"enough to move your grade from **{current_grade}** to "
+                        f"**{projected_grade}**."
+                    )
+                    _lead_tone, _lead_icon = "success", "🎯"
+                else:
+                    _lead = (
+                        f"Doing the top actions below would lift you from "
+                        f"**{current_score}** to about **{projected_score}** out of 100 "
+                        f"(**+{_gain:.0f} points**). That keeps you at grade "
+                        f"**{current_grade}**, but strengthens your position within it."
+                    )
+                    _lead_tone, _lead_icon = "default", "📈"
+                callout(_lead, title="What's achievable", tone=_lead_tone, icon=_lead_icon)
+
+                journey_bar(
+                    _num(current_score), _num(projected_score),
+                    current_label="Today", projected_label="If you act",
+                )
+                st.caption(
+                    "The bar shows where your score sits on the grade scale. "
+                    "Orange is today, green is what the actions below would earn you."
+                )
+
+                h1, h2, h3 = st.columns(3)
                 with h1:
-                    kpi_card(
-                        "Current IQS",
-                        f"{current_score}/100",
-                        f"Grade {current_grade}",
-                        key="iqs_imp_current",
+                    verdict_kpi(
+                        "Score Today", f"{current_score}/100",
+                        f"Your ESG investment currently grades {current_grade}.",
+                        verdict=_verdict(current_score, 70, 50),
+                        term="0–100. Higher means ESG spend looks like a better investment.",
                     )
                 with h2:
-                    kpi_card(
-                        "Projected IQS",
-                        f"{projected_score}/100",
-                        f"Grade {projected_grade} (if top actions completed)",
-                        key="iqs_imp_projected",
+                    verdict_kpi(
+                        "Realistic Target", f"{projected_score}/100",
+                        f"Where you land if the top actions get done — grade {projected_grade}.",
+                        verdict="good", verdict_label=f"+{_gain:.0f} pts",
+                        term="Assumes ~60% of the theoretical gain is actually captured.",
                     )
                 with h3:
-                    kpi_card(
-                        "Total Addressable Lift",
-                        f"+{total_lift} pts",
-                        "Across all 5 components",
-                        key="iqs_imp_lift",
-                    )
-                with h4:
-                    grade_delta = (
-                        f"{current_grade} → {projected_grade}"
-                        if current_grade != projected_grade
-                        else "Grade unchanged"
-                    )
-                    kpi_card(
-                        "Grade Trajectory",
-                        grade_delta,
-                        "Achievable with focused execution",
-                        key="iqs_imp_grade",
+                    verdict_kpi(
+                        "Maximum on the Table", f"+{total_lift} pts",
+                        "The full gain if every component reached a perfect score — "
+                        "an upper bound, not a forecast.",
+                        verdict="neutral", verdict_label="Ceiling",
+                        term="Across all five components combined.",
                     )
 
                 # ── AI narrative ──────────────────────────────────────────
                 narrative_text = improvement.get("narrative", "")
                 if narrative_text:
-                    st.markdown(f"> {narrative_text}")
+                    callout(narrative_text, title="The analyst's read", icon="🧠")
 
                 st.divider()
 
                 # ── Component plans ───────────────────────────────────────
                 section_header(
-                    "Component-by-Component Action Plan",
-                    "Sorted by maximum IQS lift — tackle the top of the list first.",
+                    "Where You Stand, Component by Component",
+                    "Longest bar = already strong. Biggest number on the right = "
+                    "where the most points are waiting.",
                 )
 
                 component_plans = improvement.get("component_plans", [])
 
-                # Summary table — one row per component
                 if component_plans:
-                    summary_rows = []
-                    for p in component_plans:
-                        status_icon = (
-                            "🟢" if p["status"] == "Strong"
-                            else ("🟡" if p["status"] == "Moderate" else "🔴")
-                        )
-                        summary_rows.append({
-                            "Component": p["component"],
-                            "Score": f"{p['current_score']}/100",
-                            "Status": f"{status_icon} {p['status']}",
-                            "Gap to 100": p["gap_to_100"],
-                            "Max IQS Lift": f"+{p['max_iqs_lift']} pts",
-                            "Top Action": p["top_action"],
-                        })
-                    safe_dataframe(
-                        pd.DataFrame(summary_rows),
-                        use_container_width=True,
-                        hide_index=True,
+                    score_bars([
+                        {
+                            "name": p["component"],
+                            "subtitle": p["top_action"],
+                            "score": _num(p["current_score"]),
+                            "status": _status_from_label(p["status"]),
+                            "meta": f"+{p['max_iqs_lift']} pts available",
+                            "meta_sub": f"{p['gap_to_100']} pts from perfect",
+                        }
+                        for p in component_plans
+                    ])
+                    _biggest = max(
+                        component_plans,
+                        key=lambda p: _num(p.get("max_iqs_lift")),
+                    )
+                    callout(
+                        f"Start with **{_biggest['component']}** — it carries the largest "
+                        f"single gain at **+{_biggest['max_iqs_lift']} points**. "
+                        f"First step: {_biggest['top_action']}",
+                        title="If you only do one thing",
+                        tone="info", icon="🥇",
                     )
 
                 st.divider()
 
                 # ── Detailed expandable cards per component ───────────────
                 section_header(
-                    "Detailed Action Cards",
-                    "Expand each component to see the full action list with effort and expected lift.",
+                    "The Actual To-Do List",
+                    "Open a component to see every action, who owns it, how hard it "
+                    "is, and what it earns you.",
+                )
+                st.caption(
+                    "Effort is rated Low / Medium / High. A **Low effort, high lift** "
+                    "action is the best use of the next week."
                 )
 
                 for plan in component_plans:
@@ -992,33 +1156,49 @@ if results:
                     )
                     label = (
                         f"{status_icon} **{plan['component']}** — "
-                        f"Score {plan['current_score']}/100 · "
-                        f"Max lift +{plan['max_iqs_lift']} pts"
+                        f"scores {plan['current_score']}/100, "
+                        f"worth up to +{plan['max_iqs_lift']} points"
                     )
                     with st.expander(label, expanded=(plan == component_plans[0])):
                         sc1, sc2, sc3 = st.columns(3)
                         with sc1:
-                            st.metric("Current Score", f"{plan['current_score']}/100")
+                            st.metric("Scores today", f"{plan['current_score']}/100")
                         with sc2:
-                            st.metric("Gap to Perfect", f"{plan['gap_to_100']} pts")
+                            st.metric("Room to improve", f"{plan['gap_to_100']} pts")
                         with sc3:
-                            st.metric("Max IQS Lift", f"+{plan['max_iqs_lift']} pts")
+                            st.metric("Worth to your grade", f"+{plan['max_iqs_lift']} pts")
 
-                        st.markdown("**Actions to improve this component:**")
-                        for i, action in enumerate(plan.get("actions", []), 1):
-                            effort_color = (
-                                "🟢" if action["effort"] == "Low"
-                                else ("🟡" if action["effort"] == "Medium" else "🔴")
-                            )
-                            st.markdown(
-                                f"**{i}. {action['action']}**  \n"
-                                f"Effort: {effort_color} {action['effort']} · "
-                                f"Expected lift: `{action['expected_lift']}` · "
-                                f"Owner: *{action['owner']}*"
-                            )
+                        actions = plan.get("actions", [])
+                        # Reuse the recommendation board so the action list reads
+                        # identically to the Command Center's advisory — same
+                        # rank medals, effort chips and owner rows.
+                        recs = normalize_recommendations([
+                            {
+                                "title": a.get("action", ""),
+                                "owner": a.get("owner", ""),
+                                "unlocks": f"Expected gain: {a.get('expected_lift', '—')}",
+                                "effort": a.get("effort", "medium"),
+                                # Low-effort items are the ones to grab first, so
+                                # rank impact inversely to effort here.
+                                "impact": {"Low": "high", "Medium": "medium"}.get(
+                                    a.get("effort", ""), "low"),
+                            }
+                            for a in actions
+                        ])
+                        if recs:
+                            recommendation_cards(recs)
+                        else:
+                            st.caption("No specific actions listed for this component.")
 
                 # ── Weight breakdown reminder ─────────────────────────────
-                with st.expander("ℹ️ How IQS is calculated"):
+                with st.expander("ℹ️ How is this score actually calculated?"):
+                    callout(
+                        "Nothing here is a black box. Your score is a weighted average "
+                        "of five things — the weight column shows how much each one "
+                        "counts. Improving a **25% component** moves your score four "
+                        "times faster than improving a 15% one.",
+                        icon="🔍", tone="info",
+                    )
                     st.markdown(
                         """
 The Investment Quality Score (0–100) is a weighted composite of five components:

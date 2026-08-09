@@ -3069,6 +3069,387 @@ def recommendations_to_markdown(
 
 
 # ---------------------------------------------------------------------------
+# Explain-first components
+# ---------------------------------------------------------------------------
+# The ROI pages carry real analytic weight but were presented as raw
+# dataframes and unexplained finance jargon — CAGR, bps, J-curve,
+# "payback-weighted return". A CFO can read that; a sustainability lead or
+# a board member opening the page for the first time cannot, and neither
+# can tell from a bare number whether it is *good*. These helpers attach
+# three things to every figure: what it means in one sentence, whether it
+# is healthy, and what to do about it.
+
+_VERDICT_STYLES = {
+    "good":    ("var(--pwc-success)", "rgba(46, 133, 64, 0.10)",  "rgba(46, 133, 64, 0.30)",  "Healthy"),
+    "watch":   ("#9a6b00",            "rgba(255, 182, 0, 0.16)",  "rgba(255, 182, 0, 0.45)",  "Watch"),
+    "poor":    ("var(--pwc-danger)",  "rgba(200, 16, 46, 0.09)",  "rgba(200, 16, 46, 0.28)",  "Needs work"),
+    "neutral": ("var(--text-muted)",  "rgba(91, 100, 115, 0.08)", "rgba(91, 100, 115, 0.22)", ""),
+}
+
+_EXPLAIN_CSS = """
+<style>
+/* Callout — the plain-English framing above a dense section ---------- */
+.esg-callout {
+    display: flex; gap: var(--space-3); align-items: flex-start;
+    padding: var(--space-4) var(--space-5);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--pwc-orange);
+    background: linear-gradient(90deg, var(--surface-muted) 0%, #ffffff 70%);
+    margin: 0 0 var(--space-4) 0;
+}
+.esg-callout.tone-info    { border-left-color: var(--pwc-info); }
+.esg-callout.tone-success { border-left-color: var(--pwc-success); }
+.esg-callout.tone-warn    { border-left-color: var(--pwc-amber); }
+.esg-callout-icon { font-size: 1.15rem; line-height: 1.3; flex-shrink: 0; }
+.esg-callout-body { min-width: 0; }
+.esg-callout-title {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: var(--text-base); color: var(--text); margin-bottom: 3px;
+}
+.esg-callout-text {
+    font-size: var(--text-sm); line-height: var(--lh-normal);
+    color: var(--text-secondary);
+}
+.esg-callout-text strong { color: var(--text); font-weight: 650; }
+
+/* Verdict KPI — number + is-this-good + what-it-means ---------------- */
+.esg-vkpi {
+    position: relative; height: 100%;
+    display: flex; flex-direction: column; gap: 7px;
+    padding: var(--space-4);
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--surface-raised); box-shadow: var(--shadow-sm);
+    transition: box-shadow var(--dur-base) var(--ease-standard),
+                transform var(--dur-base) var(--ease-standard);
+}
+.esg-vkpi:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.esg-vkpi-top {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-2);
+}
+.esg-vkpi-label {
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.07em;
+    font-weight: 700; color: var(--text-muted);
+}
+.esg-vkpi-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: var(--radius-pill);
+    font-size: 0.66rem; font-weight: 700; white-space: nowrap;
+    border: 1px solid transparent;
+}
+.esg-vkpi-pill .esg-vkpi-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+}
+.esg-vkpi-value {
+    font-family: var(--font-display); font-weight: 800;
+    font-size: var(--text-2xl); line-height: 1.05;
+    color: var(--text); letter-spacing: -0.025em;
+}
+.esg-vkpi-plain {
+    font-size: var(--text-sm); line-height: var(--lh-snug);
+    color: var(--text-secondary);
+}
+.esg-vkpi-term {
+    margin-top: auto; padding-top: 6px;
+    border-top: 1px dashed var(--border);
+    font-size: var(--text-xs); color: var(--text-muted);
+    line-height: var(--lh-snug);
+}
+
+/* Score bars — the dataframe replacement ----------------------------- */
+.esg-sb-row {
+    display: grid; grid-template-columns: 190px 1fr 130px;
+    gap: var(--space-4); align-items: center;
+    padding: 11px var(--space-4);
+    border-bottom: 1px solid var(--border);
+}
+.esg-sb-row:last-child { border-bottom: none; }
+.esg-sb-wrap {
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--surface-raised); overflow: hidden;
+    box-shadow: var(--shadow-sm); margin-bottom: var(--space-3);
+}
+.esg-sb-name {
+    font-weight: 650; font-size: var(--text-sm); color: var(--text);
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+.esg-sb-sub {
+    display: block; font-weight: 500; font-size: var(--text-xs);
+    color: var(--text-muted); margin-top: 1px;
+}
+.esg-sb-track {
+    position: relative; height: 22px; border-radius: var(--radius-pill);
+    background: var(--surface-sunken); overflow: hidden;
+}
+.esg-sb-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    border-radius: var(--radius-pill);
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 8px;
+    /* border-box so the padding stays inside the percentage width — with
+       content-box a score of 0 still paints an 8px stub, and every short
+       bar overshoots the label parked just past its edge. */
+    box-sizing: border-box;
+    font-size: 0.68rem; font-weight: 800; color: #fff;
+}
+/* Score label for bars too short to hold it inside — sits just past the
+   fill rather than in the meta column, where it would collide with the
+   right-hand figure. */
+.esg-sb-out {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    font-size: 0.68rem; font-weight: 800; white-space: nowrap;
+}
+.esg-sb-meta { text-align: right; font-size: var(--text-xs); line-height: 1.4; }
+.esg-sb-meta .esg-sb-gap { color: var(--text-muted); }
+.esg-sb-meta .esg-sb-lift { font-weight: 700; }
+
+/* Journey bar — today → projected, against grade bands --------------- */
+.esg-jb {
+    padding: var(--space-5);
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--surface-raised); box-shadow: var(--shadow-sm);
+    margin-bottom: var(--space-4);
+}
+.esg-jb-track {
+    position: relative; height: 34px; border-radius: var(--radius-pill);
+    background: linear-gradient(90deg,
+        rgba(200,16,46,0.16) 0%, rgba(255,182,0,0.20) 45%,
+        rgba(46,133,64,0.20) 100%);
+    margin: 34px 0 8px 0;
+}
+.esg-jb-span {
+    position: absolute; top: 0; bottom: 0;
+    background: linear-gradient(90deg, rgba(253,81,8,0.28), rgba(46,133,64,0.42));
+    border-radius: var(--radius-pill);
+}
+.esg-jb-pin { position: absolute; top: -30px; transform: translateX(-50%); text-align: center; }
+.esg-jb-pin-label {
+    font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); white-space: nowrap;
+}
+.esg-jb-pin-val {
+    font-family: var(--font-display); font-weight: 800; font-size: var(--text-md);
+    line-height: 1.1; white-space: nowrap;
+}
+.esg-jb-pin::after {
+    content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+    top: 100%; width: 3px; height: 34px; border-radius: 2px; background: currentColor;
+}
+.esg-jb-bands {
+    display: flex; margin-top: 12px;
+    font-size: 0.62rem; color: var(--text-muted); font-weight: 600;
+}
+.esg-jb-band { text-align: center; border-left: 1px solid var(--border); padding-top: 2px; }
+.esg-jb-band:first-child { border-left: none; }
+
+/* Glossary — the jargon decoder -------------------------------------- */
+.esg-gl {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+    gap: var(--space-3);
+}
+.esg-gl-item {
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface-muted);
+}
+.esg-gl-term {
+    font-weight: 750; font-size: var(--text-sm); color: var(--pwc-orange-dark);
+    margin-bottom: 2px;
+}
+.esg-gl-def { font-size: var(--text-xs); line-height: var(--lh-normal); color: var(--text-secondary); }
+
+@media (max-width: 720px) {
+    .esg-sb-row { grid-template-columns: 1fr; gap: 6px; }
+    .esg-sb-meta { text-align: left; }
+}
+</style>
+"""
+
+
+def _explain_css() -> None:
+    inject_global_css()
+    st.markdown(_EXPLAIN_CSS, unsafe_allow_html=True)
+
+
+def callout(
+    body: str,
+    *,
+    title: Optional[str] = None,
+    tone: str = "default",
+    icon: str = "💡",
+) -> None:
+    """Plain-English framing for the section that follows.
+
+    ``body`` may contain **bold** markers, which are converted after
+    escaping so callers can emphasise a figure without risking injection.
+    """
+    _explain_css()
+    safe = html.escape(body)
+    # Convert **bold** post-escape — the escape already neutralised any markup.
+    parts = safe.split("**")
+    rendered = "".join(
+        f"<strong>{seg}</strong>" if i % 2 else seg for i, seg in enumerate(parts)
+    )
+    title_html = (
+        f'<div class="esg-callout-title">{html.escape(title)}</div>' if title else ""
+    )
+    st.markdown(
+        f'<div class="esg-callout tone-{html.escape(tone)}">'
+        f'<span class="esg-callout-icon" aria-hidden="true">{html.escape(icon)}</span>'
+        f'<div class="esg-callout-body">{title_html}'
+        f'<div class="esg-callout-text">{rendered}</div></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def verdict_kpi(
+    label: str,
+    value: str,
+    plain_english: str,
+    *,
+    verdict: str = "neutral",
+    verdict_label: Optional[str] = None,
+    term: Optional[str] = None,
+) -> None:
+    """A KPI that answers 'what is it', 'how much', and 'is that good'.
+
+    ``plain_english`` should read as a sentence a non-specialist can act on
+    — "For every ₹100 of ESG spend you get ₹114 back" beats "ROI 14%".
+    ``term`` optionally decodes the jargon in the label.
+    """
+    _explain_css()
+    color, bg, border, default_label = _VERDICT_STYLES.get(
+        verdict, _VERDICT_STYLES["neutral"]
+    )
+    shown = verdict_label if verdict_label is not None else default_label
+    pill = (
+        f'<span class="esg-vkpi-pill" style="color:{color};background:{bg};'
+        f'border-color:{border};"><span class="esg-vkpi-dot"></span>'
+        f'{html.escape(shown)}</span>' if shown else ""
+    )
+    term_html = (
+        f'<div class="esg-vkpi-term">{html.escape(term)}</div>' if term else ""
+    )
+    st.markdown(
+        f'<div class="esg-vkpi" role="group" aria-label="{html.escape(label)}: '
+        f'{html.escape(value)}. {html.escape(shown or "")}">'
+        f'<div class="esg-vkpi-top"><span class="esg-vkpi-label">{html.escape(label)}</span>'
+        f'{pill}</div>'
+        f'<div class="esg-vkpi-value">{html.escape(value)}</div>'
+        f'<div class="esg-vkpi-plain">{html.escape(plain_english)}</div>'
+        f'{term_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def score_bars(rows: Sequence[dict]) -> None:
+    """Render 0–100 component scores as labelled bars instead of a table.
+
+    Each row: ``name``, ``score``, optional ``subtitle``, ``status``
+    (good/watch/poor), ``meta`` (right-hand caption) and ``meta_accent``.
+    """
+    _explain_css()
+    if not rows:
+        return
+    out = ['<div class="esg-sb-wrap">']
+    for row in rows:
+        score = max(0.0, min(100.0, float(row.get("score") or 0)))
+        status = row.get("status", "neutral")
+        color = _VERDICT_STYLES.get(status, _VERDICT_STYLES["neutral"])[0]
+        sub = (
+            f'<span class="esg-sb-sub">{html.escape(str(row["subtitle"]))}</span>'
+            if row.get("subtitle") else ""
+        )
+        meta = (
+            f'<span class="esg-sb-lift" style="color:{color};">'
+            f'{html.escape(str(row["meta"]))}</span>' if row.get("meta") else ""
+        )
+        meta2 = (
+            f'<br><span class="esg-sb-gap">{html.escape(str(row["meta_sub"]))}</span>'
+            if row.get("meta_sub") else ""
+        )
+        # A short bar can't hold its own number, so park the label just past
+        # the fill instead of inside it.
+        if score >= 12:
+            label_inside, outside, pad = f"{score:.0f}", "", ""
+        else:
+            label_inside = ""
+            outside = (
+                f'<span class="esg-sb-out" style="left:calc({score}% + 8px);'
+                f'color:{color};">{score:.0f}</span>'
+            )
+            # Drop the inner padding: with box-sizing:border-box the box can
+            # never shrink below it, so a score of 0 would still paint an
+            # 8px stub. Nothing sits inside these bars anyway.
+            pad = "padding-right:0;"
+        out.append(
+            f'<div class="esg-sb-row">'
+            f'<div class="esg-sb-name">{html.escape(str(row.get("name", "")))}{sub}</div>'
+            f'<div class="esg-sb-track" role="img" '
+            f'aria-label="{html.escape(str(row.get("name", "")))} score {score:.0f} of 100">'
+            f'<div class="esg-sb-fill" style="width:{score}%;background:{color};{pad}">'
+            f'{label_inside}</div>{outside}</div>'
+            f'<div class="esg-sb-meta">{meta}{meta2}</div></div>'
+        )
+    out.append("</div>")
+    st.markdown("".join(out), unsafe_allow_html=True)
+
+
+def journey_bar(
+    current: float,
+    projected: float,
+    *,
+    current_label: str = "Today",
+    projected_label: str = "If you act",
+    bands: Optional[Sequence[tuple[str, float]]] = None,
+) -> None:
+    """Show the distance between today's score and the achievable one.
+
+    ``bands`` are (name, lower_bound) pairs describing the grade scale;
+    they render as a ruler under the track so a score has visible meaning.
+    """
+    _explain_css()
+    cur = max(0.0, min(100.0, float(current or 0)))
+    proj = max(0.0, min(100.0, float(projected or 0)))
+    lo, hi = min(cur, proj), max(cur, proj)
+    bands = bands or [("D", 0), ("C", 50), ("B", 60), ("B+", 70), ("A", 80), ("A+", 90)]
+
+    band_html = []
+    for i, (name, lower) in enumerate(bands):
+        upper = bands[i + 1][1] if i + 1 < len(bands) else 100
+        width = max(0.0, upper - lower)
+        band_html.append(
+            f'<div class="esg-jb-band" style="width:{width}%;">{html.escape(name)}</div>'
+        )
+
+    st.markdown(
+        f'<div class="esg-jb">'
+        f'<div class="esg-jb-track">'
+        f'<div class="esg-jb-span" style="left:{lo}%;width:{max(hi - lo, 0.6)}%;"></div>'
+        f'<div class="esg-jb-pin" style="left:{cur}%;color:var(--pwc-orange);">'
+        f'<div class="esg-jb-pin-label">{html.escape(current_label)}</div>'
+        f'<div class="esg-jb-pin-val" style="color:var(--pwc-orange);">{cur:.0f}</div></div>'
+        f'<div class="esg-jb-pin" style="left:{proj}%;color:var(--pwc-success);">'
+        f'<div class="esg-jb-pin-label">{html.escape(projected_label)}</div>'
+        f'<div class="esg-jb-pin-val" style="color:var(--pwc-success);">{proj:.0f}</div></div>'
+        f'</div><div class="esg-jb-bands">{"".join(band_html)}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def glossary(items: Sequence[tuple[str, str]]) -> None:
+    """A jargon decoder: (term, one-line plain-English meaning) pairs."""
+    _explain_css()
+    cards = "".join(
+        f'<div class="esg-gl-item"><div class="esg-gl-term">{html.escape(term)}</div>'
+        f'<div class="esg-gl-def">{html.escape(definition)}</div></div>'
+        for term, definition in items
+    )
+    st.markdown(f'<div class="esg-gl">{cards}</div>', unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
 # Feature info
 # ---------------------------------------------------------------------------
 def react_feature_status() -> dict:
