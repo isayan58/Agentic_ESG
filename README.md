@@ -619,7 +619,7 @@ Earlier, `utils/user_store.py` and `utils/source_store.py` would silently fall b
 
 ### HF Space push guard (pre-push hook)
 
-The HuggingFace Space's `main` branch has no native branch protection. On 2026-04-20 a stray push reverted `main` to a state ~7,300 lines behind. To prevent a recurrence, `scripts/git-hooks/pre-push` blocks any push to the `hf-streamlit` remote whose tip doesn't match `origin/dev`.
+The HuggingFace Space's `main` branch has no native branch protection. On 2026-04-20 a stray push reverted `main` to a state ~7,300 lines behind. To prevent a recurrence, `scripts/git-hooks/pre-push` refuses any push to the `hf-streamlit` remote whose **tree** differs from `origin/main`, ignoring the binary paths listed in `scripts/hf-deploy-excludes.txt`. The contract: what lands on the Space must be `main`.
 
 **Activate (once per clone):**
 
@@ -627,13 +627,26 @@ The HuggingFace Space's `main` branch has no native branch protection. On 2026-0
 git config core.hooksPath scripts/git-hooks
 ```
 
-**Bypass for an emergency hotfix:**
+**Deploy:**
+
+```bash
+git fetch origin
+scripts/sync_to_hf.sh            # or --dry-run to preview
+```
+
+**Bypass** — only when deploying something that is deliberately *not* `main`:
 
 ```bash
 git push --no-verify hf-streamlit <sha>:main
 ```
 
-The hook's diagnostic prints the offending SHA, the expected `origin/dev` tip, and the remediation steps. See `scripts/git-hooks/README.md`.
+The hook's diagnostic prints the pushed SHA, `origin/main`'s tip, and the tracked paths that diverged. See `scripts/git-hooks/README.md`.
+
+> **Why trees and not SHAs.** The guard originally required the pushed SHA to equal `origin/main`. No real deploy can satisfy that — the deploy commit strips binaries the Space rejects (so its tree differs), and the Space's history is *unrelated* to `main`'s (its own root commit, no merge base), so the commit is stacked on the Space's tip. Every legitimate deploy therefore needed `--no-verify`, meaning the guard was bypassed by routine and protected nothing. Comparing trees still blocks the 2026-04-20 scenario while letting correct deploys through.
+
+`scripts/sync_to_hf.sh` syncs `main`'s tree onto the Space in a single commit stacked on the Space's tip — a fast-forward, so no force push. It previously replayed history with `git cherry` + cherry-pick, which assumed the Space shared ancestry with `main`; against the real Space that replayed all 136 commits from "Initial commit" and conflicted on the first. It refuses to run on a dirty tree, refuses to deploy local commits that aren't on `origin/main`, verifies the built tree against `main` before pushing, and restores your branch via an `EXIT` trap if anything fails.
+
+> **`.gitignore` caveat.** `scripts/` is ignored wholesale, so anything new in there needs `git add -f` or it stays on your machine only — which is exactly how `sync_to_hf.sh` went uncommitted while being documented here as the deploy tool.
 
 ---
 
