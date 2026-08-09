@@ -3450,6 +3450,274 @@ def glossary(items: Sequence[tuple[str, str]]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Peer positioning + insight grouping
+# ---------------------------------------------------------------------------
+# Peer benchmarking used one bar per company, sized at n*40+80 px. That is
+# fine for the 15-company reference dataset and unusable at 150 — a 6,000px
+# chart nobody can read, where finding yourself means scrolling. Percentile
+# strips answer "where do I stand" in fixed height regardless of cohort
+# size, so the page reads the same with 15 peers or 1,500.
+
+_PEER_CSS = """
+<style>
+/* Percentile strip — position in a cohort, at any cohort size --------- */
+.esg-ps {
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--surface-raised); box-shadow: var(--shadow-sm);
+    margin-bottom: var(--space-3);
+}
+.esg-ps-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: var(--space-3); flex-wrap: wrap; margin-bottom: 4px;
+}
+.esg-ps-label {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: var(--text-md); color: var(--text); letter-spacing: -0.01em;
+}
+.esg-ps-value { display: flex; align-items: baseline; gap: var(--space-3); }
+.esg-ps-num {
+    font-family: var(--font-display); font-weight: 800;
+    font-size: var(--text-xl); color: var(--text); letter-spacing: -0.02em;
+}
+.esg-ps-rank {
+    font-size: var(--text-sm); font-weight: 700;
+    padding: 2px 10px; border-radius: var(--radius-pill);
+    border: 1px solid transparent; white-space: nowrap;
+}
+.esg-ps-track {
+    position: relative; height: 30px; border-radius: var(--radius-md);
+    display: flex; margin: 30px 0 6px 0;
+    /* No overflow:hidden here — the YOU pin is deliberately positioned
+       above the track, and clipping the track would erase it. The bands
+       round their own outer corners instead. */
+}
+.esg-ps-band { flex: 1; position: relative; }
+.esg-ps-band:first-child {
+    border-top-left-radius: var(--radius-md);
+    border-bottom-left-radius: var(--radius-md);
+}
+.esg-ps-band:last-child {
+    border-top-right-radius: var(--radius-md);
+    border-bottom-right-radius: var(--radius-md);
+}
+.esg-ps-band + .esg-ps-band { border-left: 1px solid rgba(255,255,255,0.85); }
+.esg-ps-b1 { background: rgba(200, 16, 46, 0.16); }
+.esg-ps-b2 { background: rgba(255, 182, 0, 0.20); }
+.esg-ps-b3 { background: rgba(46, 133, 64, 0.16); }
+.esg-ps-b4 { background: rgba(46, 133, 64, 0.32); }
+.esg-ps-median {
+    position: absolute; top: -4px; bottom: -4px; width: 2px;
+    background: var(--text); opacity: 0.55; z-index: 2;
+}
+.esg-ps-you {
+    position: absolute; top: -26px; transform: translateX(-50%); z-index: 3;
+    text-align: center; white-space: nowrap;
+}
+.esg-ps-you-tag {
+    display: inline-block; padding: 1px 8px; border-radius: var(--radius-pill);
+    background: var(--pwc-orange); color: #fff;
+    font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em;
+    box-shadow: var(--shadow-brand);
+}
+.esg-ps-you::after {
+    content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+    top: 100%; width: 0; height: 0;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-top: 6px solid var(--pwc-orange);
+}
+.esg-ps-scale {
+    display: flex; font-size: 0.62rem; color: var(--text-muted); font-weight: 600;
+}
+.esg-ps-scale span { flex: 1; text-align: center; }
+.esg-ps-foot {
+    margin-top: 8px; font-size: var(--text-sm); line-height: var(--lh-snug);
+    color: var(--text-secondary);
+}
+.esg-ps-foot strong { color: var(--text); }
+
+/* Insight groups — the bullet-list replacement ------------------------ */
+.esg-ig {
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--surface-raised); box-shadow: var(--shadow-sm);
+    overflow: hidden; height: 100%;
+}
+.esg-ig-head {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: 12px var(--space-4);
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, var(--surface-muted) 0%, #ffffff 100%);
+}
+.esg-ig-icon {
+    width: 30px; height: 30px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.95rem; flex-shrink: 0;
+    background: rgba(253, 81, 8, 0.10); border: 1px solid rgba(253, 81, 8, 0.22);
+}
+.esg-ig-title {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: var(--text-base); color: var(--text); flex: 1; min-width: 0;
+}
+.esg-ig-count {
+    font-size: 0.66rem; font-weight: 800; color: var(--text-muted);
+    background: var(--surface-sunken); border: 1px solid var(--border);
+    padding: 2px 8px; border-radius: var(--radius-pill);
+}
+.esg-ig-body { padding: var(--space-2) 0; }
+.esg-ig-item {
+    display: grid; grid-template-columns: 22px 1fr; gap: var(--space-2);
+    padding: 9px var(--space-4);
+    font-size: var(--text-sm); line-height: var(--lh-normal);
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+}
+.esg-ig-item:last-child { border-bottom: none; }
+.esg-ig-item:hover { background: var(--surface-muted); }
+.esg-ig-bullet {
+    width: 18px; height: 18px; border-radius: 50%; margin-top: 1px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.6rem; font-weight: 800; color: #fff;
+    background: var(--pwc-orange); flex-shrink: 0;
+}
+.esg-ig-empty {
+    padding: var(--space-5); text-align: center;
+    color: var(--text-muted); font-size: var(--text-sm);
+}
+</style>
+"""
+
+
+def _peer_css() -> None:
+    inject_global_css()
+    st.markdown(_PEER_CSS, unsafe_allow_html=True)
+
+
+def percentile_strip(
+    label: str,
+    value_text: str,
+    percentile: Optional[float],
+    *,
+    rank: Optional[int] = None,
+    total: Optional[int] = None,
+    median_text: Optional[str] = None,
+    higher_is_better: bool = True,
+    footnote: Optional[str] = None,
+) -> None:
+    """Show where one metric sits inside a peer cohort of any size.
+
+    A fixed-height quartile track with a YOU pin. Unlike a per-company bar
+    chart this does not grow with the cohort, so 15 peers and 1,500 peers
+    render identically — which is the only way "where do I stand" stays
+    answerable at scale.
+    """
+    _peer_css()
+    pct = None if percentile is None else max(0.0, min(100.0, float(percentile)))
+
+    # Quartile wording follows the metric's direction: for emissions, a low
+    # percentile is the good end, so never label it "bottom".
+    if pct is None:
+        tone, verdict_text = "neutral", "Position unavailable"
+    else:
+        strength = pct if higher_is_better else 100 - pct
+        if strength >= 75:
+            tone, verdict_text = "good", "Top quartile"
+        elif strength >= 50:
+            tone, verdict_text = "good", "Above median"
+        elif strength >= 25:
+            tone, verdict_text = "watch", "Below median"
+        else:
+            tone, verdict_text = "poor", "Bottom quartile"
+    color, bg, border, _ = _VERDICT_STYLES.get(tone, _VERDICT_STYLES["neutral"])
+
+    rank_bits = []
+    if rank is not None and total:
+        rank_bits.append(f"#{rank} of {total}")
+    rank_bits.append(verdict_text)
+    rank_html = (
+        f'<span class="esg-ps-rank" style="color:{color};background:{bg};'
+        f'border-color:{border};">{html.escape(" · ".join(rank_bits))}</span>'
+    )
+
+    you_html = ""
+    if pct is not None:
+        # The pin is centre-anchored, so at 0 or 100 half of it would hang
+        # outside the card. Clamp the *drawn* position into the track while
+        # the label still states the true percentile — at most a 3% visual
+        # offset, and only at the extremes.
+        pin_pos = max(3.0, min(97.0, pct))
+        you_html = (
+            f'<div class="esg-ps-you" style="left:{pin_pos}%;">'
+            f'<span class="esg-ps-you-tag">YOU · {pct:.0f}th</span></div>'
+        )
+
+    foot_parts = []
+    if median_text:
+        foot_parts.append(f"Peer median: <strong>{html.escape(median_text)}</strong>")
+    if pct is not None and total:
+        beaten = int(round((pct / 100.0) * total))
+        if higher_is_better:
+            foot_parts.append(f"You are ahead of <strong>{beaten}</strong> of {total} peers")
+        else:
+            foot_parts.append(f"<strong>{total - beaten}</strong> of {total} peers are higher")
+    if footnote:
+        foot_parts.append(html.escape(footnote))
+    foot_html = (
+        f'<div class="esg-ps-foot">{" · ".join(foot_parts)}</div>' if foot_parts else ""
+    )
+
+    st.markdown(
+        f'<div class="esg-ps" role="group" aria-label="{html.escape(label)}: '
+        f'{html.escape(value_text)}, {html.escape(verdict_text)}">'
+        f'<div class="esg-ps-head"><span class="esg-ps-label">{html.escape(label)}</span>'
+        f'<span class="esg-ps-value"><span class="esg-ps-num">{html.escape(value_text)}</span>'
+        f'{rank_html}</span></div>'
+        f'<div class="esg-ps-track">'
+        f'<div class="esg-ps-band esg-ps-b1"></div><div class="esg-ps-band esg-ps-b2"></div>'
+        f'<div class="esg-ps-band esg-ps-b3"></div><div class="esg-ps-band esg-ps-b4"></div>'
+        f'<div class="esg-ps-median" style="left:50%;"></div>{you_html}</div>'
+        f'<div class="esg-ps-scale"><span>Bottom 25%</span><span>25–50%</span>'
+        f'<span>50–75%</span><span>Top 25%</span></div>{foot_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def insight_group(
+    title: str,
+    items: Sequence[str],
+    *,
+    icon: str = "•",
+    numbered: bool = True,
+    empty_text: str = "Nothing flagged.",
+) -> None:
+    """One agent's findings as a titled card instead of a bare bullet list.
+
+    Seven stacked markdown lists give a reader no way to tell which agent
+    said what, or how much there is to read. A card with a source header
+    and a count does both at a glance.
+    """
+    _peer_css()
+    rows = []
+    for i, item in enumerate(items or [], start=1):
+        text = str(item).strip()
+        if not text:
+            continue
+        bullet = str(i) if numbered else "•"
+        rows.append(
+            f'<div class="esg-ig-item"><span class="esg-ig-bullet">{html.escape(bullet)}</span>'
+            f'<span>{html.escape(text)}</span></div>'
+        )
+    body = "".join(rows) or f'<div class="esg-ig-empty">{html.escape(empty_text)}</div>'
+    st.markdown(
+        f'<div class="esg-ig"><div class="esg-ig-head">'
+        f'<span class="esg-ig-icon" aria-hidden="true">{html.escape(icon)}</span>'
+        f'<span class="esg-ig-title">{html.escape(title)}</span>'
+        f'<span class="esg-ig-count">{len(rows)}</span></div>'
+        f'<div class="esg-ig-body">{body}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Feature info
 # ---------------------------------------------------------------------------
 def react_feature_status() -> dict:

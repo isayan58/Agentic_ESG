@@ -23,6 +23,7 @@ from utils.ui import (
     format_relative_time, esg_roi_featured_card,
     recommendation_cards, recommendations_to_markdown,
     normalize_recommendations, sort_recommendations, is_quick_win,
+    callout, insight_group,
 )
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
@@ -1017,26 +1018,51 @@ if st.session_state.pipeline_results:
         if report_recommendations or actionable_insights or dashboard_templates:
             section_header("AI-Generated Report Intelligence",
                            "What the Report Generator produced for this pipeline run.")
-            if report_recommendations:
-                st.markdown("**Recommended Report Pack**")
-                for item in report_recommendations[:5]:
-                    st.markdown(f"- {item}")
             # Skip "Key Insights" if it's identical to the Report Pack — both
             # prompts share the HuggingFace fallback, which can return the same
             # generic narrative for both call sites.
-            if actionable_insights and actionable_insights != report_recommendations:
-                st.markdown("**Key Insights from the Report Generator**")
-                for insight in actionable_insights:
-                    st.markdown(f"- {insight}")
+            _show_insights = bool(
+                actionable_insights and actionable_insights != report_recommendations
+            )
+            callout(
+                "The Report Generator read this run and proposed the reports worth "
+                "producing, plus the findings it thinks matter most. Everything here "
+                "is generated from **this run's data**, not a template.",
+                icon="📝",
+            )
+            ri_cols = st.columns(2 if _show_insights else 1)
+            with ri_cols[0]:
+                insight_group(
+                    "Reports worth producing",
+                    report_recommendations[:5],
+                    icon="📄",
+                    empty_text="No report pack proposed for this run.",
+                )
+            if _show_insights:
+                with ri_cols[1]:
+                    insight_group(
+                        "Key findings",
+                        actionable_insights,
+                        icon="🔑",
+                        empty_text="No standout findings this run.",
+                    )
             if dashboard_templates:
-                with st.expander("Sample BI / Dashboard Templates", expanded=False):
-                    st.markdown(dashboard_templates.get("summary", ""))
+                with st.expander("📊 Ready-made BI dashboard templates", expanded=False):
+                    st.caption(
+                        "Drop these specs into your BI tool to rebuild this "
+                        "analysis where your teams already work."
+                    )
+                    if dashboard_templates.get("summary"):
+                        st.markdown(dashboard_templates.get("summary", ""))
+                    dash_cols = st.columns(2)
                     if dashboard_templates.get("power_bi"):
-                        st.markdown("##### Power BI Template")
-                        st.markdown(dashboard_templates.get("power_bi"))
+                        with dash_cols[0]:
+                            st.markdown("**Power BI**")
+                            st.markdown(dashboard_templates.get("power_bi"))
                     if dashboard_templates.get("quicksight"):
-                        st.markdown("##### QuickSight Template")
-                        st.markdown(dashboard_templates.get("quicksight"))
+                        with dash_cols[1]:
+                            st.markdown("**Amazon QuickSight**")
+                            st.markdown(dashboard_templates.get("quicksight"))
 
         data_quality_summary = data_res.get("data_quality_summary", [])
         regulatory_action_plan = reg_res.get("regulatory_action_plan", [])
@@ -1055,44 +1081,102 @@ if st.session_state.pipeline_results:
             or roi_recommendations
             or distribution_plan
         ):
-            section_header("Agentic Intelligence Summaries",
-                           "Cross-agent recommendations, insights, and operational plans.")
-            if data_quality_summary:
-                st.markdown("**Data Quality Summary**")
-                for item in data_quality_summary[:4]:
-                    st.markdown(f"- {item}")
-            if regulatory_action_plan:
-                st.markdown("**Regulatory Action Plan**")
-                for item in regulatory_action_plan[:4]:
-                    st.markdown(f"- {item}")
-            if carbon_insights:
-                st.markdown("**Carbon Accounting Insights**")
-                for item in carbon_insights[:4]:
-                    st.markdown(f"- {item}")
-            if risk_recommendations:
-                st.markdown("**Risk Recommendations**")
-                for item in risk_recommendations[:4]:
-                    st.markdown(f"- {item}")
-            if audit_recommendations:
-                st.markdown("**Audit Recommendations**")
-                for item in audit_recommendations[:4]:
-                    st.markdown(f"- {item}")
-            if roi_recommendations:
-                st.markdown("**ROI Recommendations**")
-                for item in roi_recommendations[:4]:
-                    st.markdown(f"- {item}")
-            if distribution_plan:
-                st.markdown("**Stakeholder Distribution Plan**")
-                st.markdown(distribution_plan)
+            section_header("What Each Agent Found",
+                           "Every agent's conclusions from this run, attributed to "
+                           "the agent that produced them.")
 
-        # Actions summary
-        if action_res and "actions" in action_res:
-            st.markdown("### Top Action Items")
-            actions_df = pd.DataFrame(action_res["actions"])
-            cols = ["id", "action", "category", "priority", "duration_weeks", "impact"]
-            available = [c for c in cols if c in actions_df.columns]
-            if available:
-                safe_dataframe(actions_df[available].head(5), use_container_width=True, hide_index=True)
+            # Seven stacked bullet lists gave no sense of who said what or how
+            # much there was to read. Group by source agent, filter to the
+            # ones that actually reported, and lay them out two-up so the
+            # section is scannable instead of a scroll.
+            _agent_findings = [
+                ("Data Collector",     "🗄️", data_quality_summary[:4]),
+                ("Regulatory Tracker", "⚖️", regulatory_action_plan[:4]),
+                ("Carbon Accountant",  "🌱", carbon_insights[:4]),
+                ("Risk Predictor",     "⚠️", risk_recommendations[:4]),
+                ("Audit Agent",        "🔍", audit_recommendations[:4]),
+                ("ROI Agent",          "⭐", roi_recommendations[:4]),
+            ]
+            _reporting = [(t, i, items) for t, i, items in _agent_findings if items]
+
+            if _reporting:
+                _total = sum(len(items) for _, _, items in _reporting)
+                callout(
+                    f"**{_total} findings** from **{len(_reporting)} agents** in this "
+                    f"run. Each card below is one agent — the number on the right is "
+                    f"how many points it raised.",
+                    icon="🧠",
+                )
+                # Two-up grid, filling row by row.
+                for row_start in range(0, len(_reporting), 2):
+                    row = _reporting[row_start:row_start + 2]
+                    cols = st.columns(2)
+                    for col, (title, icon, items) in zip(cols, row):
+                        with col:
+                            insight_group(title, items, icon=icon)
+                            st.markdown("")
+
+            if distribution_plan:
+                with st.expander("📬 Who gets this report — stakeholder distribution plan",
+                                 expanded=False):
+                    st.markdown(distribution_plan)
+
+        # Actions summary — the single most actionable block on the page, so
+        # it gets the recommendation-card treatment rather than a 5-row table
+        # dump. Duration maps to effort so "quick win" means what it does
+        # everywhere else in the product.
+        if action_res and action_res.get("actions"):
+            _actions = action_res["actions"]
+
+            def _effort_from_weeks(weeks) -> str:
+                try:
+                    w = float(weeks)
+                except (TypeError, ValueError):
+                    return "medium"
+                if w <= 4:
+                    return "low"
+                return "medium" if w <= 12 else "high"
+
+            _action_recs = normalize_recommendations([
+                {
+                    "title": a.get("action", ""),
+                    "owner": a.get("category", ""),
+                    "unlocks": a.get("impact", ""),
+                    "impact": a.get("priority", "medium"),
+                    "effort": _effort_from_weeks(a.get("duration_weeks")),
+                    "schema": (f"{a.get('duration_weeks')} weeks"
+                               if a.get("duration_weeks") else ""),
+                }
+                for a in _actions if isinstance(a, dict)
+            ])
+
+            if _action_recs:
+                section_header(
+                    "Top Action Items",
+                    "The work this run says to do next, ordered by impact per "
+                    "unit of effort.",
+                )
+                _quick = [r for r in _action_recs if is_quick_win(r)]
+                if _quick:
+                    callout(
+                        f"**{len(_quick)} of {len(_action_recs)}** actions are quick "
+                        f"wins — high impact, four weeks or less. Start there.",
+                        title="Where to start", tone="success", icon="⚡",
+                    )
+                _show_all = st.toggle(
+                    f"Show all {len(_action_recs)} actions",
+                    value=False, key="mc_actions_show_all",
+                ) if len(_action_recs) > 5 else True
+                _ranked = sort_recommendations(_action_recs, "Priority")
+                recommendation_cards(_ranked if _show_all else _ranked[:5])
+                if not _show_all:
+                    st.caption(
+                        f"Showing the top 5 of {len(_action_recs)} actions."
+                    )
+                st.caption(
+                    "**Owner** is the workstream that carries the action; "
+                    "the blue chip is how long it takes."
+                )
 
         if roi_res and "financial_roi" in roi_res:
             section_header("ESG ROI Snapshot",

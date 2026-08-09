@@ -9,7 +9,7 @@ from utils.ui import (
     page_agent_header_live,
     pwc_header,
     callout, verdict_kpi, score_bars, journey_bar, glossary,
-    recommendation_cards, normalize_recommendations,
+    recommendation_cards, normalize_recommendations, percentile_strip,
 )
 from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import refresh_real_data, data_freshness_caption
@@ -502,63 +502,96 @@ if results:
                     "peer_esg":       "raw ESG inputs",
                 }.get(peer.get("peer_source", ""), "peer data")
 
-                section_header(
-                    "Peer Benchmarking",
-                    f"{peer_count} companies · "
-                    f"{', '.join(sectors) if sectors else 'All sectors'} · "
-                    f"Source: {source_label}",
-                )
-
                 benchmarks   = peer.get("benchmarks", {})
                 company_name = peer.get("company_name", "Your Company")
                 peer_table   = peer.get("peer_table", [])
 
-                # ── KPI comparison cards (st.metric for delta colouring) ──
+                section_header(
+                    "How You Compare",
+                    f"Measured against {peer_count} companies · "
+                    f"{', '.join(sectors) if sectors else 'All sectors'} · "
+                    f"Source: {source_label}",
+                )
+
+                # ── One-sentence standing, before any chart ───────────────
+                # With a large cohort the reader needs the answer stated, not
+                # inferred from a chart. Count how many metrics put them in
+                # the upper half, honouring each metric's direction.
+                def _strength(b: dict):
+                    """Percentile re-expressed so higher always means better."""
+                    p = b.get("percentile")
+                    if p is None:
+                        return None
+                    return p if b.get("higher_is_better", True) else 100 - p
+
+                _strengths = [s for s in (_strength(b) for b in benchmarks.values())
+                              if s is not None]
+                if _strengths:
+                    _avg = sum(_strengths) / len(_strengths)
+                    _ahead = sum(1 for s in _strengths if s >= 50)
+                    _lead_metric = max(
+                        (b for b in benchmarks.values() if _strength(b) is not None),
+                        key=lambda b: _strength(b),
+                    )
+                    _lag_metric = min(
+                        (b for b in benchmarks.values() if _strength(b) is not None),
+                        key=lambda b: _strength(b),
+                    )
+                    if _avg >= 75:
+                        _t, _i, _hd = "success", "🏆", "You are a sector leader"
+                    elif _avg >= 50:
+                        _t, _i, _hd = "success", "👍", "You are in the stronger half"
+                    elif _avg >= 25:
+                        _t, _i, _hd = "warn", "📊", "You are behind the sector median"
+                    else:
+                        _t, _i, _hd = "warn", "🔻", "You are in the bottom quartile"
+                    callout(
+                        f"Across **{len(_strengths)}** benchmarked measures you beat the "
+                        f"median on **{_ahead}**, averaging the **{_avg:.0f}th percentile** "
+                        f"of {peer_count} companies. Your strongest showing is "
+                        f"**{_lead_metric['label']}**; the biggest gap is "
+                        f"**{_lag_metric['label']}**.",
+                        title=_hd, tone=_t, icon=_i,
+                    )
+
+                # ── Percentile strips — fixed height at any cohort size ───
                 if benchmarks:
-                    bm_cols = st.columns(len(benchmarks))
-                    for col, (mk, b) in zip(bm_cols, benchmarks.items()):
-                        with col:
-                            cv     = b.get("company_value", 0) or 0
-                            gap    = b.get("gap_vs_median", 0) or 0
-                            pct    = b.get("percentile")
-                            unit   = b.get("unit", "")
-                            better = b.get("higher_is_better", True)
-
-                            sign      = "+" if gap > 0 else ""
-                            delta_str = (
-                                f"{sign}{gap:.2f}{unit} vs median"
-                                if gap != 0 else "At sector median"
+                    for mk, b in benchmarks.items():
+                        cv = b.get("company_value", 0) or 0
+                        unit = b.get("unit", "")
+                        pct = b.get("percentile")
+                        better = b.get("higher_is_better", True)
+                        med = b.get("peer_median")
+                        rank = None
+                        if pct is not None and peer_count:
+                            # Percentile → rank. High percentile is rank 1 when
+                            # higher is better, and last when it isn't.
+                            ordinal = (100 - pct) if better else pct
+                            rank = max(1, min(peer_count,
+                                              int(round(ordinal / 100 * peer_count)) + 1))
+                        std = b.get("industry_standard")
+                        foot = None
+                        if std:
+                            foot = (
+                                f"Industry standard: {std.get('value', 0):g}"
+                                f"{std.get('unit', unit)}"
+                                + (f" — {std.get('position')}" if std.get("position") else "")
                             )
-                            if pct is not None:
-                                delta_str += f" · {pct}th pct"
-
-                            # green when the gap is genuinely beneficial
-                            delta_color = (
-                                "normal"  if better else "inverse"
-                            )
-                            st.metric(
-                                label       = b["label"],
-                                value       = f"{cv:g}{unit}",
-                                delta       = delta_str,
-                                delta_color = delta_color,
-                            )
-
-                            # Industry-standard anchor — shown under the
-                            # peer-comparison card so users see both the
-                            # peer-relative ("am I beating my cohort?")
-                            # and absolute ("is my cohort actually good?")
-                            # signals in one glance.
-                            std = b.get("industry_standard")
-                            if std:
-                                std_val = std.get("value", 0)
-                                std_unit = std.get("unit", unit)
-                                st.caption(
-                                    f"🎯 Industry standard: **{std_val:g}{std_unit}**  \n"
-                                    f"{std.get('position', '')}"
-                                )
-                                source = std.get("source")
-                                if source:
-                                    st.caption(f"_Source: {source}_")
+                        percentile_strip(
+                            b["label"],
+                            f"{cv:g}{unit}",
+                            pct,
+                            rank=rank,
+                            total=peer_count or None,
+                            median_text=(f"{med:g}{unit}" if med is not None else None),
+                            higher_is_better=better,
+                            footnote=foot,
+                        )
+                    st.caption(
+                        "Each strip is the full peer cohort split into quarters. "
+                        "The orange **YOU** marker is your position; the dark line "
+                        "is the sector median."
+                    )
 
                 # Industry-standard details expander — keeps the KPI cards
                 # uncluttered but surfaces interpretation notes for users
@@ -646,58 +679,177 @@ if results:
                             ),
                             yaxis=dict(title=None, automargin=True,
                                        fixedrange=True),
-                            height  = max(400, n_bars * 40 + 80),
+                            height  = max(320, n_bars * 34 + 80),
                             margin  = dict(l=0, r=20, t=20, b=40),
                             bargap  = 0.30,
                             showlegend=False,
                         )
 
-                    # ── CHART 1: ESG Score ────────────────────────────────
-                    if "esg_score" in benchmarks and "esg_score" in base_df.columns:
+                    # Above this many companies a bar-per-company chart stops
+                    # being readable — it just becomes a very tall list you
+                    # have to scroll to find yourself in.
+                    _BAR_LIMIT = 25
+
+                    def _metric_chart(metric_col: str, label: str, unit: str,
+                                      higher_is_better: bool, fmt: str,
+                                      key: str) -> None:
+                        """Peer comparison that stays readable at any cohort size.
+
+                        Under _BAR_LIMIT companies we still draw every bar — it
+                        is the most information-dense view and it fits. Beyond
+                        that the default becomes the slice that actually answers
+                        "where do I stand": the companies immediately above and
+                        below you. Leaders, laggards and the full distribution
+                        are one click away.
+                        """
+                        if metric_col not in benchmarks or metric_col not in base_df.columns:
+                            return
+                        b = benchmarks[metric_col]
+                        cv = b.get("company_value", 0) or 0
+                        med = b.get("peer_median")
+                        cdf, you = _bar_df(metric_col, cv,
+                                           ascending=higher_is_better)
+                        if cdf.empty:
+                            return
+
+                        n = len(cdf)
                         section_header(
-                            "ESG Score vs Peers",
-                            f"Your company highlighted in red · "
-                            f"Sector median: {benchmarks['esg_score']['peer_median']:.1f}",
+                            label,
+                            f"You are highlighted in red · "
+                            f"Sector median: {med:{fmt}}{unit}"
+                            if med is not None else "You are highlighted in red",
                         )
-                        cv1     = benchmarks["esg_score"]["company_value"] or 0
-                        cdf1, you1 = _bar_df("esg_score", cv1, ascending=True)
-                        if not cdf1.empty:
-                            colors1 = _bar_colors(cdf1["company"], you1)
-                            x_max1  = cdf1["esg_score"].max() * 1.20
-                            fig1 = go.Figure(go.Bar(
-                                x            = cdf1["esg_score"],
-                                y            = cdf1["company"],
-                                orientation  = "h",
-                                marker       = dict(color=colors1, line_width=0),
-                                text         = [f"{v:.1f}" for v in cdf1["esg_score"]],
-                                textposition = "outside",
-                                textfont     = dict(size=11),
-                                hovertemplate= (
-                                    "<b>%{y}</b><br>"
-                                    "ESG Score: <b>%{x:.1f}</b> / 100"
-                                    "<extra></extra>"
-                                ),
+
+                        if n <= _BAR_LIMIT:
+                            view = "All companies"
+                        else:
+                            view = st.radio(
+                                "View", [
+                                    "🎯 Around you",
+                                    "🏆 Leaders",
+                                    "🔻 Laggards",
+                                    "📊 Full distribution",
+                                ],
+                                horizontal=True, label_visibility="collapsed",
+                                key=f"peerview_{key}",
+                            )
+
+                        if view == "📊 Full distribution":
+                            peers_only = cdf[cdf["company"] != you][metric_col]
+                            figd = go.Figure(go.Histogram(
+                                x=peers_only, nbinsx=min(40, max(10, n // 4)),
+                                marker=dict(color=_C_PEERS, line=dict(
+                                    width=1, color="white")),
+                                hovertemplate=(
+                                    f"{label}: %{{x}}<br>"
+                                    "Companies in this range: <b>%{y}</b>"
+                                    "<extra></extra>"),
+                                name="Peers",
                             ))
-                            med1 = benchmarks["esg_score"]["peer_median"]
-                            fig1.add_vline(
-                                x=med1, line_dash="dash",
-                                line_color=_C_MEDIAN, line_width=2,
-                                annotation_text=f"Median {med1:.1f}",
+                            figd.add_vline(
+                                x=cv, line_color=_C_YOU, line_width=3,
+                                annotation_text=f"You · {cv:{fmt}}{unit}",
+                                annotation_font=dict(color=_C_YOU, size=12),
+                                annotation_position="top",
+                            )
+                            if med is not None:
+                                figd.add_vline(
+                                    x=med, line_dash="dash",
+                                    line_color=_C_MEDIAN, line_width=2,
+                                    annotation_text=f"Median {med:{fmt}}{unit}",
+                                    annotation_font=dict(color=_C_MEDIAN, size=11),
+                                    annotation_position="bottom",
+                                )
+                            figd.update_layout(
+                                **_LAYOUT, height=340, bargap=0.05,
+                                showlegend=False,
+                                margin=dict(l=50, r=30, t=40, b=50),
+                                xaxis=dict(title=f"{label} ({unit})" if unit
+                                           else label,
+                                           showgrid=True, gridcolor=_C_GRID),
+                                yaxis=dict(title="Number of companies",
+                                           showgrid=True, gridcolor=_C_GRID),
+                            )
+                            st.plotly_chart(figd, use_container_width=True)
+                            st.caption(
+                                f"Each bar counts how many of the {n} companies fall in "
+                                f"that range. The red line is you."
+                            )
+                            return
+
+                        if view == "🎯 Around you":
+                            idx = cdf.index[cdf["company"] == you].tolist()
+                            pos = cdf.index.get_loc(idx[0]) if idx else n // 2
+                            lo = max(0, pos - 5)
+                            shown = cdf.iloc[lo:lo + 11]
+                            note = ("The 5 companies directly above and below you "
+                                    "in the ranking.")
+                        elif view == "🏆 Leaders":
+                            best = (cdf.nlargest(10, metric_col) if higher_is_better
+                                    else cdf.nsmallest(10, metric_col))
+                            # Always keep the user on screen for reference.
+                            if you not in best["company"].values:
+                                best = pd.concat(
+                                    [best, cdf[cdf["company"] == you]])
+                            shown = best.sort_values(metric_col,
+                                                     ascending=higher_is_better)
+                            note = "The 10 best performers, with you shown for reference."
+                        elif view == "🔻 Laggards":
+                            worst = (cdf.nsmallest(10, metric_col) if higher_is_better
+                                     else cdf.nlargest(10, metric_col))
+                            if you not in worst["company"].values:
+                                worst = pd.concat(
+                                    [worst, cdf[cdf["company"] == you]])
+                            shown = worst.sort_values(metric_col,
+                                                      ascending=higher_is_better)
+                            note = "The 10 weakest performers, with you shown for reference."
+                        else:
+                            shown, note = cdf, ""
+
+                        colors = _bar_colors(shown["company"], you)
+                        x_max = shown[metric_col].max() * 1.20
+                        figb = go.Figure(go.Bar(
+                            x=shown[metric_col], y=shown["company"],
+                            orientation="h",
+                            marker=dict(color=colors, line_width=0),
+                            text=[f"{v:{fmt}}" for v in shown[metric_col]],
+                            textposition="outside", textfont=dict(size=11),
+                            hovertemplate=(f"<b>%{{y}}</b><br>{label}: "
+                                           f"<b>%{{x:{fmt}}}</b>{unit}<extra></extra>"),
+                        ))
+                        if med is not None:
+                            figb.add_vline(
+                                x=med, line_dash="dash", line_color=_C_MEDIAN,
+                                line_width=2,
+                                annotation_text=f"Median {med:{fmt}}",
                                 annotation_font=dict(color=_C_MEDIAN, size=11),
                                 annotation_position="top right",
                             )
-                            fig1.update_layout(
-                                **_hbar_layout(len(cdf1), "ESG Score (/ 100)", x_max1)
-                            )
-                            st.plotly_chart(fig1, use_container_width=True)
+                        figb.update_layout(**_hbar_layout(
+                            len(shown), f"{label} ({unit})" if unit else label,
+                            x_max))
+                        st.plotly_chart(figb, use_container_width=True)
+                        if note:
+                            st.caption(f"{note} Showing {len(shown)} of {n} companies.")
+
+                    # ── CHART 1: ESG Score ────────────────────────────────
+                    _metric_chart("esg_score", "ESG Score vs Peers", "/100",
+                                  higher_is_better=True, fmt=".1f", key="esg")
 
                     # ── CHART 2: Profitability scatter ────────────────────
                     if ("ebitda_margin" in benchmarks and "roa" in benchmarks
                             and {"ebitda_margin", "roa"}.issubset(base_df.columns)):
                         section_header(
                             "Profitability Landscape",
-                            "EBITDA Margin vs Return on Assets — "
-                            "dashed lines show sector medians.",
+                            "Every company as one dot. The further up and to the "
+                            "right, the better.",
+                        )
+                        callout(
+                            "The dashed lines are the sector medians, splitting the "
+                            "chart into four quadrants. **Top-right is the winning "
+                            "corner** — strong margins *and* strong asset returns. "
+                            "Find the red star: that's you. Hover any dot for its name.",
+                            icon="🧭", tone="info",
                         )
                         sdf = base_df.dropna(subset=["ebitda_margin", "roa"]).copy()
 
@@ -766,6 +918,23 @@ if results:
                             annotation_font=dict(size=10, color="#666"),
                             annotation_position="bottom right",
                         )
+
+                        # Name the quadrants. With 150 dots the cloud is
+                        # meaningless until each corner is labelled — this is
+                        # what turns a scatter into a verdict.
+                        _x_lo, _x_hi = sdf["ebitda_margin"].min(), sdf["ebitda_margin"].max()
+                        _y_lo, _y_hi = sdf["roa"].min(), sdf["roa"].max()
+                        for _qx, _qy, _qtext, _qcolor in [
+                            (_x_hi, _y_hi, "★ Leaders<br>high margin · high return", "#2E8540"),
+                            (_x_lo, _y_hi, "Asset-efficient<br>lower margin", "#8a6d00"),
+                            (_x_hi, _y_lo, "Profitable<br>asset-heavy", "#8a6d00"),
+                            (_x_lo, _y_lo, "Laggards<br>low margin · low return", "#C8102E"),
+                        ]:
+                            fig2.add_annotation(
+                                x=_qx, y=_qy, text=_qtext, showarrow=False,
+                                font=dict(size=9, color=_qcolor),
+                                opacity=0.75, align="center",
+                            )
                         fig2.update_layout(
                             **_LAYOUT,
                             xaxis=dict(
@@ -785,47 +954,10 @@ if results:
                         )
                         st.plotly_chart(fig2, use_container_width=True)
 
-                    # ── CHART 3: Scope 1+2 Emissions ─────────────────────
-                    if ("scope1_2_emissions" in benchmarks
-                            and "scope1_2_emissions" in base_df.columns):
-                        section_header(
-                            "Scope 1+2 Emissions vs Peers",
-                            "Lower is better · Values in ktCO₂e · "
-                            f"Sector median: {benchmarks['scope1_2_emissions']['peer_median']:,.0f}",
-                        )
-                        cv3     = benchmarks["scope1_2_emissions"]["company_value"] or 0
-                        # Sort highest first (worst emitters on top)
-                        cdf3, you3 = _bar_df("scope1_2_emissions", cv3, ascending=False)
-                        if not cdf3.empty:
-                            colors3 = _bar_colors(cdf3["company"], you3)
-                            x_max3  = cdf3["scope1_2_emissions"].max() * 1.20
-                            fig3 = go.Figure(go.Bar(
-                                x            = cdf3["scope1_2_emissions"],
-                                y            = cdf3["company"],
-                                orientation  = "h",
-                                marker       = dict(color=colors3, line_width=0),
-                                text         = [f"{v:,.0f}" for v in cdf3["scope1_2_emissions"]],
-                                textposition = "outside",
-                                textfont     = dict(size=11),
-                                hovertemplate= (
-                                    "<b>%{y}</b><br>"
-                                    "Scope 1+2: <b>%{x:,.0f}</b> ktCO₂e"
-                                    "<extra></extra>"
-                                ),
-                            ))
-                            med3 = benchmarks["scope1_2_emissions"]["peer_median"]
-                            fig3.add_vline(
-                                x=med3, line_dash="dash",
-                                line_color=_C_MEDIAN, line_width=2,
-                                annotation_text=f"Median {med3:,.0f}",
-                                annotation_font=dict(color=_C_MEDIAN, size=11),
-                                annotation_position="top right",
-                            )
-                            fig3.update_layout(
-                                **_hbar_layout(len(cdf3),
-                                               "Scope 1+2 Emissions (ktCO₂e)", x_max3)
-                            )
-                            st.plotly_chart(fig3, use_container_width=True)
+                    # ── CHART 3: Scope 1+2 Emissions (lower is better) ────
+                    _metric_chart("scope1_2_emissions",
+                                  "Scope 1+2 Emissions vs Peers", "ktCO₂e",
+                                  higher_is_better=False, fmt=",.0f", key="emis")
 
                 # ── Rankings table ────────────────────────────────────────
                 rankings = peer.get("rankings", [])
@@ -841,12 +973,43 @@ if results:
                     )
 
                 # ── Full peer data table ───────────────────────────────────
-                with st.expander("📋 Full peer dataset", expanded=False):
+                # At 150 rows an unfiltered dump is unusable, so give it a
+                # search box and a sort. Kept in an expander because this is
+                # the "show me the raw numbers" escape hatch, not the story.
+                with st.expander(f"📋 Browse all {peer_count} companies", expanded=False):
                     if peer_table:
+                        full_df = pd.DataFrame(peer_table)
+                        fc1, fc2 = st.columns([2, 1])
+                        with fc1:
+                            query = st.text_input(
+                                "Search companies",
+                                placeholder="Type a company name…",
+                                key="peer_table_search",
+                            )
+                        with fc2:
+                            numeric_cols = [
+                                c for c in full_df.columns
+                                if pd.api.types.is_numeric_dtype(full_df[c])
+                            ]
+                            sort_col = st.selectbox(
+                                "Sort by", ["(dataset order)"] + numeric_cols,
+                                key="peer_table_sort",
+                            )
+                        view_df = full_df
+                        if query and "company" in view_df.columns:
+                            view_df = view_df[
+                                view_df["company"].astype(str)
+                                .str.contains(query, case=False, na=False)
+                            ]
+                        if sort_col != "(dataset order)":
+                            view_df = view_df.sort_values(sort_col, ascending=False)
+                        st.caption(
+                            f"Showing {len(view_df)} of {len(full_df)} companies."
+                            + (f" Your company: **{company_name}**."
+                               if company_name else "")
+                        )
                         safe_dataframe(
-                            pd.DataFrame(peer_table),
-                            use_container_width=True,
-                            hide_index=True,
+                            view_df, use_container_width=True, hide_index=True,
                         )
                     else:
                         st.caption("No peer data available.")
