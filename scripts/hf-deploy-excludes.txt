@@ -1,0 +1,24 @@
+# Paths that are deliberately NOT shipped to the HuggingFace Space.
+#
+# The Space's git backend rejects large binary blobs unless they're tracked
+# via xet/LFS, and client decks must never leave the GitHub mirror. Anything
+# matching a pattern here is stripped from the deploy commit, and the
+# pre-push guard treats a difference in these paths as expected rather than
+# as a corrupted deploy.
+#
+# One glob per line. `*` matches across `/`, so `docs/*.png` covers nested
+# paths too. Blank lines and `#` comments are ignored.
+#
+# Keep this list minimal. Every entry is a file the live Space will NOT
+# have, so adding one silently DELETES that file from the Space on the next
+# deploy. Notably absent, on purpose:
+#
+#   *.xlsx        — data_esg/*.xlsx are already deployed and have been for
+#                   the Space's whole history. They're ~76 KB, well inside
+#                   what the Space accepts, and stripping them now would
+#                   remove live files as a side effect of a tooling change.
+#   pwc_logo.png  — required at runtime by utils.ui._pwc_logo_data_uri().
+
+docs/*.png
+*.pptx
+*.zip

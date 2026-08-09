@@ -9,22 +9,31 @@
 # That's exactly how ``main`` got reverted on 2026-04-20, dropping
 # ~7 300 lines of work.
 #
-# This hook blocks any push to the ``hf-streamlit`` remote unless the
-# commit being pushed exactly matches ``origin/main``'s tip. That makes
-# the deploy contract explicit:
-#   1. Merge to ``origin/main`` (via PR + CI) first.
-#   2. ``git fetch origin``.
-#   3. ``git push hf-streamlit origin/main:main``.
+# What it checks
+# --------------
+# The pushed commit's **tree** must match ``origin/main``'s tree, ignoring
+# the paths listed in ``scripts/hf-deploy-excludes.txt``. In other words:
+# "you may deploy anything, as long as what lands on the Space is main."
 #
-# ``main`` is the integration branch the team actually works on, so it is
-# the deploy source. (Earlier this hook enforced ``origin/dev``; that
-# branch has since diverged and is no longer the release line.)
+# It deliberately does NOT compare SHAs. The deploy commit can never share
+# a SHA with ``origin/main``:
+#
+#   * it strips binaries the Space won't accept, so its tree differs; and
+#   * the Space's history is unrelated to main's (its own root commit, no
+#     merge base), so the deploy commit is built on the Space's tip.
+#
+# An earlier version of this hook required ``local_sha == origin/main``.
+# That is unsatisfiable for any real deploy, so every legitimate push had
+# to be forced through with ``--no-verify`` — which meant the guard was
+# routinely bypassed and protected nothing. Comparing trees keeps the
+# 2026-04-20 scenario blocked (a stale or reverted tree differs in tracked
+# source files) while letting correct deploys through untouched.
 #
 # Bypass (intentional)
 # --------------------
-# ``git push --no-verify hf-streamlit …`` skips the hook. Use only when
-# you genuinely need to deploy a non-main SHA (e.g. an emergency
-# hotfix from a feature branch).
+# ``git push --no-verify hf-streamlit …`` skips the hook. With the tree
+# check in place you should essentially never need this; if you do, it
+# means the thing you're pushing is not main, so be sure that's deliberate.
 #
 # Installation
 # ------------
@@ -49,6 +58,15 @@ case "$remote_url" in
     exit 0
     ;;
 esac
+
+repo_root="$(git rev-parse --show-toplevel)"
+lib="$repo_root/scripts/hf-deploy-lib.sh"
+if [[ ! -f "$lib" ]]; then
+  printf '✗ Missing %s — cannot verify this deploy. Refusing.\n' "$lib" >&2
+  exit 1
+fi
+# shellcheck source=../hf-deploy-lib.sh
+. "$lib"
 
 # Read the list of refs being pushed from stdin. Format per `man githooks`:
 #   <local-ref> <local-sha> <remote-ref> <remote-sha>
@@ -76,24 +94,41 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   origin_main_sha="$(git rev-parse origin/main)"
 
-  if [[ "$local_sha" == "$origin_main_sha" ]]; then
-    # Happy path: deploy commit matches origin/main exactly.
+  # The check: which tracked paths differ, once expected binary
+  # exclusions are discounted?
+  unexpected="$(hf_deploy_unexpected_diff "$local_sha" "$origin_main_sha")"
+
+  if [[ -z "$unexpected" ]]; then
+    # Happy path: what lands on the Space is main.
     continue
   fi
 
-  # Failure path: local SHA is something else. Diagnose loudly.
+  # Failure path: the tree is not main. Diagnose loudly, and show the
+  # offending paths — that's what tells you *how* it diverged.
+  file_count="$(printf '%s\n' "$unexpected" | grep -c .)"
   deploy_messages+=("")
   deploy_messages+=("✗ Refusing to deploy to ${remote_name} (HuggingFace Streamlit Space).")
   deploy_messages+=("")
   deploy_messages+=("  You're pushing:     ${local_sha:0:12}  ($(git log -1 --format='%s' "$local_sha"))")
   deploy_messages+=("  origin/main tip is: ${origin_main_sha:0:12}  ($(git log -1 --format='%s' "$origin_main_sha"))")
   deploy_messages+=("")
-  deploy_messages+=("  HF Space deploys MUST originate from origin/main. To proceed:")
+  deploy_messages+=("  Its tree differs from origin/main in ${file_count} tracked path(s)")
+  deploy_messages+=("  beyond the expected binary exclusions:")
+  deploy_messages+=("")
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    deploy_messages+=("    - ${path}")
+  done <<< "$(printf '%s\n' "$unexpected" | head -20)"
+  if [[ "$file_count" -gt 20 ]]; then
+    deploy_messages+=("    … and $((file_count - 20)) more")
+  fi
+  deploy_messages+=("")
+  deploy_messages+=("  What lands on the Space must be origin/main. To proceed:")
   deploy_messages+=("    1. Merge your work to main (PR + CI green).")
   deploy_messages+=("    2. git fetch origin")
-  deploy_messages+=("    3. git push ${remote_name} origin/main:main")
+  deploy_messages+=("    3. scripts/sync_to_hf.sh")
   deploy_messages+=("")
-  deploy_messages+=("  Need to bypass for an emergency hotfix? Re-run with --no-verify:")
+  deploy_messages+=("  Deploying something other than main on purpose? Re-run with --no-verify:")
   deploy_messages+=("    git push --no-verify ${remote_name} <sha>:main")
   deploy_messages+=("")
   deploy_violation=1
