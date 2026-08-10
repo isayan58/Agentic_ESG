@@ -5,7 +5,7 @@ from agents.action_agent import ActionAgent
 from utils.charts import action_timeline, chart_unavailable_message
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, page_agent_header_live, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header, section_picker
 from utils.pipeline_refresh import data_freshness_caption
 
 st.set_page_config(page_title="Action Agent | ESG Intelligence Hub", page_icon="🎯", layout="wide")
@@ -66,9 +66,13 @@ if results and "error" not in results:
 
     st.markdown("---")
 
-    tab1, tab2, tab3 = st.tabs(["Action Items", "Implementation Roadmap", "AI Narrative"])
+    _section = section_picker([
+        'Action Items',
+        'Implementation Roadmap',
+        'AI Narrative'
+    ], key='8_action_agent_sec1')
 
-    with tab1:
+    if _section == 'Action Items':
         actions = results.get("actions", [])
         if actions:
             # Filter by priority
@@ -101,7 +105,7 @@ if results and "error" not in results:
                     if desc:
                         st.markdown(f"**Details:** {desc}")
 
-    with tab2:
+    if _section == 'Implementation Roadmap':
         actions = results.get("actions", [])
         if actions:
             actions_df = pd.DataFrame(actions)
@@ -114,7 +118,7 @@ if results and "error" not in results:
             available_cols = [c for c in display_cols if c in actions_df.columns]
             safe_dataframe(actions_df[available_cols], use_container_width=True, hide_index=True)
 
-    with tab3:
+    if _section == 'AI Narrative':
         narrative = results.get("roadmap_narrative", "")
         if narrative:
             st.markdown("#### Strategic Roadmap Overview")

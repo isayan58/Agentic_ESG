@@ -12,7 +12,7 @@ from utils.charts import (
 from utils.data_processing import load_supply_chain
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, page_agent_header_live, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header, section_picker
 from utils.pipeline_refresh import data_freshness_caption
 
 st.set_page_config(page_title="Carbon Accountant | ESG Intelligence Hub", page_icon="🌱", layout="wide")
@@ -74,11 +74,15 @@ if results and "error" not in results:
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Scope Breakdown", "Emissions Trend", "Scope 3 X-Ray Map", "Energy Mix", "AI Narrative"
-    ])
+    _section = section_picker([
+        'Scope Breakdown',
+        'Emissions Trend',
+        'Scope 3 X-Ray Map',
+        'Energy Mix',
+        'AI Narrative'
+    ], key='4_carbon_accountant_sec1')
 
-    with tab1:
+    if _section == 'Scope Breakdown':
         col1, col2 = st.columns([1, 1])
         with col1:
             fig = emissions_donut(results["scope_totals_current"])
@@ -91,14 +95,14 @@ if results and "error" not in results:
                 change = ((current - prev) / prev * 100) if prev else 0
                 st.metric(scope, f"{current:,.0f} tCO2e", f"{change:+.1f}%")
 
-    with tab2:
+    if _section == 'Emissions Trend':
         trends_data = results.get("quarterly_trends", [])
         if trends_data:
             trends_df = pd.DataFrame(trends_data)
             fig = emissions_trend(trends_df)
             render_chart(fig)
 
-    with tab3:
+    if _section == 'Scope 3 X-Ray Map':
         st.markdown("#### Scope 3 X-Ray — Global Supply Chain Emission Hotspots")
         st.caption("Bubble size = emission contribution. Color = risk level (Red=High, Yellow=Medium, Green=Low)")
         supply_chain_df = load_supply_chain()
@@ -117,7 +121,7 @@ if results and "error" not in results:
                 - Risk Factors: {h['risk_factors']}
                 """)
 
-    with tab4:
+    if _section == 'Energy Mix':
         energy_data = results.get("energy_analysis", {})
         if energy_data:
             st.metric("Total Energy", f"{energy_data.get('total_mwh', 0):,.0f} MWh")
@@ -142,7 +146,7 @@ if results and "error" not in results:
             st.markdown("#### Emissions by Category (2024)")
             safe_dataframe(pd.DataFrame(cat_data), use_container_width=True, hide_index=True)
 
-    with tab5:
+    if _section == 'AI Narrative':
         narrative = results.get("narrative", "")
         if narrative:
             st.markdown("#### AI-Generated Carbon Narrative")

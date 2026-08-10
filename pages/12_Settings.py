@@ -21,7 +21,7 @@ from utils.session import (
     get_session_company_profile,
     save_session_company_profile,
 )
-from utils.ui import inject_global_css, pwc_header
+from utils.ui import inject_global_css, pwc_header, section_picker
 
 
 st.set_page_config(page_title="Settings | ESG Intelligence Hub", page_icon="⚙️", layout="wide")
@@ -62,11 +62,14 @@ def _parse_list(text: str):
     return [line.strip() for line in (text or "").splitlines() if line.strip()]
 
 
-tab_identity, tab_financials, tab_esg, tab_advanced = st.tabs([
-    "Identity", "Financials", "ESG posture", "Advanced (raw JSON)"
-])
+_section = section_picker([
+    'Identity',
+    'Financials',
+    'ESG posture',
+    'Advanced (raw JSON)'
+], key='12_settings_sec1')
 
-with tab_identity:
+if _section == 'Identity':
     st.subheader("Company identity")
     col1, col2 = st.columns(2)
     with col1:
@@ -95,7 +98,7 @@ with tab_identity:
         value=_list_text(profile.get("listed_exchanges")),
         height=80)
 
-with tab_financials:
+if _section == 'Financials':
     st.subheader("Financials")
     currency_unit = st.text_input(
         "Currency unit", value=profile.get("currency_unit", "INR lakhs"),
@@ -129,7 +132,7 @@ with tab_financials:
             "Previous FY", min_value=2000, max_value=2100,
             value=int(profile.get("previous_fy") or (current_fy - 1)))
 
-with tab_esg:
+if _section == 'ESG posture':
     st.subheader("ESG posture & commitments")
     col1, col2 = st.columns(2)
     with col1:
@@ -152,7 +155,7 @@ with tab_esg:
         "Material topics (one per line)",
         value=_list_text(profile.get("material_topics")), height=140)
 
-with tab_advanced:
+if _section == 'Advanced (raw JSON)':
     st.subheader("Raw profile JSON")
     st.caption(
         "Power-user escape hatch — edit the entire profile as JSON. "

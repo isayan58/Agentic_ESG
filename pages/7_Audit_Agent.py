@@ -4,7 +4,7 @@ import pandas as pd
 from agents.audit_agent import AuditAgent
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, page_agent_header_live, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header, section_picker
 from utils.pipeline_refresh import data_freshness_caption
 from utils.gap_suggestions import (
     suggestion_for_audit_dataset,
@@ -60,11 +60,14 @@ if results and "error" not in results:
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Readiness Breakdown", "Compliance Checklist", "Data Completeness", "Audit Trail"
-    ])
+    _section = section_picker([
+        'Readiness Breakdown',
+        'Compliance Checklist',
+        'Data Completeness',
+        'Audit Trail'
+    ], key='7_audit_agent_sec1')
 
-    with tab1:
+    if _section == 'Readiness Breakdown':
         st.markdown("#### Readiness Score Components")
         components = {
             "Data Completeness": readiness.get("completeness", 0),
@@ -79,7 +82,7 @@ if results and "error" not in results:
                 status = "✅" if score >= 80 else ("⚠️" if score >= 60 else "❌")
                 st.markdown(f"### {status}")
 
-    with tab2:
+    if _section == 'Compliance Checklist':
         checklist = results.get("compliance_checklist", [])
         if checklist:
             status_icon = {"Pass": "✅", "Warning": "⚠️", "Fail": "❌"}
@@ -95,7 +98,7 @@ if results and "error" not in results:
             df = pd.DataFrame(rows)
             safe_dataframe(df, use_container_width=True, hide_index=True)
 
-    with tab3:
+    if _section == 'Data Completeness':
         completeness = results.get("completeness_audit", [])
         if completeness:
             # Status summary first so skimmers see the counts immediately.
@@ -141,7 +144,7 @@ if results and "error" not in results:
                                     "existing source will also lift this score."
                                 )
 
-    with tab4:
+    if _section == 'Audit Trail':
         trail = results.get("audit_trail", [])
         if trail:
             # Verify chain integrity

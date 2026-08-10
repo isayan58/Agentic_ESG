@@ -3718,6 +3718,38 @@ def insight_group(
 
 
 # ---------------------------------------------------------------------------
+# Section picker — the tab-strip replacement
+# ---------------------------------------------------------------------------
+def section_picker(
+    labels: Sequence[str],
+    *,
+    key: str,
+    label: str = "📂 Section",
+    caption: Optional[str] = None,
+) -> str:
+    """One dropdown in place of a row of tabs.
+
+    Beyond a handful of tabs the strip wraps, truncates, or scrolls
+    horizontally, and on a narrow window you cannot see what the options
+    even are. A dropdown stays one line at any count.
+
+    It also does less work: ``st.tabs`` executes *every* tab body on every
+    rerun and merely hides the inactive ones with CSS, whereas callers of
+    this render only the selected branch. That is the reason to prefer it
+    on the heavy pages — but it is also the one behavioural difference, so
+    a section must not depend on another section's body having run.
+    """
+    inject_global_css()
+    options = [str(x) for x in labels]
+    if not options:
+        return ""
+    choice = st.selectbox(label, options, key=key)
+    position = options.index(choice) + 1 if choice in options else 1
+    st.caption(caption or f"Section {position} of {len(options)}")
+    return choice
+
+
+# ---------------------------------------------------------------------------
 # Feature info
 # ---------------------------------------------------------------------------
 def react_feature_status() -> dict:

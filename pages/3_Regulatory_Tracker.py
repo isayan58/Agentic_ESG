@@ -6,7 +6,7 @@ from utils.charts import compliance_radar, chart_unavailable_message
 from utils.monitoring import regulatory_updater
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, page_agent_header_live, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header, section_picker
 from utils.pipeline_refresh import data_freshness_caption
 from utils.gap_suggestions import suggestions_for_gap, render_suggestion_block
 from utils.framework_refresh import (
@@ -86,11 +86,14 @@ if results and "error" not in results:
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Compliance Radar", "Gap Analysis", "Global Framework Updates", "AI Narrative"
-    ])
+    _section = section_picker([
+        'Compliance Radar',
+        'Gap Analysis',
+        'Global Framework Updates',
+        'AI Narrative'
+    ], key='3_regulatory_tracker_sec1')
 
-    with tab1:
+    if _section == 'Compliance Radar':
         fw_results = results.get("framework_results", {})
         scores = {fw: data["compliance_pct"] for fw, data in fw_results.items() if fw in frameworks_display}
         if scores:
@@ -114,7 +117,7 @@ if results and "error" not in results:
         if rows:
             safe_dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    with tab2:
+    if _section == 'Gap Analysis':
         st.caption(
             "Each gap below is paired with a **Fix this gap** expander that "
             "tells you exactly which ESG schema to upload and what columns it "
@@ -182,7 +185,7 @@ if results and "error" not in results:
                             st.markdown("---")
                         render_suggestion_block(st, sugg)
 
-    with tab3:
+    if _section == 'Global Framework Updates':
         store = load_updates_store()
         pending = pending_updates(store)
         applied = applied_updates(store)
@@ -355,7 +358,7 @@ if results and "error" not in results:
                     hide_index=True,
                 )
 
-    with tab4:
+    if _section == 'AI Narrative':
         gap_analysis = results.get("gap_analysis") or {}
         narrative = gap_analysis.get("summary") or results.get("gap_narrative", "")
         if narrative or gap_analysis.get("specific_gaps"):

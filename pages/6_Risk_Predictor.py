@@ -5,7 +5,7 @@ from agents.risk_predictor import RiskPredictorAgent
 from utils.charts import risk_gauge, charts_available, chart_unavailable_message
 from utils.streamlit_compat import safe_dataframe
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, page_agent_header_live, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header, section_picker
 from utils.pipeline_refresh import data_freshness_caption
 
 st.set_page_config(page_title="Risk Predictor | ESG Intelligence Hub", page_icon="⚠️", layout="wide")
@@ -65,12 +65,15 @@ if results and "error" not in results:
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Risk Dashboard", "ESG Rating", "Deep-Tier Supplier Risk",
-        "Dynamic Scenario Analysis", "AI Narrative"
-    ])
+    _section = section_picker([
+        'Risk Dashboard',
+        'ESG Rating',
+        'Deep-Tier Supplier Risk',
+        'Dynamic Scenario Analysis',
+        'AI Narrative'
+    ], key='6_risk_predictor_sec1')
 
-    with tab1:
+    if _section == 'Risk Dashboard':
         st.markdown("#### Climate Risk Breakdown")
         cols = st.columns(3)
         with cols[0]:
@@ -88,7 +91,7 @@ if results and "error" not in results:
             level_color = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(item["level"], "⚪")
             st.markdown(f"{level_color} **{item['category']}** (Score: {item['score']}/100) — {item['details']}")
 
-    with tab2:
+    if _section == 'ESG Rating':
         st.markdown("#### ESG Rating Prediction")
         col1, col2 = st.columns(2)
         with col1:
@@ -107,7 +110,7 @@ if results and "error" not in results:
             st.markdown("#### Areas Needing Improvement")
             safe_dataframe(pd.DataFrame(areas), use_container_width=True, hide_index=True)
 
-    with tab3:
+    if _section == 'Deep-Tier Supplier Risk':
         st.markdown("#### Deep-Tier Supplier Risk Identification")
         st.caption("Risk analysis across Tier 1, Tier 2, and Tier 3 suppliers")
         supplier_risks = results.get("supplier_risks", {})
@@ -144,7 +147,7 @@ if results and "error" not in results:
             else:
                 st.info(chart_unavailable_message())
 
-    with tab4:
+    if _section == 'Dynamic Scenario Analysis':
         st.markdown("#### Dynamic Scenario Analysis")
         st.caption("Adjust parameters to see projected outcomes in real-time")
 
@@ -197,6 +200,6 @@ if results and "error" not in results:
                     st.metric("Projected Emissions", f"{scenario['projected_emissions']:,.0f} tCO2e")
                     st.markdown(f"**Rating:** {scenario['projected_rating']} | **Timeline:** {scenario['timeline']}")
 
-    with tab5:
+    if _section == 'AI Narrative':
         st.markdown("#### AI Risk Narrative")
         st.markdown(results.get("narrative", ""))

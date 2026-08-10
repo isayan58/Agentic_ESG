@@ -5,6 +5,7 @@ import streamlit as st
 from core.orchestrator import Orchestrator
 from utils.streamlit_compat import safe_dataframe
 from utils.ui import (
+    section_picker,
     hero, section_header, kpi_card, iqs_gauge, grade_pill, inject_global_css,
     page_agent_header_live,
     pwc_header,
@@ -153,17 +154,17 @@ if results:
     if "error" in results:
         st.error(results["error"])
     else:
-        tab_company, tab_peers, tab_whatif, tab_iqs = st.tabs([
-            "📊 Your Company",
-            "🏢 Peer Benchmarking",
-            "🔮 What-if Simulator",
-            "📈 Improve IQS",
-        ])
+        _section = section_picker([
+            '📊 Your Company',
+            '🏢 Peer Benchmarking',
+            '🔮 What-if Simulator',
+            '📈 Improve IQS'
+        ], key='11_esg_roi_agent_sec1')
 
         # ══════════════════════════════════════════════════════════════════════
         # TAB 1 — YOUR COMPANY  (all existing content, unchanged)
         # ══════════════════════════════════════════════════════════════════════
-        with tab_company:
+        if _section == '📊 Your Company':
             fin_roi    = results.get("financial_roi", {})
             strat_roi  = results.get("strategic_roi", {})
             iqs        = results.get("investment_quality_score", {})
@@ -458,7 +459,7 @@ if results:
         # ══════════════════════════════════════════════════════════════════════
         # TAB 2 — PEER BENCHMARKING
         # ══════════════════════════════════════════════════════════════════════
-        with tab_peers:
+        if _section == '🏢 Peer Benchmarking':
             peer = results.get("peer_benchmarking", {})
 
             if not peer.get("available"):
@@ -1020,7 +1021,7 @@ if results:
         # the cached ROI snapshot through ``utils.whatif.simulate`` and
         # we render the deltas next to the live numbers.
         # ══════════════════════════════════════════════════════════════════════
-        with tab_whatif:
+        if _section == '🔮 What-if Simulator':
             from utils.whatif import WhatIfInputs, simulate
 
             section_header(
@@ -1188,7 +1189,7 @@ if results:
         # Diagnoses each IQS component, ranks improvement opportunities by
         # addressable lift, and surfaces a concrete action plan per component.
         # ══════════════════════════════════════════════════════════════════════
-        with tab_iqs:
+        if _section == '📈 Improve IQS':
             improvement = results.get("iqs_improvement", {})
 
             if not improvement:

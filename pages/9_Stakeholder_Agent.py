@@ -2,7 +2,9 @@
 import streamlit as st
 from agents.stakeholder_agent import StakeholderAgent
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, page_agent_header_live, pwc_header
+from utils.ui import (
+    inject_global_css, page_agent_header_live, pwc_header, section_picker,
+)
 from utils.pipeline_refresh import data_freshness_caption
 
 st.set_page_config(page_title="Stakeholder Agent | ESG Intelligence Hub", page_icon="👥", layout="wide")
@@ -59,11 +61,14 @@ if results and "error" not in results:
         "public": "🌍 General Public & Media",
     }
 
-    tabs = st.tabs([audience_labels.get(a, a) for a in audiences])
+    # Audiences are built at runtime, so the picker options are too.
+    _audience_options = [audience_labels.get(a, a) for a in audiences]
+    _section = section_picker(_audience_options, key="stakeholder_audience",
+                              label="📂 Audience")
 
     for i, audience_key in enumerate(audiences):
         comm = communications[audience_key]
-        with tabs[i]:
+        if _audience_options[i] == _section:
             # Subject line
             st.markdown(f"**Subject:** {comm.get('subject', '')}")
             st.markdown("---")

@@ -15,7 +15,7 @@ from utils.connection_manager import ConnectionManager
 from utils.session import get_session_connection_manager
 from utils.source_store import SourcePayloadTooLarge
 from utils.auth import require_login, sidebar_auth_widget
-from utils.ui import inject_global_css, page_agent_header_live, pwc_header
+from utils.ui import inject_global_css, page_agent_header_live, pwc_header, section_picker
 
 st.set_page_config(page_title="Data Collector | ESG Intelligence Hub", page_icon="📊", layout="wide")
 inject_global_css()
@@ -123,29 +123,36 @@ def render_chart(fig):
         st.plotly_chart(fig, use_container_width=True)
 
 # ── Tabs: Connect Sources / Run Collection ──
-main_tab1, main_tab2, main_tab3 = st.tabs([
-    "🔌 Connect Data Sources", "📥 Run Collection", "📊 Enterprise Connectors",
-])
+_section = section_picker([
+    '🔌 Connect Data Sources',
+    '📥 Run Collection',
+    '📊 Enterprise Connectors'
+], key='2_data_collector_sec1')
 
 # ────────────────────────────────────────────────────────────────
 # TAB 1: Connect Data Sources (File, Google Sheets, REST, Cloud)
 # ────────────────────────────────────────────────────────────────
-with main_tab1:
+if _section == '🔌 Connect Data Sources':
     st.markdown("### Connect Your ESG Data")
     st.markdown("Upload files, connect to cloud storage, or fetch from APIs. "
                 "The system auto-detects the ESG schema and maps columns.")
 
     source_name = st.text_input("Data Source Name", placeholder="e.g. My Emissions Data")
 
-    (conn_tab1, conn_tab2, conn_tab3, conn_tab4, conn_tab5,
-     conn_tab6, conn_tab7, conn_tab8, conn_tab9) = st.tabs([
-        "📁 File Upload", "📊 Google Sheets", "🌐 REST API",
-        "☁️ AWS S3", "🔷 BigQuery", "🔷 GCS", "🔵 Azure Blob",
-        "🔺 Delta Lake", "❄️ Snowflake",
-    ])
+    _section2 = section_picker([
+        '📁 File Upload',
+        '📊 Google Sheets',
+        '🌐 REST API',
+        '☁️ AWS S3',
+        '🔷 BigQuery',
+        '🔷 GCS',
+        '🔵 Azure Blob',
+        '🔺 Delta Lake',
+        '❄️ Snowflake'
+    ], key='2_data_collector_sec2')
 
     # ── File Upload ──
-    with conn_tab1:
+    if _section2 == '📁 File Upload':
         uploaded = st.file_uploader("Upload CSV, Excel, or JSON", type=["csv", "xlsx", "xls", "json"])
         if st.button("Test & Preview", key="test_file") and uploaded:
             try:
@@ -187,7 +194,7 @@ with main_tab1:
                 st.error(f"Error: {e}")
 
     # ── Google Sheets ──
-    with conn_tab2:
+    if _section2 == '📊 Google Sheets':
         gs_url = st.text_input("Google Sheets URL", placeholder="https://docs.google.com/spreadsheets/d/.../edit")
         gs_gid = st.text_input("Sheet GID (optional)", value="0")
         if st.button("Test & Preview", key="test_gs") and gs_url:
@@ -213,7 +220,7 @@ with main_tab1:
                 st.error(f"Error: {e}")
 
     # ── REST API ──
-    with conn_tab3:
+    if _section2 == '🌐 REST API':
         api_url = st.text_input("API URL", placeholder="https://api.example.com/data")
         api_method = st.radio("HTTP Method", ["GET", "POST"], horizontal=True)
         api_headers_str = st.text_area("Headers (one per line: Key: Value)", height=80)
@@ -259,7 +266,7 @@ with main_tab1:
                 st.error(f"Error: {e}")
 
     # ── AWS S3 ──
-    with conn_tab4:
+    if _section2 == '☁️ AWS S3':
         s3_bucket = st.text_input("S3 Bucket Name", placeholder="my-esg-data-bucket")
         s3_key = st.text_input("Object Key", placeholder="data/emissions_2024.csv")
         s3_access = st.text_input("Access Key ID (optional if using IAM)", type="password")
@@ -295,7 +302,7 @@ with main_tab1:
                 st.error(f"Error: {e}")
 
     # ── GCP BigQuery ──
-    with conn_tab5:
+    if _section2 == '🔷 BigQuery':
         bq_project = st.text_input("GCP Project ID", placeholder="my-gcp-project")
         bq_query = st.text_area("SQL Query", placeholder="SELECT * FROM `project.dataset.table`", height=100)
         bq_creds = st.text_input("Service Account JSON (optional)", type="password")
@@ -326,7 +333,7 @@ with main_tab1:
                 st.error(f"Error: {e}")
 
     # ── GCP Cloud Storage ──
-    with conn_tab6:
+    if _section2 == '🔷 GCS':
         gcs_bucket = st.text_input("GCS Bucket Name", placeholder="my-esg-bucket")
         gcs_blob = st.text_input("Blob Path", placeholder="data/emissions.csv")
         gcs_creds = st.text_input("Service Account JSON (optional)", key="gcs_creds", type="password")
@@ -358,7 +365,7 @@ with main_tab1:
                 st.error(f"Error: {e}")
 
     # ── Azure Blob ──
-    with conn_tab7:
+    if _section2 == '🔵 Azure Blob':
         az_conn = st.text_input("Connection String", type="password",
                                 placeholder="DefaultEndpointsProtocol=https;AccountName=...")
         az_container = st.text_input("Container Name", placeholder="esg-data")
@@ -391,7 +398,7 @@ with main_tab1:
                 st.error(f"Error: {e}")
 
     # ── Delta Lake ──
-    with conn_tab8:
+    if _section2 == '🔺 Delta Lake':
         st.markdown("Read a **Delta Lake** table from a local path, S3 (`s3://`), GCS (`gs://`), or Azure (`az://`).")
         dl_uri = st.text_input("Table URI",
                                placeholder="s3://my-bucket/delta-tables/emissions  or  /data/delta/emissions")
@@ -436,7 +443,7 @@ with main_tab1:
                 st.error(f"Error: {e}")
 
     # ── Snowflake ──
-    with conn_tab9:
+    if _section2 == '❄️ Snowflake':
         st.markdown(
             "Run a SQL query against a **Snowflake** warehouse. "
             "Results feed straight into the ESG pipeline — the schema is "
@@ -722,7 +729,7 @@ with main_tab1:
 # ────────────────────────────────────────────────────────────────
 # TAB 2: Run Collection
 # ────────────────────────────────────────────────────────────────
-with main_tab2:
+if _section == '📥 Run Collection':
     st.markdown("### Run Data Collection")
 
     col1, col2 = st.columns(2)
@@ -770,12 +777,15 @@ with main_tab2:
             st.metric("Active Connectors", f"{active}/6")
 
         st.markdown("---")
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "Quality Scores", "Missing Data Alerts", "Verifiable Trust",
-            "AI Classification", "Audit Trail",
-        ])
+        _section3 = section_picker([
+            'Quality Scores',
+            'Missing Data Alerts',
+            'Verifiable Trust',
+            'AI Classification',
+            'Audit Trail'
+        ], key='2_data_collector_sec3')
 
-        with tab1:
+        if _section3 == 'Quality Scores':
             quality = results.get("quality_scores", {})
             if quality:
                 scores = {name: q["completeness"] for name, q in quality.items()}
@@ -792,7 +802,7 @@ with main_tab2:
                     })
                 safe_dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-        with tab2:
+        if _section3 == 'Missing Data Alerts':
             alerts = results.get("missing_data_alerts", [])
             if alerts:
                 for alert in alerts:
@@ -812,7 +822,7 @@ with main_tab2:
                     heading="Field-level data-quality gaps",
                 )
 
-        with tab3:
+        if _section3 == 'Verifiable Trust':
             conf = results.get("confidence_scores", {})
             if conf:
                 st.caption("Each dataset is scored on completeness, source reliability, and freshness.")
@@ -826,7 +836,7 @@ with main_tab2:
                     with c2:
                         st.markdown(f"Audit Ready: {audit_icon}")
 
-        with tab4:
+        if _section3 == 'AI Classification':
             issues = results.get("quality_issues", [])
             if issues:
                 for issue in issues:
@@ -836,7 +846,7 @@ with main_tab2:
             else:
                 st.success("No quality issues detected!")
 
-        with tab5:
+        if _section3 == 'Audit Trail':
             if agent.audit_trail:
                 for entry in agent.audit_trail:
                     st.text(f"[{entry['timestamp'][:19]}] {entry['message']}")
@@ -844,7 +854,7 @@ with main_tab2:
 # ────────────────────────────────────────────────────────────────
 # TAB 3: Enterprise Connectors
 # ────────────────────────────────────────────────────────────────
-with main_tab3:
+if _section == '📊 Enterprise Connectors':
     st.markdown("### Enterprise Connector Status")
     results = st.session_state.data_collector_results
     if results:

@@ -17,6 +17,7 @@ from utils.charts import (
 from utils.streamlit_compat import safe_dataframe
 from utils.monitoring import monitoring_engine
 from utils.ui import (
+    section_picker,
     hero, section_header, kpi_card, agent_card, pipeline_chips,
     badge, grade_pill, inject_global_css, pwc_header,
     log_panel, retry_button, drilldown, live_badge, collect_audit_trail,
@@ -919,10 +920,16 @@ if st.session_state.pipeline_results:
 
     st.markdown("---")
 
-    tab_results, tab_business, tab_hypotheses, tab_pipeline, tab_transform, tab_stack, tab_tiers, tab_monitor = st.tabs([
-        "Results Summary", "Business Lens", "Hypothesis Tracker", "Pipeline Flow",
-        "Transformation", "Enterprise Stack", "Tier Config", "24/7 Monitoring",
-    ])
+    _section = section_picker([
+        'Results Summary',
+        'Business Lens',
+        'Hypothesis Tracker',
+        'Pipeline Flow',
+        'Transformation',
+        'Enterprise Stack',
+        'Tier Config',
+        '24/7 Monitoring'
+    ], key='1_esg_command_center_sec1')
 
 
     data_res = results.get("data_collector", {})
@@ -939,7 +946,7 @@ if st.session_state.pipeline_results:
     cagr = kpi_res.get("cagr", {})
     volatility = kpi_res.get("volatility", {})
 
-    with tab_results:
+    if _section == 'Results Summary':
         section_header("Pipeline Results",
                        "Headline metrics from the latest full-pipeline run.")
 
@@ -1195,7 +1202,7 @@ if st.session_state.pipeline_results:
                 kpi_card("IQS Grade", iqs.get("grade", "N/A"),
                          f"Score {iqs.get('score', 0)}/100", key="roi_grade")
 
-    with tab_business:
+    if _section == 'Business Lens':
         st.markdown("### Top Line vs Bottom Line")
         st.caption("This tab translates ESG into plain business language for revenue, profit, capital efficiency, and risk.")
 
@@ -1265,7 +1272,7 @@ if st.session_state.pipeline_results:
         ])
         safe_dataframe(finance_detail, use_container_width=True, hide_index=True)
 
-    with tab_hypotheses:
+    if _section == 'Hypothesis Tracker':
         st.markdown("### Hypothesis Tracker")
         st.caption("This shows the business ideas the platform is testing, translated into simple language.")
 
@@ -1329,7 +1336,7 @@ if st.session_state.pipeline_results:
         ])
         safe_dataframe(hypothesis_rows, use_container_width=True, hide_index=True)
 
-    with tab_pipeline:
+    if _section == 'Pipeline Flow':
         st.markdown("### Agent Pipeline — Data Flow Visualization")
         st.caption("Sankey diagram showing how data flows between all orchestrated agents")
         fig = pipeline_flow_diagram()
@@ -1341,7 +1348,7 @@ if st.session_state.pipeline_results:
         - The final layer turns those signals into reports, decisions, and stakeholder communication.
         """)
 
-    with tab_transform:
+    if _section == 'Transformation':
         st.markdown("### Real-World Transformation — From Months to Weeks")
         fig = before_after_comparison()
         render_chart(fig)
@@ -1354,7 +1361,7 @@ if st.session_state.pipeline_results:
         - Audit readiness score: **92%** (up from 55%)
         """)
 
-    with tab_stack:
+    if _section == 'Enterprise Stack':
         st.markdown("### Enterprise Stack Architecture")
         st.caption("7-layer architecture designed for seamless tech stack integration and massive scale")
         fig = enterprise_stack_layers()
@@ -1371,7 +1378,7 @@ if st.session_state.pipeline_results:
         | 1 | Cloud Foundation | Scalable infrastructure |
         """)
 
-    with tab_tiers:
+    if _section == 'Tier Config':
         st.markdown("### Tailored for Every Enterprise")
         fig = tier_comparison_chart()
         render_chart(fig)
@@ -1412,7 +1419,7 @@ if st.session_state.pipeline_results:
             with cols[i]:
                 st.button(ind, disabled=True, use_container_width=True)
 
-    with tab_monitor:
+    if _section == '24/7 Monitoring':
         st.markdown("### 24/7 Always-On Monitoring")
         monitor_data = monitoring_engine.get_dashboard_data()
 
