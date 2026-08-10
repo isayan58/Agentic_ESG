@@ -20,8 +20,8 @@ from utils.ui import (
     section_picker,
     hero, section_header, kpi_card, agent_card, pipeline_chips,
     badge, grade_pill, inject_global_css, pwc_header,
-    log_panel, retry_button, drilldown, live_badge, collect_audit_trail,
-    format_relative_time, esg_roi_featured_card,
+    retry_button, drilldown, live_badge, collect_audit_trail,
+    esg_roi_featured_card,
     recommendation_cards, recommendations_to_markdown,
     normalize_recommendations, sort_recommendations, is_quick_win,
     callout, insight_group,
@@ -30,7 +30,6 @@ from utils.auth import require_login, sidebar_auth_widget
 from utils.pipeline_refresh import stamp_refresh_from_pipeline
 from utils.session import get_session_connection_manager
 from utils.data_gaps import compute_data_gaps
-from utils import agent_telemetry
 from utils.run_store import get_run_store
 
 st.set_page_config(page_title="ESG Command Center | ESG Intelligence Hub", page_icon="🎛️", layout="wide")
@@ -242,103 +241,32 @@ for i, (key, agent_cfg) in enumerate(AGENT_CONFIG.items()):
                     orch.run_single_agent(key)
                 st.rerun()
 
-# ── Activity Log (L2: real timestamps, level + agent filters, search) ──
-audit_rows = collect_audit_trail(getattr(orch, "agents", {}), limit=300)
-if audit_rows:
-    section_header("Activity Log",
-                   "Real-time timeline across every agent — filter by level, agent, or keyword.")
-    log_panel(audit_rows, key="mc_log", height=320)
-
-# ── Observability: per-agent telemetry + token spend ──
-# Surfaces persistent run history from ``data/agent_telemetry.json`` plus
-# the in-memory planning log of the most recent run. Answers the operator
-# question "which agents are slow / failing / costing me tokens?" without
-# needing to grep logs or open files.
-section_header(
-    "Pipeline Observability",
-    "Per-agent run history, runtime trends, and token spend from the most recent pipeline.",
-)
-try:
-    _telem_all = agent_telemetry.load_all()
-except Exception:
-    _telem_all = {}
-
-_telem_rows = []
-for _key in orch.agent_order:
-    rec = _telem_all.get(_key) or {}
-    history = rec.get("history") or []
-    completed = [h for h in history if (h.get("status") or "").lower() == "completed"]
-    runtimes = [h.get("runtime_seconds") for h in completed
-                if isinstance(h.get("runtime_seconds"), (int, float))]
-    runtimes_sorted = sorted(runtimes)
-    p50 = runtimes_sorted[len(runtimes_sorted) // 2] if runtimes_sorted else None
-    p95_idx = max(0, int(len(runtimes_sorted) * 0.95) - 1) if runtimes_sorted else 0
-    p95 = runtimes_sorted[p95_idx] if runtimes_sorted else None
-    err_count = sum(1 for h in history if (h.get("status") or "").lower() == "error")
-    last_run = rec.get("last_run")
-    last_err = rec.get("last_error")
-    _telem_rows.append({
-        "Agent": AGENT_CONFIG.get(_key, {}).get("name", _key),
-        "Status": (rec.get("status") or "idle").capitalize(),
-        "Last run": format_relative_time(last_run) if last_run else "Never",
-        "Last runtime (s)": (round(rec.get("runtime_seconds"), 2)
-                             if isinstance(rec.get("runtime_seconds"), (int, float))
-                             else "—"),
-        "Median runtime (s)": round(p50, 2) if p50 is not None else "—",
-        "p95 runtime (s)": round(p95, 2) if p95 is not None else "—",
-        "Runs (total)": int(rec.get("run_count") or 0),
-        "Errors (history)": err_count,
-        "Last error": (str(last_err)[:80] + "…")
-                      if last_err and len(str(last_err)) > 80
-                      else (last_err or "—"),
-    })
-
-if _telem_rows:
-    safe_dataframe(pd.DataFrame(_telem_rows), use_container_width=True, hide_index=True)
-else:
-    st.caption("No agent telemetry recorded yet — run the pipeline to populate this view.")
-
-# Planner step + token spend from the most recent run
-_planning = []
-try:
-    _planning = list(getattr(orch, "planning_log", []) or [])
-except Exception:
-    _planning = []
-
-if _planning:
-    _input_tokens = sum(int((p.get("usage") or {}).get("input_tokens", 0)) for p in _planning)
-    _output_tokens = sum(int((p.get("usage") or {}).get("output_tokens", 0)) for p in _planning)
-    _cache_read = sum(int((p.get("usage") or {}).get("cache_read_input_tokens", 0)) for p in _planning)
-    _cache_create = sum(int((p.get("usage") or {}).get("cache_creation_input_tokens", 0)) for p in _planning)
-    _billable_input = max(0, _input_tokens - _cache_read)
-    _cache_total_seen = _cache_read + _cache_create
-    _cache_hit_pct = (round(100 * _cache_read / _cache_total_seen, 1)
-                      if _cache_total_seen else 0.0)
-
-    o1, o2, o3, o4, o5 = st.columns(5)
-    with o1:
-        kpi_card("Planner Steps", str(len(_planning)),
-                 "Tool-use turns in the most recent run.", key="obs_steps")
-    with o2:
-        kpi_card("Input Tokens", f"{_input_tokens:,}",
-                 f"Billable after cache: {_billable_input:,}", key="obs_in")
-    with o3:
-        kpi_card("Output Tokens", f"{_output_tokens:,}",
-                 "Generated by the planner.", key="obs_out")
-    with o4:
-        kpi_card("Cache Hit", f"{_cache_hit_pct:.0f}%",
-                 f"{_cache_read:,} read / {_cache_create:,} created", key="obs_cache")
-    with o5:
-        # Rough cost using public Opus 4.x list-price ratios; numbers
-        # update from this single constant if pricing changes.
-        _per_million_input = 15.0
-        _per_million_output = 75.0
-        _est_cost = (_billable_input * _per_million_input
-                     + _output_tokens * _per_million_output) / 1_000_000
-        kpi_card("Est. Cost (USD)", f"${_est_cost:.3f}",
-                 "List-price estimate, planner only.", key="obs_cost")
-else:
-    st.caption("Run the pipeline to see planner-step and token-spend telemetry.")
+# ── Activity Log + Pipeline Observability now live on their own page ──
+# This page answers "what do the results say?". The operational record —
+# run history, the cross-agent timeline, runtime and token telemetry —
+# moved to Pipeline Runs so it stops competing with the analysis.
+_log_rows = collect_audit_trail(getattr(orch, "agents", {}), limit=300)
+st.markdown("")
+_obs_l, _obs_r = st.columns([3, 1])
+with _obs_l:
+    st.markdown(
+        "##### 🗂️ Activity log & observability moved\n"
+        "The cross-agent timeline, per-agent runtime telemetry, planner token "
+        "spend, and full saved-run history now live on **Pipeline Runs**"
+        + (f" — **{len(_log_rows)}** activity entries recorded this session."
+           if _log_rows else ".")
+    )
+with _obs_r:
+    # Navigate on click rather than st.page_link, which resolves its path
+    # against the app root and raises at *render* time if that root differs
+    # from the expected one. A button can only fail on click, never while
+    # drawing the page.
+    if st.button("🗂️ Open Pipeline Runs", use_container_width=True,
+                 key="mc_goto_runs"):
+        try:
+            st.switch_page("pages/12_Pipeline_Runs.py")
+        except Exception:
+            st.info("Open **Pipeline Runs** from the sidebar.")
 
 # ── Real-data status banner ──
 _cm = st.session_state.get("conn_manager")
