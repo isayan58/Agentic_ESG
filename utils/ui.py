@@ -1277,187 +1277,232 @@ button[data-baseweb="tab"][aria-selected="true"] {
 # to be listed again.
 _VITALITY_CSS = """
 <style>
-/* ── Entrances ────────────────────────────────────────────────────── */
-@keyframes esg-rise {
-    from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: translateY(0); }
+/* ── Motion primitives ───────────────────────────────────────────── */
+@keyframes esg-rise   { from { opacity:0; transform: translateY(14px); }
+                        to   { opacity:1; transform: translateY(0); } }
+@keyframes esg-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes esg-pop-in { 0%{opacity:0;transform:scale(.92);}
+                        60%{opacity:1;transform:scale(1.02);}
+                        100%{opacity:1;transform:scale(1);} }
+@keyframes esg-sheen-sweep { from { transform: translateX(-120%) skewX(-18deg); }
+                             to   { transform: translateX(320%)  skewX(-18deg); } }
+@keyframes esg-underline-draw { from { width:0; opacity:0; } to { width:38px; opacity:1; } }
+@keyframes esg-drift {
+    0%   { transform: translate3d(0,0,0)      scale(1);    }
+    33%  { transform: translate3d(3%,-2%,0)   scale(1.06); }
+    66%  { transform: translate3d(-2%,3%,0)   scale(0.97); }
+    100% { transform: translate3d(0,0,0)      scale(1);    }
 }
-@keyframes esg-grow-x {
-    from { transform: scaleX(0); }
-    to   { transform: scaleX(1); }
-}
-@keyframes esg-pop-in {
-    0%   { opacity: 0; transform: scale(0.94); }
-    60%  { opacity: 1; transform: scale(1.015); }
-    100% { opacity: 1; transform: scale(1); }
-}
-@keyframes esg-sheen-sweep {
-    from { transform: translateX(-120%) skewX(-18deg); }
-    to   { transform: translateX(320%)  skewX(-18deg); }
-}
-@keyframes esg-underline-draw {
-    from { width: 0; opacity: 0; }
-    to   { width: 34px; opacity: 1; }
+@keyframes esg-glow-pulse {
+    0%,100% { box-shadow: 0 10px 30px rgba(253,81,8,0.18); }
+    50%     { box-shadow: 0 14px 42px rgba(253,81,8,0.34); }
 }
 
-.esg-vkpi, .esg-rec-card, .esg-ig, .esg-ps, .esg-hyp-card,
-.esg-brief, .esg-callout, .esg-sb-wrap, .esg-jb, .esg-gl-item,
-.esg-agent-card {
+/* ── The page itself breathes ────────────────────────────────────── */
+/* Two slow-drifting orange fields behind everything. Motion is the
+   difference between a page that is orange and a page that feels alive,
+   and at 26s nobody consciously notices it moving. */
+[data-testid="stApp"]::after {
+    content: ""; position: fixed; inset: -18%; z-index: 0; pointer-events: none;
+    background:
+        radial-gradient(48% 42% at 18% 22%, rgba(253,81,8,0.20), transparent 62%),
+        radial-gradient(44% 40% at 82% 12%, rgba(255,182,0,0.18), transparent 60%),
+        radial-gradient(52% 46% at 62% 88%, rgba(224,48,30,0.13), transparent 66%);
+    animation: esg-drift 26s ease-in-out infinite;
+    filter: blur(6px);
+}
+[data-testid="stAppViewContainer"] { position: relative; z-index: 1; }
+
+/* ── Everything arrives ──────────────────────────────────────────── */
+[data-testid="stVerticalBlock"] > [data-testid="stElementContainer"],
+[data-testid="stColumn"] {
+    animation: esg-rise 0.42s var(--ease-decel) both;
+}
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(1) { animation-delay: .00s; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(2) { animation-delay: .07s; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(3) { animation-delay: .14s; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(4) { animation-delay: .21s; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(5) { animation-delay: .28s; }
+
+.esg-vkpi, .esg-rec-card, .esg-ig, .esg-ps, .esg-hyp-card, .esg-brief,
+.esg-callout, .esg-sb-wrap, .esg-jb, .esg-gl-item, .esg-agent-card {
     animation: esg-rise var(--dur-slow) var(--ease-decel) both;
 }
-/* Stagger across a row of columns so a KPI strip lands left to right
-   rather than all at once. */
-[data-testid="column"]:nth-child(1) .esg-vkpi,
-[data-testid="column"]:nth-child(1) .esg-agent-card { animation-delay: 0.00s; }
-[data-testid="column"]:nth-child(2) .esg-vkpi,
-[data-testid="column"]:nth-child(2) .esg-agent-card { animation-delay: 0.06s; }
-[data-testid="column"]:nth-child(3) .esg-vkpi,
-[data-testid="column"]:nth-child(3) .esg-agent-card { animation-delay: 0.12s; }
-[data-testid="column"]:nth-child(4) .esg-vkpi,
-[data-testid="column"]:nth-child(4) .esg-agent-card { animation-delay: 0.18s; }
-[data-testid="column"]:nth-child(5) .esg-vkpi,
-[data-testid="column"]:nth-child(5) .esg-agent-card { animation-delay: 0.24s; }
-.esg-rec-card:nth-child(2)  { animation-delay: 0.04s; }
-.esg-rec-card:nth-child(3)  { animation-delay: 0.08s; }
-.esg-rec-card:nth-child(4)  { animation-delay: 0.12s; }
-.esg-rec-card:nth-child(5)  { animation-delay: 0.16s; }
-.esg-hyp-card:nth-child(2)  { animation-delay: 0.05s; }
-.esg-hyp-card:nth-child(3)  { animation-delay: 0.10s; }
-.esg-hyp-card:nth-child(4)  { animation-delay: 0.15s; }
-
-/* Numbers land with a little confidence. */
 .esg-vkpi-value, .esg-ps-num, .esg-hyp-ev strong {
-    animation: esg-pop-in 0.42s var(--ease-decel) both;
-    animation-delay: 0.10s;
+    animation: esg-pop-in .44s var(--ease-decel) both; animation-delay: .10s;
 }
-
-/* ── Bars grow to their value ─────────────────────────────────────── */
 .esg-sb-fill, .esg-jb-span {
     transform-origin: left center;
-    animation: esg-grow-x 0.70s var(--ease-decel) both;
+    animation: esg-grow-x .70s var(--ease-decel) both;
 }
-.esg-sb-row:nth-child(2) .esg-sb-fill { animation-delay: 0.05s; }
-.esg-sb-row:nth-child(3) .esg-sb-fill { animation-delay: 0.10s; }
-.esg-sb-row:nth-child(4) .esg-sb-fill { animation-delay: 0.15s; }
-.esg-sb-row:nth-child(5) .esg-sb-fill { animation-delay: 0.20s; }
-.esg-sb-row:nth-child(6) .esg-sb-fill { animation-delay: 0.25s; }
-.esg-ps-you { animation: esg-pop-in 0.5s var(--ease-decel) both; animation-delay: 0.35s; }
+.esg-ps-you { animation: esg-pop-in .5s var(--ease-decel) both; animation-delay: .35s; }
 
-/* ── Hover: a sheen sweeps the card ──────────────────────────────── */
-.esg-vkpi, .esg-rec-card, .esg-ig, .esg-hyp-card, .esg-ps {
+/* ── Inputs you actually want to click ───────────────────────────── */
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-baseweb="select"] > div {
+    border-radius: var(--radius-md) !important;
+    border: 1.5px solid rgba(253,81,8,0.22) !important;
+    background: linear-gradient(180deg, #fff 0%, #fffaf6 100%) !important;
+    transition: border-color var(--dur-base) var(--ease-standard),
+                box-shadow var(--dur-base) var(--ease-standard),
+                transform var(--dur-fast) var(--ease-standard) !important;
+}
+[data-testid="stTextInput"] input:hover,
+[data-testid="stTextArea"] textarea:hover,
+[data-baseweb="select"] > div:hover {
+    border-color: rgba(253,81,8,0.55) !important;
+}
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus,
+[data-testid="stTextArea"] textarea:focus,
+[data-baseweb="select"] > div:focus-within {
+    border-color: var(--pwc-orange) !important;
+    box-shadow: 0 0 0 4px rgba(253,81,8,0.16) !important;
+    transform: translateY(-1px);
+}
+
+/* ── Buttons with weight ─────────────────────────────────────────── */
+[data-testid="stButton"] button,
+[data-testid="stDownloadButton"] button,
+[data-testid="stFormSubmitButton"] button {
+    border-radius: var(--radius-md) !important;
+    font-weight: 650 !important;
+    letter-spacing: -0.01em;
     position: relative; overflow: hidden;
-}
-.esg-vkpi::after, .esg-rec-card::after, .esg-hyp-card::after, .esg-ps::after {
-    content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 34%;
-    pointer-events: none; opacity: 0;
-    background: linear-gradient(100deg, transparent,
-                rgba(255, 255, 255, 0.55), transparent);
-}
-.esg-vkpi:hover::after, .esg-rec-card:hover::after,
-.esg-hyp-card:hover::after, .esg-ps:hover::after {
-    opacity: 1;
-    animation: esg-sheen-sweep 0.85s var(--ease-standard);
-}
-.esg-ps:hover, .esg-ig:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-    transition: transform var(--dur-base) var(--ease-standard),
-                box-shadow var(--dur-base) var(--ease-standard);
-}
-
-/* ── Section headers get a drawn accent ──────────────────────────── */
-.esg-section { position: relative; }
-.esg-section::after {
-    content: ""; position: absolute; left: 0; bottom: -4px; height: 3px;
-    border-radius: var(--radius-pill);
-    background: linear-gradient(90deg, var(--pwc-orange), var(--pwc-amber));
-    animation: esg-underline-draw 0.55s var(--ease-decel) both;
-    animation-delay: 0.08s;
-}
-/* Deliberately no gradient on the title itself: the fill is stretched
-   across the text box, so where the colour lands depends on how long the
-   heading is — one title turns orange on its last word, the next mid-word.
-   The drawn accent above carries the same energy and looks identical on
-   every heading. */
-
-/* ── Buttons answer the cursor ───────────────────────────────────── */
-[data-testid="stButton"] button, [data-testid="stDownloadButton"] button {
     transition: transform var(--dur-fast) var(--ease-standard),
                 box-shadow var(--dur-base) var(--ease-standard),
                 border-color var(--dur-base) var(--ease-standard) !important;
 }
 [data-testid="stButton"] button:hover,
-[data-testid="stDownloadButton"] button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 18px rgba(253, 81, 8, 0.22) !important;
+[data-testid="stDownloadButton"] button:hover,
+[data-testid="stFormSubmitButton"] button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(253,81,8,0.28) !important;
     border-color: var(--pwc-orange) !important;
 }
 [data-testid="stButton"] button:active,
-[data-testid="stDownloadButton"] button:active { transform: translateY(0) scale(0.985); }
-[data-testid="stButton"] button[kind="primary"] {
-    background: linear-gradient(120deg, var(--pwc-orange) 0%,
-                var(--pwc-tomato) 100%) !important;
-    border: none !important;
-    box-shadow: var(--shadow-brand) !important;
+[data-testid="stFormSubmitButton"] button:active { transform: translateY(0) scale(.985); }
+
+[data-testid="stBaseButton-primary"],
+[data-testid="stBaseButton-primaryFormSubmit"] {
+    background: linear-gradient(120deg, var(--pwc-orange) 0%, var(--pwc-tomato) 55%,
+                var(--pwc-amber) 140%) !important;
+    border: none !important; color: #fff !important;
+    box-shadow: 0 10px 30px rgba(253,81,8,0.28) !important;
 }
-[data-testid="stButton"] button[kind="primary"]:hover {
-    box-shadow: 0 10px 26px rgba(253, 81, 8, 0.38) !important;
+[data-testid="stBaseButton-primary"]:hover,
+[data-testid="stBaseButton-primaryFormSubmit"]:hover {
+    animation: esg-glow-pulse 1.8s ease-in-out infinite;
+}
+/* A light sweeps across the primary action on hover. */
+[data-testid="stBaseButton-primary"]::after,
+[data-testid="stBaseButton-primaryFormSubmit"]::after {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.45), transparent);
+    opacity: 0;
+}
+[data-testid="stBaseButton-primary"]:hover::after,
+[data-testid="stBaseButton-primaryFormSubmit"]:hover::after {
+    opacity: 1; animation: esg-sheen-sweep .9s var(--ease-standard);
 }
 
-/* ── Inputs pick up the brand on focus ───────────────────────────── */
-[data-baseweb="select"] > div:focus-within,
-[data-testid="stTextInput"] input:focus,
-[data-testid="stNumberInput"] input:focus {
-    border-color: var(--pwc-orange) !important;
-    box-shadow: var(--ring-focus) !important;
-}
-[data-baseweb="select"] > div {
-    transition: border-color var(--dur-base) var(--ease-standard),
-                box-shadow var(--dur-base) var(--ease-standard);
-}
-[data-baseweb="select"] > div:hover { border-color: rgba(253, 81, 8, 0.55) !important; }
-
-/* ── Chips, expanders, tables ────────────────────────────────────── */
-.esg-chip, .esg-rec-chip, .esg-vkpi-pill, .esg-hyp-verdict {
-    transition: transform var(--dur-fast) var(--ease-standard),
-                box-shadow var(--dur-base) var(--ease-standard);
-}
-.esg-chip:hover, .esg-rec-chip:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 3px 10px rgba(253, 81, 8, 0.18);
+/* ── Forms and expanders read as panels ──────────────────────────── */
+[data-testid="stForm"] {
+    border: 1px solid rgba(253,81,8,0.20) !important;
+    border-radius: var(--radius-lg) !important;
+    background: linear-gradient(180deg, #ffffff 0%, #fffaf6 100%) !important;
+    box-shadow: 0 2px 4px rgba(15,23,42,.04), 0 18px 44px rgba(253,81,8,.08) !important;
+    padding: var(--space-5) !important;
 }
 [data-testid="stExpander"] details {
     border-radius: var(--radius-lg) !important;
+    border: 1px solid rgba(253,81,8,0.18) !important;
+    background: linear-gradient(180deg, #fff 0%, #fffaf7 100%) !important;
     transition: box-shadow var(--dur-base) var(--ease-standard),
                 border-color var(--dur-base) var(--ease-standard);
 }
 [data-testid="stExpander"] details:hover {
-    border-color: rgba(253, 81, 8, 0.40) !important;
-    box-shadow: var(--shadow-sm);
+    border-color: rgba(253,81,8,0.45) !important;
+    box-shadow: 0 8px 22px rgba(253,81,8,.12);
 }
-[data-testid="stDataFrame"] { border-radius: var(--radius-md); overflow: hidden; }
+
+/* ── Headings carry the brand ────────────────────────────────────── */
+[data-testid="stHeadingWithActionElements"] h1,
+[data-testid="stHeadingWithActionElements"] h2,
+[data-testid="stHeadingWithActionElements"] h3 {
+    letter-spacing: -0.025em; font-weight: 800;
+    position: relative; padding-bottom: 6px;
+}
+[data-testid="stHeadingWithActionElements"] h1::after,
+[data-testid="stHeadingWithActionElements"] h2::after {
+    content: ""; position: absolute; left: 0; bottom: 0; height: 4px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--pwc-orange), var(--pwc-amber));
+    animation: esg-underline-draw .6s var(--ease-decel) both; animation-delay: .1s;
+}
+.esg-section { position: relative; }
+.esg-section::after {
+    content: ""; position: absolute; left: 0; bottom: -4px; height: 3px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--pwc-orange), var(--pwc-amber));
+    animation: esg-underline-draw .55s var(--ease-decel) both; animation-delay: .08s;
+}
+
+/* ── Hover sheen on the custom cards ─────────────────────────────── */
+.esg-vkpi, .esg-rec-card, .esg-ig, .esg-hyp-card, .esg-ps { position: relative; overflow: hidden; }
+.esg-vkpi::after, .esg-rec-card::after, .esg-hyp-card::after, .esg-ps::after {
+    content: ""; position: absolute; top:0; bottom:0; left:0; width:34%;
+    pointer-events:none; opacity:0;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+}
+.esg-vkpi:hover::after, .esg-rec-card:hover::after,
+.esg-hyp-card:hover::after, .esg-ps:hover::after {
+    opacity:1; animation: esg-sheen-sweep .85s var(--ease-standard);
+}
+.esg-ps:hover, .esg-ig:hover {
+    transform: translateY(-2px); box-shadow: var(--shadow-md);
+    transition: transform var(--dur-base) var(--ease-standard),
+                box-shadow var(--dur-base) var(--ease-standard);
+}
+.esg-chip:hover, .esg-rec-chip:hover {
+    transform: translateY(-1px); box-shadow: 0 3px 10px rgba(253,81,8,.18);
+}
+
+/* ── Charts and tables sit on branded cards ──────────────────────── */
+[data-testid="stPlotlyChart"] {
+    border-radius: var(--radius-lg); padding: var(--space-2);
+    background: var(--surface-raised);
+    border: 1px solid rgba(253,81,8,0.16);
+    box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 12px 30px rgba(253,81,8,.07);
+    transition: box-shadow var(--dur-base) var(--ease-standard),
+                transform var(--dur-base) var(--ease-standard);
+}
+[data-testid="stPlotlyChart"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 18px 40px rgba(253,81,8,.15);
+}
+[data-testid="stDataFrame"] {
+    border-radius: var(--radius-md); overflow: hidden;
+    border: 1px solid rgba(253,81,8,0.14);
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────── */
+[data-testid="stSidebarContent"] { position: relative; }
+[data-testid="stSidebarContent"]::before {
+    content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+    background: linear-gradient(180deg, var(--pwc-orange), var(--pwc-amber), transparent);
+}
 
 /* ── Branded scrollbar ───────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--surface-muted); }
 ::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg, var(--pwc-orange), var(--pwc-tomato));
-    border-radius: var(--radius-pill);
-    border: 2px solid var(--surface-muted);
+    border-radius: var(--radius-pill); border: 2px solid var(--surface-muted);
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--pwc-orange-dark); }
-
-/* Charts sit on their own quiet card so the colour has somewhere to land. */
-[data-testid="stPlotlyChart"] {
-    border-radius: var(--radius-lg);
-    padding: var(--space-2);
-    background: var(--surface-raised);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-xs);
-    animation: esg-rise var(--dur-slow) var(--ease-decel) both;
-    transition: box-shadow var(--dur-base) var(--ease-standard);
-}
-[data-testid="stPlotlyChart"]:hover { box-shadow: var(--shadow-md); }
 </style>
 """
 
