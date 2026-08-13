@@ -47,6 +47,12 @@ UNIT_CEILINGS = {
 
 _VALUE_COLS = ("value_2023", "value_2024", "target_2024")
 
+# Share of business units that must hit target for the rolled-up metric to
+# read as Met / On Track. Stated as constants so the thresholds behind a
+# colour are visible in the UI rather than implied.
+ATTAINMENT_MET = 75.0
+ATTAINMENT_ON_TRACK = 50.0
+
 
 def is_additive(unit: object) -> bool:
     """True when a metric's values have no bound and always sum."""
@@ -135,10 +141,28 @@ def rollup_metrics(df: pd.DataFrame) -> pd.DataFrame:
             record["met_count"] = int(counts.get("Met", 0))
             record["on_track_count"] = int(counts.get("On Track", 0))
             record["not_met_count"] = int(counts.get("Not Met", 0))
-            record["status"] = str(counts.idxmax()) if not counts.empty else "—"
         else:
             record["met_count"] = record["on_track_count"] = record["not_met_count"] = 0
+
+        # Roll the per-unit verdicts up on how *widely* the target is met.
+        #
+        # The obvious rule — take the most common verdict — is quietly wrong.
+        # Across a three-way split "Met" takes the plurality at about 46%, so
+        # every metric came out "Met" even where fewer than half the units hit
+        # target: a solid green dashboard over mediocre performance. Grading on
+        # the share that actually met it keeps the summary honest and matches
+        # what the ranked chart shows.
+        total_units = int(grp.shape[0]) or 1
+        attainment = 100.0 * record["met_count"] / total_units
+        record["attainment"] = round(attainment, 1)
+        if "status" not in grp.columns or grp["status"].dropna().empty:
             record["status"] = "—"
+        elif attainment >= ATTAINMENT_MET:
+            record["status"] = "Met"
+        elif attainment >= ATTAINMENT_ON_TRACK:
+            record["status"] = "On Track"
+        else:
+            record["status"] = "Not Met"
 
         prev, cur = record.get("value_2023"), record.get("value_2024")
         record["yoy_change_pct"] = (
