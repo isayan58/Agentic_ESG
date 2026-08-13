@@ -44,8 +44,30 @@ cd "$repo_root"
 # shellcheck source=hf-deploy-lib.sh
 . "$repo_root/scripts/hf-deploy-lib.sh"
 
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo "✗ Working tree is dirty. Commit or stash before syncing." >&2
+# Block on modified or staged *tracked* files — those represent work that
+# isn't in the commit being deployed, and the checkout below would discard
+# them. Untracked files are a different matter: this syncs main's tree, so
+# a local editor config or scratch file cannot affect what ships, and
+# failing on them is a false positive that blocks legitimate deploys.
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  echo "✗ Tracked files are modified. Commit or stash before syncing." >&2
+  git status --short --untracked-files=no >&2
+  exit 1
+fi
+
+# The one untracked case that does matter: a file that main tracks would be
+# overwritten by `read-tree -u` below, silently destroying local content.
+_collisions=""
+while IFS= read -r _untracked; do
+  [[ -n "$_untracked" ]] || continue
+  if git cat-file -e "main:$_untracked" 2>/dev/null; then
+    _collisions+="  $_untracked"$'\n'
+  fi
+done < <(git ls-files --others --exclude-standard)
+if [[ -n "$_collisions" ]]; then
+  echo "✗ Untracked files would be overwritten by the deploy checkout:" >&2
+  printf '%s' "$_collisions" >&2
+  echo "  Move or commit them first." >&2
   exit 1
 fi
 
