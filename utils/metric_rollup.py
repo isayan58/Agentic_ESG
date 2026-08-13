@@ -24,6 +24,9 @@ rather than shares. Unbounded units (tCO2e, headcount, rupees) always sum.
 """
 from __future__ import annotations
 
+import os
+from typing import Sequence
+
 import pandas as pd
 
 # Units with no natural upper bound — these always sum.
@@ -75,8 +78,37 @@ def aggregate_values(series: pd.Series, unit: object) -> tuple[float | None, str
 
 
 def base_metric_name(name: object) -> str:
-    """Strip the ' — <business unit>' suffix from a metric name."""
+    """Strip the ' — <business unit>' suffix from a single metric name.
+
+    Only safe when the metric's own name contains no dash. Prefer
+    :func:`common_metric_name`, which does not have that limitation.
+    """
     return str(name or "").split("—")[0].strip()
+
+
+def common_metric_name(names: Sequence[str]) -> str:
+    """Derive a metric's canonical name from its per-business-unit rows.
+
+    The generator appends " — <business unit>" to every row, and both the
+    metric and the unit may themselves contain a dash ("Scope 3.11 — Use
+    of Sold Products" reported by "Refinery — Hazira"). Splitting on the
+    first dash truncated those to "Scope 3.11"; splitting on the last one
+    would cut "Refinery" off the business unit instead.
+
+    Because every row of a metric shares the same prefix and differs only
+    in the unit that follows, the longest common prefix *is* the canonical
+    name — no knowledge of business-unit naming required.
+    """
+    cleaned = [str(n) for n in names if str(n).strip()]
+    if not cleaned:
+        return ""
+    if len(cleaned) == 1:
+        return base_metric_name(cleaned[0])
+    prefix = os.path.commonprefix(cleaned)
+    trimmed = prefix.rstrip(" -–—")
+    # A single-row-per-name edge case can leave nothing useful; fall back
+    # rather than returning an empty label.
+    return trimmed or base_metric_name(cleaned[0])
 
 
 def rollup_metrics(df: pd.DataFrame) -> pd.DataFrame:
@@ -92,14 +124,14 @@ def rollup_metrics(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
     if "metric_name" not in work.columns:
         return pd.DataFrame()
-    work["base_metric"] = work["metric_name"].map(base_metric_name)
+    # The canonical name is derived per group below, not per row.
 
     for col in _VALUE_COLS:
         if col in work.columns:
             work[col] = pd.to_numeric(work[col], errors="coerce")
 
     rows: list[dict] = []
-    group_keys = ["pillar", "metric_id", "base_metric"]
+    group_keys = ["pillar", "metric_id"]
     group_keys = [k for k in group_keys if k in work.columns]
     if not group_keys:
         return pd.DataFrame()
@@ -107,6 +139,8 @@ def rollup_metrics(df: pd.DataFrame) -> pd.DataFrame:
     for keys, grp in work.groupby(group_keys, dropna=False):
         keys = keys if isinstance(keys, tuple) else (keys,)
         record = dict(zip(group_keys, keys))
+        record["base_metric"] = common_metric_name(
+            grp["metric_name"].tolist() if "metric_name" in grp.columns else [])
         unit = grp["unit"].dropna().iloc[0] if "unit" in grp and grp["unit"].notna().any() else ""
 
         # Pick the method once, from the current-year column, then apply it to

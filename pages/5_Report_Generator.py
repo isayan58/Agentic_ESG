@@ -370,144 +370,251 @@ if results and "error" not in results:
                               "Not Met": _C_MISS}
 
             if _PLOTLY:
-                # ── Status mix + where the metrics sit ────────────────────
-                c1, c2 = st.columns([1, 1])
-                with c1:
-                    figd = go.Figure(go.Pie(
-                        labels=["Meeting target", "On track", "Behind"],
-                        values=[_met, _track, _miss], hole=0.62,
-                        marker=dict(colors=[_C_MET, _C_TRACK, _C_MISS],
-                                    line=dict(color="white", width=2)),
-                        textinfo="value", sort=False,
-                        hovertemplate="<b>%{label}</b><br>%{value} metrics "
-                                      "(%{percent})<extra></extra>",
-                    ))
-                    figd.update_layout(
-                        height=330, showlegend=True,
-                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                        font=dict(family="Inter, sans-serif", size=12),
-                        legend=dict(orientation="h", yanchor="bottom", y=-0.15,
-                                    xanchor="center", x=0.5),
-                        margin=dict(l=10, r=10, t=44, b=10),
-                        title=dict(text="Status mix", x=0.02, y=0.97,
-                                   font=dict(size=14)),
-                        annotations=[dict(text=f"<b>{_total}</b><br>metrics",
-                                          x=0.5, y=0.5, showarrow=False,
-                                          font=dict(size=15))],
-                    )
-                    st.plotly_chart(apply_chart_theme(figd), use_container_width=True)
-                    st.caption("Green is on target. Red is where work is needed.")
-                with c2:
-                    # Treemap: category blocks sized by metric count, so the
-                    # shape of the pillar reads before any number does.
-                    cat = (rolled.groupby("category")
-                           .agg(metrics=("metric_id", "count"),
-                                attain=("attainment", "mean"))
-                           .reset_index().sort_values("metrics", ascending=False))
-                    figt = go.Figure(go.Treemap(
-                        labels=cat["category"], parents=[""] * len(cat),
-                        values=cat["metrics"],
-                        marker=dict(
-                            colors=cat["attain"], colorscale="RdYlGn",
-                            cmin=0, cmax=100,
-                            # Absolute 0-100 scale with a visible bar, so a
-                            # category's colour means the same thing in every
-                            # pillar rather than being relative to its peers.
-                            colorbar=dict(title="% on<br>target", thickness=12,
-                                          len=0.8, tickfont=dict(size=10),
-                                          title_font=dict(size=10)),
-                            line=dict(color="white", width=2)),
-                        texttemplate="<b>%{label}</b><br>%{value} metrics",
-                        hovertemplate="<b>%{label}</b><br>%{value} metrics<br>"
-                                      "Avg target attainment: %{color:.0f}%"
-                                      "<extra></extra>",
-                    ))
-                    figt.update_layout(
-                        height=330,
-                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                        font=dict(family="Inter, sans-serif", size=12),
-                        margin=dict(l=10, r=10, t=44, b=10),
-                        title=dict(text="Where the metrics sit", x=0.02, y=0.97,
-                                   font=dict(size=14)),
-                    )
-                    st.plotly_chart(apply_chart_theme(figt), use_container_width=True)
-                    st.caption("Bigger block = more metrics. Greener = closer "
-                               "to target.")
-
-                # ── Hero chart: every metric ranked, worst first ──────────
+                # ══════════════════════════════════════════════════════════
+                # 1 — THE ESG GENOME
+                # ══════════════════════════════════════════════════════════
+                # Every metric in the pillar as one tile, grouped into its
+                # category row. A bar chart of 167 metrics is 4,000px of
+                # scrolling; the same 167 as tiles is one glance, and the
+                # eye finds the red bands before it reads a single label.
                 section_header(
-                    "Every Metric, Ranked",
-                    "How many business units are hitting target on each "
-                    "metric. Shortest bars need attention first.",
+                    f"The {_pillar} Genome",
+                    f"All {_total} metrics at once. One tile per metric, "
+                    f"grouped by category. Red is where targets are being "
+                    f"missed — look for the bands, not the tiles.",
                 )
-                _rank = rolled.sort_values("attainment")
-                figr = go.Figure(go.Bar(
-                    x=_rank["attainment"], y=_rank["base_metric"],
-                    orientation="h",
-                    marker=dict(color=[_status_colour.get(s, "#8b949e")
-                                       for s in _rank["status"]]),
-                    customdata=list(zip(_rank["met_count"],
-                                        _rank["business_units"],
-                                        _rank["status"],
-                                        _rank["unit"])),
-                    text=[f"{v:.0f}%" for v in _rank["attainment"]],
-                    textposition="outside", textfont=dict(size=10),
-                    hovertemplate="<b>%{y}</b><br>%{customdata[0]} of "
-                                  "%{customdata[1]} units on target<br>"
-                                  "Status: %{customdata[2]}<extra></extra>",
+                cats_ordered = (rolled.groupby("category")["attainment"]
+                                .mean().sort_values().index.tolist())
+                width = int(rolled.groupby("category").size().max())
+                z, hover, ytick = [], [], []
+                for cat in cats_ordered:
+                    sub = rolled[rolled["category"] == cat].sort_values("attainment")
+                    row_z = sub["attainment"].tolist()
+                    row_h = [f"<b>{m}</b><br>{a:.0f}% of units on target<br>"
+                             f"Status: {s}"
+                             for m, a, s in zip(sub["base_metric"],
+                                                sub["attainment"], sub["status"])]
+                    pad = width - len(row_z)
+                    z.append(row_z + [None] * pad)
+                    hover.append(row_h + [""] * pad)
+                    ytick.append(f"{cat}  ({len(sub)})")
+
+                figg = go.Figure(go.Heatmap(
+                    z=z, customdata=hover, y=ytick,
+                    colorscale=[[0.0, "#8B0000"], [0.25, "#C8102E"],
+                                [0.5, "#FFB600"], [0.75, "#7CB342"],
+                                [1.0, "#1B5E20"]],
+                    zmin=0, zmax=100, xgap=3, ygap=3,
+                    hovertemplate="%{customdata}<extra></extra>",
+                    colorbar=dict(title="% of units<br>on target", thickness=14,
+                                  len=0.85, tickfont=dict(size=10),
+                                  title_font=dict(size=10)),
                 ))
-                figr.update_layout(
-                    height=max(420, len(_rank) * 26 + 90),
+                figg.update_layout(
+                    height=max(300, len(cats_ordered) * 46 + 110),
                     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                     font=dict(family="Inter, sans-serif", size=12),
-                    xaxis=dict(title="% of business units meeting target",
-                               range=[0, 115], gridcolor="rgba(0,0,0,0.07)"),
-                    yaxis=dict(title=None, automargin=True),
-                    margin=dict(l=10, r=40, t=16, b=44), showlegend=False,
+                    xaxis=dict(showticklabels=False, showgrid=False,
+                               zeroline=False, title="each tile is one metric"),
+                    yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
+                    margin=dict(l=10, r=10, t=16, b=40),
                 )
-                st.plotly_chart(apply_chart_theme(figr), use_container_width=True)
+                st.plotly_chart(apply_chart_theme(figg), use_container_width=True)
                 st.caption(
-                    f"Length is the share of business units on target, and "
-                    f"colour follows it: **green at {ATTAINMENT_MET:.0f}%+**, "
-                    f"**amber from {ATTAINMENT_ON_TRACK:.0f}%**, red below. "
-                    f"A company-level figure can look fine while most sites "
-                    f"miss — this is where that shows up."
+                    "Categories are ordered worst-performing at the top. "
+                    "Hover any tile for the metric behind it."
                 )
 
-                # ── Year-on-year movement ────────────────────────────────
-                mv = rolled.dropna(subset=["yoy_change_pct"]).copy()
-                if not mv.empty:
-                    mv = mv.reindex(
-                        mv["yoy_change_pct"].abs().sort_values(ascending=False).index
-                    ).head(12).sort_values("yoy_change_pct")
-                    section_header("What Moved Since Last Year",
-                                   "The biggest changes in this pillar, in "
-                                   "either direction.")
-                    figm = go.Figure(go.Bar(
-                        x=mv["yoy_change_pct"], y=mv["base_metric"],
-                        orientation="h",
-                        marker=dict(color=["#1f77b4" if v > 0 else "#8a5a00"
-                                           for v in mv["yoy_change_pct"]]),
-                        text=[f"{v:+.1f}%" for v in mv["yoy_change_pct"]],
-                        textposition="outside", textfont=dict(size=10),
-                        hovertemplate="<b>%{y}</b><br>%{x:+.1f}% vs last year"
-                                      "<extra></extra>",
+                # ══════════════════════════════════════════════════════════
+                # 2 — RADIAL DRILL-DOWN
+                # ══════════════════════════════════════════════════════════
+                # Click a wedge to zoom into a category; click the middle to
+                # come back. Carries the whole hierarchy without a table.
+                st.markdown("")
+                cs1, cs2 = st.columns([1, 1])
+                with cs1:
+                    section_header("Click to Explore",
+                                   "Inner ring is categories, outer ring is "
+                                   "metrics. Click any wedge to zoom in.")
+                    labels = list(cats_ordered)
+                    parents = [""] * len(cats_ordered)
+                    values = [int((rolled["category"] == c).sum()) for c in cats_ordered]
+                    colours = [float(rolled[rolled["category"] == c]["attainment"].mean())
+                               for c in cats_ordered]
+                    # Only the category ring is labelled. Printing 167 metric
+                    # names around the rim renders them as unreadable radial
+                    # slivers; the outer ring stays a clean colour band and
+                    # gives up its names on hover and on click-to-zoom.
+                    shown_text = list(cats_ordered)
+                    for _, m in rolled.iterrows():
+                        labels.append(m["base_metric"])
+                        parents.append(m["category"])
+                        values.append(1)
+                        colours.append(float(m["attainment"]))
+                        shown_text.append("")
+                    figs = go.Figure(go.Sunburst(
+                        labels=labels, parents=parents, values=values,
+                        text=shown_text, textinfo="text",
+                        branchvalues="total", maxdepth=2,
+                        marker=dict(colors=colours, colorscale="RdYlGn",
+                                    cmin=0, cmax=100,
+                                    line=dict(color="white", width=1)),
+                        hovertemplate="<b>%{label}</b><br>%{value} metric(s)<br>"
+                                      "%{color:.0f}% on target<extra></extra>",
+                        insidetextorientation="radial",
                     ))
-                    figm.update_layout(
-                        height=max(320, len(mv) * 30 + 90),
-                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                        font=dict(family="Inter, sans-serif", size=12),
-                        xaxis=dict(title="Change vs last year (%)",
-                                   gridcolor="rgba(0,0,0,0.07)",
-                                   zeroline=True, zerolinecolor="rgba(0,0,0,0.3)"),
-                        yaxis=dict(title=None, automargin=True),
-                        margin=dict(l=10, r=60, t=16, b=44), showlegend=False,
+                    figs.update_layout(
+                        height=460, paper_bgcolor="rgba(0,0,0,0)",
+                        font=dict(family="Inter, sans-serif", size=11),
+                        margin=dict(l=0, r=0, t=10, b=10),
                     )
-                    st.plotly_chart(apply_chart_theme(figm), use_container_width=True)
+                    st.plotly_chart(apply_chart_theme(figs), use_container_width=True)
+
+                with cs2:
+                    # ══════════════════════════════════════════════════════
+                    # 3 — RISK vs MOMENTUM QUADRANT
+                    # ══════════════════════════════════════════════════════
+                    # Two questions at once: how widely is the target met,
+                    # and is it improving? The bottom-left quadrant is the
+                    # answer to "what do we fix first".
+                    section_header("Where to Act First",
+                                   "Attainment against momentum. Bottom-left "
+                                   "is failing and getting worse.")
+                    q = rolled.dropna(subset=["yoy_change_pct"]).copy()
+                    q["momentum"] = q["yoy_change_pct"].clip(-60, 60)
+                    figq = go.Figure(go.Scatter(
+                        x=q["momentum"], y=q["attainment"], mode="markers",
+                        marker=dict(
+                            size=9,
+                            color=q["attainment"], colorscale="RdYlGn",
+                            cmin=0, cmax=100, opacity=0.85,
+                            line=dict(width=0.5, color="white")),
+                        customdata=list(zip(q["base_metric"], q["category"],
+                                            q["status"])),
+                        hovertemplate="<b>%{customdata[0]}</b><br>"
+                                      "%{customdata[1]}<br>"
+                                      "%{y:.0f}% on target<br>"
+                                      "%{x:+.1f}% vs last year<extra></extra>",
+                    ))
+                    figq.add_hline(y=ATTAINMENT_ON_TRACK, line_dash="dot",
+                                   line_color="rgba(0,0,0,0.35)")
+                    figq.add_vline(x=0, line_dash="dot",
+                                   line_color="rgba(0,0,0,0.35)")
+                    figq.add_annotation(x=-45, y=12, text="fix first",
+                                        showarrow=False,
+                                        font=dict(size=11, color="#C8102E"))
+                    figq.add_annotation(x=42, y=94, text="protect",
+                                        showarrow=False,
+                                        font=dict(size=11, color="#2E8540"))
+                    figq.update_layout(
+                        height=460, plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font=dict(family="Inter, sans-serif", size=11),
+                        xaxis=dict(title="change vs last year (%)",
+                                   gridcolor="rgba(0,0,0,0.07)"),
+                        yaxis=dict(title="% of units on target",
+                                   gridcolor="rgba(0,0,0,0.07)", range=[-5, 105]),
+                        margin=dict(l=10, r=10, t=10, b=40), showlegend=False,
+                    )
+                    st.plotly_chart(apply_chart_theme(figq), use_container_width=True)
+
+                st.caption(
+                    "Each dot is one metric. Left of the vertical line means "
+                    "it moved down this year; below the dotted line means "
+                    "fewer than half the business units are on target."
+                )
+
+                # ══════════════════════════════════════════════════════════
+                # 4 — METRICS → DISCLOSURES FLOW
+                # ══════════════════════════════════════════════════════════
+                # The chart nobody expects: which categories actually feed
+                # which filings. A weak category here is traceable straight
+                # to the report it puts at risk.
+                flows = {}
+                for _, m in rolled.iterrows():
+                    for tag in str(m["frameworks"]).split(","):
+                        tag = tag.strip()
+                        if tag:
+                            flows[(m["category"], tag)] = flows.get(
+                                (m["category"], tag), 0) + 1
+                if flows:
+                    section_header(
+                        "Which Filings Depend on This Pillar",
+                        "Every metric feeds one or more disclosure standards. "
+                        "Thicker ribbons carry more metrics.",
+                    )
+                    srcs = sorted({c for c, _ in flows})
+                    dsts = sorted({f for _, f in flows})
+                    nodes = srcs + dsts
+                    idx = {n: i for i, n in enumerate(nodes)}
+                    cat_attain = {c: float(rolled[rolled["category"] == c]["attainment"].mean())
+                                  for c in srcs}
+
+                    def _band(a):
+                        return ("rgba(200,16,46,0.45)" if a < ATTAINMENT_ON_TRACK
+                                else "rgba(255,182,0,0.45)" if a < ATTAINMENT_MET
+                                else "rgba(46,133,64,0.45)")
+
+                    figk = go.Figure(go.Sankey(
+                        arrangement="snap",
+                        node=dict(
+                            label=nodes, pad=14, thickness=16,
+                            line=dict(color="rgba(0,0,0,0.15)", width=0.5),
+                            color=[_band(cat_attain[c]).replace("0.45", "0.85")
+                                   for c in srcs] + ["#5b6473"] * len(dsts),
+                            hovertemplate="<b>%{label}</b><br>%{value} links"
+                                          "<extra></extra>",
+                        ),
+                        link=dict(
+                            source=[idx[c] for c, _ in flows],
+                            target=[idx[f] for _, f in flows],
+                            value=list(flows.values()),
+                            color=[_band(cat_attain[c]) for c, _ in flows],
+                            hovertemplate="<b>%{source.label}</b> feeds "
+                                          "<b>%{target.label}</b><br>"
+                                          "%{value} metrics<extra></extra>",
+                        ),
+                    ))
+                    figk.update_layout(
+                        height=max(380, len(dsts) * 30 + 160),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font=dict(family="Inter, sans-serif", size=11),
+                        margin=dict(l=10, r=10, t=16, b=16),
+                    )
+                    st.plotly_chart(apply_chart_theme(figk), use_container_width=True)
                     st.caption(
-                        "Blue rose, brown fell. Neither is automatically good — "
-                        "more training hours and more emissions both go up."
+                        "Ribbon colour is the category's health, so a red "
+                        "ribbon shows a weak area flowing into a live filing "
+                        "obligation."
                     )
+
+                # ── The short actionable list ────────────────────────────
+                worst = rolled.nsmallest(10, "attainment")
+                if not worst.empty:
+                    section_header("The Ten to Fix First",
+                                   "Lowest attainment in this pillar.")
+                    figw = go.Figure(go.Bar(
+                        x=worst["attainment"].tolist()[::-1],
+                        y=worst["base_metric"].tolist()[::-1],
+                        orientation="h",
+                        marker=dict(color=[_status_colour.get(s, "#8b949e")
+                                           for s in worst["status"]][::-1]),
+                        text=[f"{v:.0f}%" for v in worst["attainment"]][::-1],
+                        textposition="outside", textfont=dict(size=11),
+                        hovertemplate="<b>%{y}</b><br>%{x:.0f}% of units on "
+                                      "target<extra></extra>",
+                    ))
+                    figw.update_layout(
+                        height=360, plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font=dict(family="Inter, sans-serif", size=12),
+                        xaxis=dict(title="% of business units on target",
+                                   range=[0, 115], gridcolor="rgba(0,0,0,0.07)"),
+                        yaxis=dict(title=None, automargin=True),
+                        margin=dict(l=10, r=40, t=10, b=40), showlegend=False,
+                    )
+                    st.plotly_chart(apply_chart_theme(figw), use_container_width=True)
+
 
             # ── Which disclosures this pillar feeds ──────────────────────
             tags = {}
