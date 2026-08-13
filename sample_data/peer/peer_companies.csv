@@ -1,0 +1,210 @@
+company_no,company,sector,country,listing_status,ticker,fiscal_year_end,currency,size_scale
+1,Faro Refining Industries,PetroChemical,India,Listed,FARO.NS,March,INR Crore,1.52
+2,Petra Energy Corp Ltd,PetroChemical,India,Unlisted,PETRA.NS,March,INR Crore,2.396
+3,Tundra Refining Group,PetroChemical,India,Listed,TUNDR.NS,March,INR Crore,0.474
+4,Zephyr Polymers Ltd,PetroChemical,India,Listed,ZEPHY.NS,March,INR Crore,0.642
+5,Mistral Chemicals Holdings,PetroChemical,India,Listed,MISTR.NS,March,INR Crore,0.396
+6,Ironclad Refining,PetroChemical,India,Listed,IRONC.NS,March,INR Crore,1.018
+7,Smelter Polymers Holdings,PetroChemical,India,Listed,SMELT.NS,March,INR Crore,0.977
+8,Tellurium Chemicals Holdings,PetroChemical,India,Listed,TELLU.NS,March,INR Crore,0.708
+9,Helios Polymers Group,PetroChemical,India,Listed,HELIO.NS,March,INR Crore,0.214
+10,Borealis Energy Corp Co,PetroChemical,India,Listed,BOREA.NS,March,INR Crore,0.727
+11,Iron Crown Energy Corp,PetroChemical,India,Listed,IRON.NS,March,INR Crore,0.792
+12,Nova Petrochemicals Co,PetroChemical,India,Listed,NOVA.NS,March,INR Crore,0.951
+13,Quarry Refining Industries,PetroChemical,India,Unlisted,QUARR.NS,March,INR Crore,0.407
+14,Drift Petrochemicals,PetroChemical,India,Unlisted,,March,INR Crore,1.218
+15,Quartz Petrochemicals Industries,PetroChemical,India,Listed,QUART.NS,March,INR Crore,0.639
+16,Tungsten Petrochemicals Corp,PetroChemical,India,Listed,TUNGS.NS,March,INR Crore,1.222
+17,Obsidian Chemicals,PetroChemical,India,Unlisted,OBSID.NS,March,INR Crore,0.76
+18,Crucible Refining,PetroChemical,India,Listed,CRUCI.NS,March,INR Crore,0.508
+19,Onyx Energy Corp,PetroChemical,India,Listed,,March,INR Crore,1.011
+20,Pillar Chemicals Ltd,PetroChemical,India,Listed,PILLA.NS,March,INR Crore,0.753
+21,Smelter Petrochemicals,PetroChemical,India,Unlisted,SMELT.NS,March,INR Crore,0.34
+22,Hyperion Chemicals,PetroChemical,India,Listed,,March,INR Crore,1.129
+23,Carbide Refining,PetroChemical,India,Listed,CARBI.NS,March,INR Crore,0.443
+24,Meridian Chemicals Ltd,PetroChemical,India,Listed,MERID.NS,March,INR Crore,1.199
+25,Borealis Energy Corp Industries,PetroChemical,India,Listed,BOREA.NS,March,INR Crore,0.386
+26,Castor Polymers Corp,PetroChemical,India,Listed,CASTO.NS,March,INR Crore,1.327
+27,Bastion Grid Holdings Ltd,Power,India,Listed,,March,INR Crore,0.627
+28,Cobalt Generation Ltd,Power,India,Unlisted,COBAL.NS,March,INR Crore,0.758
+29,Nova Grid Holdings,Power,India,Listed,,March,INR Crore,0.295
+30,Solstice Grid Holdings,Power,India,Listed,SOLST.NS,March,INR Crore,1.417
+31,Stratus Grid Holdings,Power,India,Listed,STRAT.NS,March,INR Crore,0.758
+32,Voltaic Power Systems Co,Power,India,Listed,VOLTA.NS,March,INR Crore,0.363
+33,Stratus Grid Holdings Holdings,Power,India,Listed,STRAT.NS,March,INR Crore,0.443
+34,Zephyr Power Co Ltd,Power,India,Listed,ZEPHY.NS,March,INR Crore,1.335
+35,Quarry Power Systems Ltd,Power,India,Listed,QUARR.NS,March,INR Crore,0.635
+36,Stratum Power Systems Industries,Power,India,Listed,STRAT.NS,March,INR Crore,0.69
+37,Wraith Generation Ltd Co,Power,India,Listed,WRAIT.NS,March,INR Crore,1.667
+38,Electra Power Systems,Power,India,Listed,ELECT.NS,March,INR Crore,1.57
+39,Drift Power Co,Power,India,Listed,,March,INR Crore,0.421
+40,Ember Utilities Corp,Power,India,Listed,EMBER.NS,March,INR Crore,0.25
+41,Ember Power Systems Holdings,Power,India,Unlisted,EMBER.NS,March,INR Crore,1.312
+42,Solstice Generation Ltd Corp,Power,India,Unlisted,,March,INR Crore,0.577
+43,Buttress Generation Ltd Holdings,Power,India,Listed,BUTTR.NS,March,INR Crore,0.436
+44,Nova Grid Holdings Ltd,Power,India,Listed,NOVA.NS,March,INR Crore,0.928
+45,Yarrow Utilities,Power,India,Listed,,March,INR Crore,1.022
+46,Citadel Power Systems Group,Power,India,Unlisted,CITAD.NS,March,INR Crore,0.35
+47,Megalith Power Co Co,Power,India,Listed,MEGAL.NS,March,INR Crore,0.814
+48,Petra Power Co Group,Power,India,Listed,PETRA.NS,March,INR Crore,0.362
+49,Ember Power Co Group,Power,India,Listed,EMBER.NS,March,INR Crore,0.238
+50,Nova Utilities Group,Power,India,Listed,NOVA.NS,March,INR Crore,0.874
+51,Falcon Generation Ltd,Power,India,Listed,,March,INR Crore,0.693
+52,Lodestone Grid Holdings Industries,Power,India,Listed,LODES.NS,March,INR Crore,0.248
+53,Aurora Holdings Corp,Mining,India,Listed,AUROR.NS,March,INR Crore,0.625
+54,Marble Crest Resources Group,Mining,India,Listed,MARBL.NS,March,INR Crore,1.225
+55,Drift Holdings,Mining,India,Listed,DRIFT.NS,March,INR Crore,0.495
+56,Sirius Mining Industries,Mining,India,Listed,SIRIU.NS,March,INR Crore,0.468
+57,Drake Resources,Mining,India,Listed,DRAKE.NS,March,INR Crore,0.721
+58,Zephyr Mining Group Holdings,Mining,India,Listed,,March,INR Crore,1.899
+59,Polaris Minerals,Mining,India,Listed,POLAR.NS,March,INR Crore,1.075
+60,Castor Minerals Industries,Mining,India,Listed,CASTO.NS,March,INR Crore,1.184
+61,Buttress Mining Group,Mining,India,Listed,BUTTR.NS,March,INR Crore,0.363
+62,Ithaca Resources Co,Mining,India,Listed,ITHAC.NS,March,INR Crore,0.67
+63,Drift Resources,Mining,India,Listed,DRIFT.NS,March,INR Crore,0.669
+64,Indigo Resources Group,Mining,India,Listed,INDIG.NS,March,INR Crore,0.309
+65,Vertex Minerals,Mining,India,Listed,VERTE.NS,March,INR Crore,0.422
+66,Mistral Resources Holdings,Mining,India,Unlisted,,March,INR Crore,0.297
+67,Faro Minerals Group,Mining,India,Unlisted,FARO.NS,March,INR Crore,0.575
+68,Ironclad Minerals Corp,Mining,India,Listed,IRONC.NS,March,INR Crore,0.69
+69,Tempest Resources,Mining,India,Listed,TEMPE.NS,March,INR Crore,0.513
+70,Iron Crown Minerals Ltd,Mining,India,Listed,IRON.NS,March,INR Crore,0.316
+71,Obsidian Resources,Mining,India,Listed,OBSID.NS,March,INR Crore,1.123
+72,Aurora Minerals,Mining,India,Listed,AUROR.NS,March,INR Crore,0.855
+73,Hyperion Cement Group,Cement & Construction Materials,India,Listed,HYPER.NS,March,INR Crore,0.978
+74,Obsidian Building Products Corp,Cement & Construction Materials,India,Unlisted,OBSID.NS,March,INR Crore,0.953
+75,Polaris Aggregates Group,Cement & Construction Materials,India,Listed,POLAR.NS,March,INR Crore,1.566
+76,Yarrow Aggregates,Cement & Construction Materials,India,Listed,YARRO.NS,March,INR Crore,0.434
+77,Aurora Aggregates Co,Cement & Construction Materials,India,Listed,AUROR.NS,March,INR Crore,1.391
+78,Bastion Concrete Co,Cement & Construction Materials,India,Listed,BASTI.NS,March,INR Crore,0.487
+79,Nova Concrete,Cement & Construction Materials,India,Listed,NOVA.NS,March,INR Crore,0.913
+80,Cobalt Cement Group,Cement & Construction Materials,India,Listed,COBAL.NS,March,INR Crore,0.531
+81,Quartz Cement,Cement & Construction Materials,India,Listed,QUART.NS,March,INR Crore,1.18
+82,Ironclad Materials Corp,Cement & Construction Materials,India,Listed,IRONC.NS,March,INR Crore,0.972
+83,Zephyr Materials,Cement & Construction Materials,India,Listed,ZEPHY.NS,March,INR Crore,0.686
+84,Faro Cement,Cement & Construction Materials,India,Listed,,March,INR Crore,0.456
+85,Iron Crown Building Products Holdings,Cement & Construction Materials,India,Listed,IRON.NS,March,INR Crore,1.032
+86,Cygnus Building Products Group,Cement & Construction Materials,India,Listed,CYGNU.NS,March,INR Crore,1.036
+87,Wraith Building Products Ltd,Cement & Construction Materials,India,Listed,,March,INR Crore,0.624
+88,Anvil Concrete Ltd,Cement & Construction Materials,India,Listed,,March,INR Crore,0.446
+89,Vector Cement Corp,Cement & Construction Materials,India,Unlisted,VECTO.NS,March,INR Crore,0.263
+90,Lumen Concrete,Cement & Construction Materials,India,Unlisted,LUMEN.NS,March,INR Crore,0.92
+91,Solstice Building Products,Cement & Construction Materials,India,Unlisted,SOLST.NS,March,INR Crore,0.398
+92,Argo Aggregates Group,Cement & Construction Materials,India,Listed,ARGO.NS,March,INR Crore,1.045
+93,Drake Steelworks Group,Steel & Metals,India,Unlisted,DRAKE.NS,March,INR Crore,0.861
+94,Nimbus Alloys Corp,Steel & Metals,India,Unlisted,NIMBU.NS,March,INR Crore,0.83
+95,Tellurium Steelworks Ltd,Steel & Metals,India,Listed,TELLU.NS,March,INR Crore,0.423
+96,Tempest Steel Co,Steel & Metals,India,Unlisted,,March,INR Crore,0.688
+97,Yarrow Industries Corp,Steel & Metals,India,Listed,YARRO.NS,March,INR Crore,0.4
+98,Quasar Steel Co,Steel & Metals,India,Listed,QUASA.NS,March,INR Crore,1.174
+99,Tempest Steel Co Ltd,Steel & Metals,India,Unlisted,,March,INR Crore,1.108
+100,Rampart Steel Co,Steel & Metals,India,Listed,RAMPA.NS,March,INR Crore,0.452
+101,Onyx Steel Co Holdings,Steel & Metals,India,Listed,ONYX.NS,March,INR Crore,1.223
+102,Cobalt Industries Ltd,Steel & Metals,India,Listed,COBAL.NS,March,INR Crore,0.321
+103,Ember Metals Holdings,Steel & Metals,India,Listed,EMBER.NS,March,INR Crore,0.698
+104,Vega Steel Co,Steel & Metals,India,Listed,,March,INR Crore,0.687
+105,Zephyr Steelworks,Steel & Metals,India,Listed,ZEPHY.NS,March,INR Crore,0.855
+106,Dione Industries Co,Steel & Metals,India,Listed,,March,INR Crore,0.871
+107,Quill Steelworks,Steel & Metals,India,Listed,QUILL.NS,March,INR Crore,1.202
+108,Vertex Metals Corp,Steel & Metals,India,Listed,VERTE.NS,March,INR Crore,0.449
+109,Argo Steel Co,Steel & Metals,India,Listed,ARGO.NS,March,INR Crore,0.946
+110,Mistral Metals Co,Steel & Metals,India,Listed,MISTR.NS,March,INR Crore,1.283
+111,Borealis Steel Co Ltd,Steel & Metals,India,Listed,BOREA.NS,March,INR Crore,0.534
+112,Ithaca Steelworks,Steel & Metals,India,Listed,ITHAC.NS,March,INR Crore,2.065
+113,Aurora Steel Co,Steel & Metals,India,Listed,,March,INR Crore,0.847
+114,Drift Industries Holdings,Steel & Metals,India,Listed,DRIFT.NS,March,INR Crore,0.972
+115,Indigo Petroleum Industries,Oil & Gas Upstream,India,Listed,INDIG.NS,March,INR Crore,0.329
+116,Pillar Oil & Gas Co,Oil & Gas Upstream,India,Listed,PILLA.NS,March,INR Crore,0.545
+117,Bessemer Energy Ltd,Oil & Gas Upstream,India,Listed,,March,INR Crore,0.54
+118,Larkspur Energy Holdings,Oil & Gas Upstream,India,Listed,LARKS.NS,March,INR Crore,1.237
+119,Solstice Resources Ltd,Oil & Gas Upstream,India,Listed,SOLST.NS,March,INR Crore,0.158
+120,Iron Crown Energy Co,Oil & Gas Upstream,India,Listed,IRON.NS,March,INR Crore,0.131
+121,Forge Oil & Gas Co,Oil & Gas Upstream,India,Listed,FORGE.NS,March,INR Crore,1.42
+122,Citadel Energy Ltd,Oil & Gas Upstream,India,Unlisted,CITAD.NS,March,INR Crore,0.599
+123,Bessemer Oil & Gas Industries,Oil & Gas Upstream,India,Listed,BESSE.NS,March,INR Crore,0.437
+124,Indus Resources Industries,Oil & Gas Upstream,India,Listed,INDUS.NS,March,INR Crore,1.087
+125,Ursa Petroleum Group,Oil & Gas Upstream,India,Listed,URSA.NS,March,INR Crore,0.224
+126,Solstice Oil & Gas Group,Oil & Gas Upstream,India,Unlisted,SOLST.NS,March,INR Crore,1.433
+127,Nimbus Exploration,Oil & Gas Upstream,India,Unlisted,NIMBU.NS,March,INR Crore,0.579
+128,Drift Resources Holdings,Oil & Gas Upstream,India,Listed,DRIFT.NS,March,INR Crore,1.821
+129,Marble Crest Resources,Oil & Gas Upstream,India,Listed,MARBL.NS,March,INR Crore,0.878
+130,Drift Resources Industries,Oil & Gas Upstream,India,Listed,,March,INR Crore,2.47
+131,Ursa Oil & Gas Ltd,Oil & Gas Upstream,India,Listed,URSA.NS,March,INR Crore,0.658
+132,Larkspur Energy,Oil & Gas Upstream,India,Listed,,March,INR Crore,0.998
+133,Kairos Exploration,Oil & Gas Upstream,India,Unlisted,KAIRO.NS,March,INR Crore,0.56
+134,Apex Petroleum Group,Oil & Gas Upstream,India,Listed,APEX.NS,March,INR Crore,1.443
+135,Ember Specialty Chem Corp,Chemicals (Specialty),India,Unlisted,EMBER.NS,March,INR Crore,0.605
+136,Cygnus Catalysts Co,Chemicals (Specialty),India,Listed,CYGNU.NS,March,INR Crore,1.874
+137,Cascade Catalysts,Chemicals (Specialty),India,Unlisted,CASCA.NS,March,INR Crore,0.401
+138,Castor Catalysts Industries,Chemicals (Specialty),India,Unlisted,CASTO.NS,March,INR Crore,0.807
+139,Ravelin Pharma Intermediates Corp,Chemicals (Specialty),India,Listed,RAVEL.NS,March,INR Crore,0.73
+140,Lodestone Pharma Intermediates Group,Chemicals (Specialty),India,Listed,LODES.NS,March,INR Crore,1.627
+141,Pyxis Pharma Intermediates Corp,Chemicals (Specialty),India,Listed,PYXIS.NS,March,INR Crore,0.499
+142,Auriga Agro Inputs,Chemicals (Specialty),India,Listed,AURIG.NS,March,INR Crore,0.696
+143,Drake Fine Chemicals Holdings,Chemicals (Specialty),India,Listed,DRAKE.NS,March,INR Crore,0.514
+144,Wraith Agro Inputs Co,Chemicals (Specialty),India,Unlisted,,March,INR Crore,0.459
+145,Janus Catalysts Holdings,Chemicals (Specialty),India,Listed,,March,INR Crore,0.465
+146,Granite Peak Specialty Chem,Chemicals (Specialty),India,Listed,GRANI.NS,March,INR Crore,0.924
+147,Buttress Pharma Intermediates Co,Chemicals (Specialty),India,Listed,BUTTR.NS,March,INR Crore,0.36
+148,Nova Specialty Chem Group,Chemicals (Specialty),India,Listed,NOVA.NS,March,INR Crore,1.179
+149,Mistral Specialty Chem Holdings,Chemicals (Specialty),India,Unlisted,MISTR.NS,March,INR Crore,0.624
+150,Drift Catalysts Industries,Chemicals (Specialty),India,Listed,,March,INR Crore,0.762
+151,Tempest Catalysts Corp,Chemicals (Specialty),India,Unlisted,TEMPE.NS,March,INR Crore,0.802
+152,Forge Agro Inputs Ltd,Chemicals (Specialty),India,Listed,FORGE.NS,March,INR Crore,0.38
+153,Janus Agro Inputs,Chemicals (Specialty),India,Listed,JANUS.NS,March,INR Crore,0.56
+154,Crucible Pharma Intermediates Industries,Chemicals (Specialty),India,Listed,CRUCI.NS,March,INR Crore,1.78
+155,Rampart Pharma Intermediates Corp,Chemicals (Specialty),India,Listed,RAMPA.NS,March,INR Crore,0.883
+156,Vega Catalysts Ltd,Chemicals (Specialty),India,Listed,VEGA.NS,March,INR Crore,1.814
+157,Stratum Green Utilities,Renewables & Utilities,India,Unlisted,,March,INR Crore,0.607
+158,Argo Renewables Group,Renewables & Utilities,India,Listed,,March,INR Crore,2.515
+159,Oryx Wind Energy Holdings,Renewables & Utilities,India,Listed,ORYX.NS,March,INR Crore,0.796
+160,Carbide Green Utilities Ltd,Renewables & Utilities,India,Listed,CARBI.NS,March,INR Crore,0.723
+161,Forge Hydro Co Group,Renewables & Utilities,India,Listed,FORGE.NS,March,INR Crore,0.599
+162,Stratum Hydro Co,Renewables & Utilities,India,Listed,STRAT.NS,March,INR Crore,0.196
+163,Ember Solar Power Group,Renewables & Utilities,India,Listed,,March,INR Crore,2.457
+164,Bedrock Hydro Co,Renewables & Utilities,India,Listed,BEDRO.NS,March,INR Crore,0.613
+165,Mistral Renewables Co,Renewables & Utilities,India,Listed,MISTR.NS,March,INR Crore,1.293
+166,Dione Hydro Co Holdings,Renewables & Utilities,India,Listed,DIONE.NS,March,INR Crore,0.495
+167,Pyxis Green Utilities,Renewables & Utilities,India,Listed,PYXIS.NS,March,INR Crore,0.405
+168,Borealis Renewables,Renewables & Utilities,India,Listed,,March,INR Crore,0.763
+169,Ember Wind Energy,Renewables & Utilities,India,Listed,EMBER.NS,March,INR Crore,0.824
+170,Voltaic Solar Power Holdings,Renewables & Utilities,India,Listed,VOLTA.NS,March,INR Crore,2.673
+171,Quartz Solar Power,Renewables & Utilities,India,Listed,QUART.NS,March,INR Crore,0.546
+172,Ithaca Renewables,Renewables & Utilities,India,Listed,ITHAC.NS,March,INR Crore,0.37
+173,Bessemer Green Utilities,Renewables & Utilities,India,Listed,BESSE.NS,March,INR Crore,1.03
+174,Iron Crown Green Utilities,Renewables & Utilities,India,Listed,IRON.NS,March,INR Crore,1.033
+175,Marble Crest Wind Energy,Renewables & Utilities,India,Listed,MARBL.NS,March,INR Crore,0.971
+176,Nimbus Hydro Co Holdings,Renewables & Utilities,India,Listed,,March,INR Crore,0.561
+177,Buttress Solar Power Ltd,Renewables & Utilities,India,Listed,BUTTR.NS,March,INR Crore,0.297
+178,Castor Renewables Corp,Renewables & Utilities,India,Unlisted,CASTO.NS,March,INR Crore,0.421
+179,Voltaic Green Utilities Group,Renewables & Utilities,India,Unlisted,VOLTA.NS,March,INR Crore,1.507
+180,Hesperia Green Utilities Industries,Renewables & Utilities,India,Listed,HESPE.NS,March,INR Crore,0.377
+181,Sirius Technologies Co,Information Technology,India,Listed,SIRIU.NS,March,INR Crore,0.912
+182,Stratus Digital,Information Technology,India,Listed,STRAT.NS,March,INR Crore,0.518
+183,Ithaca Digital Group,Information Technology,India,Listed,ITHAC.NS,March,INR Crore,1.0
+184,Auriga Systems Group,Information Technology,India,Listed,AURIG.NS,March,INR Crore,0.19
+185,Vertex Analytics Industries,Information Technology,India,Listed,VERTE.NS,March,INR Crore,0.436
+186,Tungsten Analytics,Information Technology,India,Listed,TUNGS.NS,March,INR Crore,2.362
+187,Quasar Software,Information Technology,India,Listed,QUASA.NS,March,INR Crore,0.447
+188,Forge Platforms Corp,Information Technology,India,Unlisted,FORGE.NS,March,INR Crore,0.575
+189,Yarrow Systems,Information Technology,India,Listed,YARRO.NS,March,INR Crore,0.329
+190,Cygnus Technologies,Information Technology,India,Listed,CYGNU.NS,March,INR Crore,0.189
+191,Apex Cloud Ltd,Information Technology,India,Listed,APEX.NS,March,INR Crore,0.622
+192,Ember Technologies Corp,Information Technology,India,Listed,EMBER.NS,March,INR Crore,0.551
+193,Bastion Digital Industries,Information Technology,India,Unlisted,BASTI.NS,March,INR Crore,0.33
+194,Indus Systems,Information Technology,India,Listed,INDUS.NS,March,INR Crore,0.743
+195,Quasar Software Holdings,Information Technology,India,Listed,,March,INR Crore,0.421
+196,Auriga InfoSystems Industries,Information Technology,India,Unlisted,AURIG.NS,March,INR Crore,0.962
+197,Oryx Platforms Industries,Information Technology,India,Listed,ORYX.NS,March,INR Crore,0.184
+198,Stratus Technologies,Information Technology,India,Listed,,March,INR Crore,0.143
+199,Marble Crest Cybersecurity Industries,Information Technology,India,Listed,MARBL.NS,March,INR Crore,1.497
+200,Helix Analytics Corp,Information Technology,India,Listed,HELIX.NS,March,INR Crore,0.669
+201,Buttress IT Services Group,Information Technology,India,Listed,BUTTR.NS,March,INR Crore,1.158
+202,Hyperion Cybersecurity,Information Technology,India,Listed,HYPER.NS,March,INR Crore,0.662
+203,Quarry Analytics Industries,Information Technology,India,Listed,QUARR.NS,March,INR Crore,0.619
+204,Tellurium Systems Holdings,Information Technology,India,Listed,TELLU.NS,March,INR Crore,0.307
+205,Megalith IT Services Holdings,Information Technology,India,Listed,MEGAL.NS,March,INR Crore,0.375
+206,Apex Digital Co,Information Technology,India,Listed,APEX.NS,March,INR Crore,0.477
+207,Ithaca Cybersecurity Industries,Information Technology,India,Listed,,March,INR Crore,0.596
+208,Petra Analytics,Information Technology,India,Listed,,March,INR Crore,1.757
+209,Helix Industries Ltd,PetroChemical,India,Listed,HELIX.NS,March,INR Crore,0.48

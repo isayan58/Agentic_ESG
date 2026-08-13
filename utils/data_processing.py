@@ -47,6 +47,11 @@ def load_csv(filename):
     candidates = [
         os.path.join(sample_root, "ESG Datasets", canonical),
         os.path.join(sample_root, "company", canonical),
+        # Peer datasets live in their own directory. Without this the peer
+        # CSVs shipped alongside the company ones were never discoverable,
+        # so peer benchmarking stayed empty until someone uploaded a file
+        # by hand — even though the data was sitting on disk.
+        os.path.join(sample_root, "peer", canonical),
     ]
     for alt_path in candidates:
         if os.path.exists(alt_path):
@@ -100,6 +105,31 @@ def load_financials():
 
 def load_company_profile():
     return load_json("company_profile.json")
+
+
+# ── Peer datasets ────────────────────────────────────────────────────────
+# These back the ROI Agent's peer benchmarking. They are separate loaders
+# rather than inline reads so that get_dataset() can use them as fallbacks:
+# a registered source still wins via the state bus, and these only supply
+# data when nothing has been connected.
+def load_peer_metrics():
+    return load_csv("peer_metrics.csv")
+
+
+def load_peer_benchmark():
+    return load_csv("peer_benchmark.csv")
+
+
+def load_peer_esg():
+    return load_csv("peer_esg.csv")
+
+
+def load_peer_financials():
+    return load_csv("peer_financials.csv")
+
+
+def load_peer_companies():
+    return load_csv("peer_companies.csv")
 
 
 def compute_scope_totals(emissions_df, year=None):

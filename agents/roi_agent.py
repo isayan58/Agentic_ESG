@@ -22,6 +22,7 @@ from core.kpi_engine import kpi_engine
 from utils.data_processing import (
     load_financials, load_esg_metrics, load_emissions,
     load_energy, load_supply_chain, load_diversity,
+    load_peer_metrics, load_peer_benchmark, load_peer_esg, load_peer_financials,
 )
 
 
@@ -332,10 +333,14 @@ class ROIAgent(BaseAgent):
         """
         import pandas as pd
 
-        peer_metrics_df = get_dataset("peer_metrics")
-        peer_bench_df   = get_dataset("peer_benchmark")
-        peer_esg_df     = get_dataset("peer_esg")
-        peer_fin_df     = get_dataset("peer_financials")
+        # Bundled peer CSVs are passed as fallbacks, not read directly:
+        # get_dataset checks the state bus first, so a peer source the user
+        # has actually registered always wins and these only fill the gap
+        # when nothing is connected.
+        peer_metrics_df = get_dataset("peer_metrics", load_peer_metrics)
+        peer_bench_df   = get_dataset("peer_benchmark", load_peer_benchmark)
+        peer_esg_df     = get_dataset("peer_esg", load_peer_esg)
+        peer_fin_df     = get_dataset("peer_financials", load_peer_financials)
 
         if all(df.empty for df in [peer_metrics_df, peer_bench_df, peer_esg_df, peer_fin_df]):
             return {"available": False}
