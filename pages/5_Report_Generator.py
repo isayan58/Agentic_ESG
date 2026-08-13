@@ -16,6 +16,9 @@ from utils.ui import (
     section_header, callout, verdict_kpi, insight_group, score_bars, glossary,
 )
 from utils.pipeline_refresh import data_freshness_caption
+from core.data_access import get_dataset
+from utils.data_processing import load_esg_metrics
+from utils.metric_rollup import rollup_metrics, display_table
 
 try:
     import plotly.graph_objects as go
@@ -98,6 +101,7 @@ if results and "error" not in results:
     _rg_section = section_picker([
         "📋 Executive Summary",
         "🌍 Carbon Performance",
+        "📈 ESG Metrics (E · S · G)",
         "✅ Framework Compliance",
         "🧠 Findings & Recommendations",
         "📑 Full Report Sections",
@@ -277,6 +281,200 @@ if results and "error" not in results:
         if carbon_insights:
             insight_group("What the Carbon Accountant concluded",
                           carbon_insights[:6], icon="🌱")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ESG METRICS — the full E/S/G metric set
+    # ══════════════════════════════════════════════════════════════════════
+    elif _rg_section == "📈 ESG Metrics (E · S · G)":
+        raw_metrics = get_dataset("esg_metrics", load_esg_metrics)
+        rolled = rollup_metrics(raw_metrics)
+
+        if rolled.empty:
+            callout(
+                "No ESG metric data is loaded. Connect an `esg_metrics` source "
+                "on the **Data Collector** page, or run the pipeline to load "
+                "the built-in reference set.",
+                title="No metrics yet", icon="📭",
+            )
+        else:
+            n_units = int(rolled["business_units"].max()) if "business_units" in rolled else 0
+            section_header(
+                f"{len(rolled)} Metrics Across Environmental, Social and Governance",
+                f"Each metric is reported by {n_units} business units and rolled "
+                f"up here to a single company figure.",
+            )
+            callout(
+                f"These are the measurements everything else on this page is "
+                f"built from. Each row shows last year, this year, the target, "
+                f"and how many of the **{n_units} business units** hit it — so a "
+                f"company-level number that looks fine still shows you if it is "
+                f"being carried by a handful of sites.",
+                icon="📈",
+            )
+
+            # ── Status summary across all three pillars ───────────────────
+            m1, m2, m3, m4 = st.columns(4)
+            _met = int((rolled["status"] == "Met").sum())
+            _track = int((rolled["status"] == "On Track").sum())
+            _miss = int((rolled["status"] == "Not Met").sum())
+            _cov = _num(rolled["confidence"].mean(), 0) or 0
+            with m1:
+                verdict_kpi("Metrics Tracked", str(len(rolled)),
+                            "Across all three ESG pillars.",
+                            verdict="neutral", verdict_label="")
+            with m2:
+                verdict_kpi("Meeting Target", str(_met),
+                            "Metrics where most business units hit the target.",
+                            verdict="good" if _met >= len(rolled) / 2 else "watch",
+                            verdict_label=f"{100*_met/len(rolled):.0f}%")
+            with m3:
+                verdict_kpi("On Track", str(_track),
+                            "Moving the right way but not there yet.",
+                            verdict="watch", verdict_label="")
+            with m4:
+                verdict_kpi("Not Met", str(_miss),
+                            "Behind target — these need an owner.",
+                            verdict="poor" if _miss else "good",
+                            verdict_label="Action" if _miss else "None",
+                            term=f"Mean data confidence {_cov:.0%}.")
+
+            # ── Status by pillar ──────────────────────────────────────────
+            if _PLOTLY:
+                pillars = ["Environmental", "Social", "Governance"]
+                figm = go.Figure()
+                for status, colour in [("Met", "#2E8540"),
+                                       ("On Track", "#FFB600"),
+                                       ("Not Met", "#C8102E")]:
+                    figm.add_trace(go.Bar(
+                        name=status, x=pillars,
+                        y=[int(((rolled["pillar"] == p) &
+                                (rolled["status"] == status)).sum()) for p in pillars],
+                        marker_color=colour,
+                        hovertemplate="<b>%{x}</b><br>" + status +
+                                      ": %{y} metrics<extra></extra>",
+                    ))
+                figm.update_layout(
+                    barmode="stack", height=320,
+                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                    font=dict(family="Inter, sans-serif", size=12),
+                    yaxis=dict(title="Metrics", gridcolor="rgba(0,0,0,0.07)"),
+                    xaxis=dict(title=None),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                xanchor="right", x=1),
+                    margin=dict(l=50, r=20, t=40, b=40),
+                )
+                st.plotly_chart(apply_chart_theme(figm), use_container_width=True)
+                st.caption("Where each pillar stands against its targets. "
+                           "Red is where the work is.")
+
+            # ── Biggest movers ────────────────────────────────────────────
+            movers = rolled.dropna(subset=["yoy_change_pct"]).copy()
+            if not movers.empty and _PLOTLY:
+                movers = movers.reindex(
+                    movers["yoy_change_pct"].abs().sort_values(ascending=False).index
+                ).head(12).sort_values("yoy_change_pct")
+                section_header("Biggest Year-on-Year Movers",
+                               "The metrics that changed most since last year, "
+                               "in either direction.")
+                figv = go.Figure(go.Bar(
+                    x=movers["yoy_change_pct"], y=movers["base_metric"],
+                    orientation="h",
+                    marker_color=["#C8102E" if v > 0 else "#2E8540"
+                                  for v in movers["yoy_change_pct"]],
+                    text=[f"{v:+.1f}%" for v in movers["yoy_change_pct"]],
+                    textposition="outside",
+                    hovertemplate="<b>%{y}</b><br>Change: %{x:+.1f}%<extra></extra>",
+                ))
+                figv.update_layout(
+                    height=max(320, len(movers) * 32 + 90),
+                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                    font=dict(family="Inter, sans-serif", size=12),
+                    xaxis=dict(title="Change vs last year (%)",
+                               gridcolor="rgba(0,0,0,0.07)", zeroline=True,
+                               zerolinecolor="rgba(0,0,0,0.25)"),
+                    yaxis=dict(title=None, automargin=True),
+                    margin=dict(l=10, r=60, t=20, b=45), showlegend=False,
+                )
+                st.plotly_chart(apply_chart_theme(figv), use_container_width=True)
+                st.caption(
+                    "Direction, not judgement — a rise in emissions and a rise "
+                    "in training hours both show as increases. Check the metric "
+                    "before reading a colour as good or bad."
+                )
+
+            # ── Per-pillar detail ─────────────────────────────────────────
+            section_header("Every Metric, by Pillar",
+                           "Grouped by category. Expand a pillar to see its "
+                           "full metric set.")
+            _pillar_icons = {"Environmental": "🌍", "Social": "🤝",
+                             "Governance": "⚖️"}
+            for pillar in ["Environmental", "Social", "Governance"]:
+                pdf = rolled[rolled["pillar"] == pillar]
+                if pdf.empty:
+                    continue
+                p_met = int((pdf["status"] == "Met").sum())
+                with st.expander(
+                    f"{_pillar_icons.get(pillar, '•')} **{pillar}** — "
+                    f"{len(pdf)} metrics, {p_met} meeting target",
+                    expanded=(pillar == "Environmental"),
+                ):
+                    for cat in sorted(pdf["category"].dropna().unique()):
+                        cdf = pdf[pdf["category"] == cat]
+                        st.markdown(f"**{cat}**")
+                        safe_dataframe(display_table(cdf),
+                                       use_container_width=True, hide_index=True)
+
+            # ── Framework coverage ────────────────────────────────────────
+            tags = {}
+            for s in rolled["frameworks"].dropna().astype(str):
+                for t in (x.strip() for x in s.split(",") if x.strip()):
+                    tags[t] = tags.get(t, 0) + 1
+            if tags:
+                section_header(
+                    "Which Disclosures These Metrics Feed",
+                    "Every metric is tagged to the standards it supports, so a "
+                    "gap in a metric is traceable to the filing it affects.",
+                )
+                score_bars([
+                    {
+                        "name": tag,
+                        "score": 100 * count / len(rolled),
+                        "status": "good" if count >= 8 else "watch" if count >= 4 else "poor",
+                        "meta": f"{count} metrics",
+                    }
+                    for tag, count in sorted(tags.items(), key=lambda kv: -kv[1])
+                ])
+                st.caption(
+                    "Bar length is the share of the metric set feeding that "
+                    "standard. A short bar isn't automatically a problem — some "
+                    "standards need few metrics."
+                )
+
+            # ── Business-unit drill-down ──────────────────────────────────
+            with st.expander("🔬 Drill into one metric by business unit",
+                             expanded=False):
+                st.caption(
+                    "Company figures hide variation. Pick a metric to see how "
+                    "each business unit contributed."
+                )
+                pick = st.selectbox(
+                    "Metric",
+                    rolled["metric_id"] + " — " + rolled["base_metric"],
+                    key="rg_metric_drill",
+                )
+                pick_id = str(pick).split("—")[0].strip()
+                detail = raw_metrics[raw_metrics["metric_id"] == pick_id]
+                if not detail.empty:
+                    cols = [c for c in ["business_unit", "metric_name", "unit",
+                                        "value_2023", "value_2024", "target_2024",
+                                        "status", "data_source", "confidence"]
+                            if c in detail.columns]
+                    st.caption(
+                        f"{len(detail)} business units report this metric. "
+                        f"Values are that unit's share of the company total."
+                    )
+                    safe_dataframe(detail[cols], use_container_width=True,
+                                   hide_index=True)
 
     # ══════════════════════════════════════════════════════════════════════
     # FRAMEWORK COMPLIANCE

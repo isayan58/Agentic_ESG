@@ -12,6 +12,7 @@ from core.state_manager import state_manager
 from core.data_access import get_dataset
 from core.company_config import company_cfg
 from utils.data_processing import load_company_profile, load_esg_metrics, compute_esg_summary
+from utils.metric_rollup import rollup_metrics, display_table
 from utils.feedback_store import load_recent_feedback
 
 
@@ -194,21 +195,27 @@ class ReportGeneratorAgent(BaseAgent):
         return self.hf.generate_text(" ".join(context_parts), agent="report_section")
 
     def _compile_metrics_tables(self, metrics_df):
+        """Build one reportable row per metric, not one per business unit.
+
+        ``esg_metrics`` holds a row per metric *per business unit* — 75
+        metrics across 99 units, ~7,400 rows. Emitting those raw put 2,475
+        rows into each pillar of the report and, because values are
+        apportioned, made individual rows read as nonsense ("Board Size —
+        Refinery Hazira = 0.053"). Rolling up first gives 25 rows per
+        pillar with figures a reader can actually check, and shrinks the
+        HTML/PDF export by the same factor.
+        """
         tables = {}
         if metrics_df.empty:
             return tables
 
-        current_val_col = f"value_{company_cfg.current_fy}" if company_cfg.current_fy else "value_2024"
-        prev_val_col = f"value_{company_cfg.previous_fy}" if company_cfg.previous_fy else "value_2023"
-        target_col = f"target_{company_cfg.current_fy}" if company_cfg.current_fy else "target_2024"
-
-        # Use the columns that actually exist in the dataframe
-        desired_cols = ["metric_id", "metric_name", "unit", prev_val_col, current_val_col, target_col, "status"]
-        available_cols = [c for c in desired_cols if c in metrics_df.columns]
+        rolled = rollup_metrics(metrics_df)
+        if rolled.empty:
+            return tables
 
         for pillar in ["Environmental", "Social", "Governance"]:
-            pdf = metrics_df[metrics_df["pillar"] == pillar]
-            tables[pillar] = pdf[available_cols].to_dict("records")
+            pdf = rolled[rolled["pillar"] == pillar] if "pillar" in rolled.columns else rolled.iloc[0:0]
+            tables[pillar] = display_table(pdf).to_dict("records")
         return tables
 
     def _compile_value_channels(self, roi_results):
