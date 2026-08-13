@@ -18,6 +18,9 @@ from utils.ui import (
 from utils.pipeline_refresh import data_freshness_caption
 from core.data_access import get_dataset
 from utils.data_processing import load_esg_metrics
+from utils.frameworks import (
+    friendly as fw_friendly, glossary_pairs as fw_glossary, issuer as fw_issuer,
+)
 from utils.metric_rollup import (
     rollup_metrics, display_table, ATTAINMENT_MET, ATTAINMENT_ON_TRACK,
 )
@@ -318,6 +321,105 @@ if results and "error" not in results:
                 title="No metrics yet", icon="📭",
             )
         else:
+            # ══════════════════════════════════════════════════════════════
+            # CROSS-FILTER
+            # ══════════════════════════════════════════════════════════════
+            # Selections made on the charts below are read here, at the top
+            # of the run, because Streamlit surfaces a chart's selection on
+            # the *next* rerun via its widget key. Filtering `rolled` in
+            # place means every chart further down narrows automatically —
+            # there is no second code path for the filtered state to drift
+            # from.
+            pillar_all = rolled.copy()
+            _genome_key = f"genome_{_pillar}"
+            _quad_key = f"quad_{_pillar}"
+            _fkey = f"rg_focus_{_pillar}"
+
+            def _selected_points(state_key):
+                """Points from a chart selection, tolerant of shape changes."""
+                state = st.session_state.get(state_key)
+                if not state:
+                    return []
+                try:
+                    sel = state.get("selection") if isinstance(state, dict) else state.selection
+                    return list((sel or {}).get("points", []) or [])
+                except Exception:
+                    return []
+
+            # A click on the genome picks a category; a click on the quadrant
+            # picks one metric. Newer selection wins.
+            _picked_cat, _picked_metric = None, None
+            for _pt in _selected_points(_genome_key):
+                _ylab = str(_pt.get("y", "") or "")
+                if _ylab:
+                    _picked_cat = _ylab.split("  (")[0].strip()
+            for _pt in _selected_points(_quad_key):
+                _cd = _pt.get("customdata") or []
+                if _cd:
+                    _picked_metric = str(_cd[0])
+
+            _focus = st.session_state.get(_fkey) or {}
+            if _picked_metric:
+                _focus = {"metric": _picked_metric}
+            elif _picked_cat:
+                _focus = {"category": _picked_cat}
+            st.session_state[_fkey] = _focus
+
+            # Explicit controls as well as chart clicks: a dropdown always
+            # works, and it keeps the filter discoverable for anyone who
+            # doesn't think to click a chart.
+            fc1, fc2, fc3 = st.columns([2, 2, 1])
+            _cat_options = ["All categories"] + sorted(pillar_all["category"].unique())
+            _cur_cat = _focus.get("category")
+            if _focus.get("metric"):
+                _m_row = pillar_all[pillar_all["base_metric"] == _focus["metric"]]
+                if not _m_row.empty:
+                    _cur_cat = _m_row.iloc[0]["category"]
+            with fc1:
+                _sel_cat = st.selectbox(
+                    "Category", _cat_options,
+                    index=_cat_options.index(_cur_cat) if _cur_cat in _cat_options else 0,
+                    key=f"rg_cat_{_pillar}",
+                )
+            _scope = (pillar_all if _sel_cat == "All categories"
+                      else pillar_all[pillar_all["category"] == _sel_cat])
+            with fc2:
+                _m_options = ["All metrics"] + sorted(_scope["base_metric"].tolist())
+                _cur_m = _focus.get("metric")
+                _sel_metric = st.selectbox(
+                    "Metric", _m_options,
+                    index=_m_options.index(_cur_m) if _cur_m in _m_options else 0,
+                    key=f"rg_met_{_pillar}",
+                )
+            with fc3:
+                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                if st.button("Clear", key=f"rg_clear_{_pillar}",
+                             use_container_width=True):
+                    for _k in (_genome_key, _quad_key, f"rg_cat_{_pillar}",
+                               f"rg_met_{_pillar}"):
+                        st.session_state.pop(_k, None)
+                    st.session_state[_fkey] = {}
+                    st.rerun()
+
+            # The dropdowns are the source of truth once touched, so a chart
+            # click and a manual choice can never disagree on screen.
+            if _sel_metric != "All metrics":
+                rolled = _scope[_scope["base_metric"] == _sel_metric].copy()
+                _focus_label = f"{_sel_metric}"
+            elif _sel_cat != "All categories":
+                rolled = _scope.copy()
+                _focus_label = f"{_sel_cat} ({len(rolled)} metrics)"
+            else:
+                rolled = pillar_all.copy()
+                _focus_label = ""
+
+            if _focus_label:
+                callout(
+                    f"Showing **{_focus_label}** only. Every chart below is "
+                    f"filtered to this selection — press **Clear** to see all "
+                    f"{len(pillar_all)} {_pillar.lower()} metrics again.",
+                    title="Filtered view", tone="info", icon="🔍",
+                )
             _n_bu = int(rolled["business_units"].max())
             _met = int((rolled["status"] == "Met").sum())
             _track = int((rolled["status"] == "On Track").sum())
@@ -369,7 +471,13 @@ if results and "error" not in results:
             _status_colour = {"Met": _C_MET, "On Track": _C_TRACK,
                               "Not Met": _C_MISS}
 
-            if _PLOTLY:
+            # A genome of one tile, a sunburst of one wedge and a Sankey of
+            # one ribbon are not charts, they are noise. Below a handful of
+            # metrics those views are dropped and the space goes to a detail
+            # panel that is actually readable at that size.
+            _rich_enough = len(rolled) >= 4
+
+            if _PLOTLY and _rich_enough:
                 # ══════════════════════════════════════════════════════════
                 # 1 — THE ESG GENOME
                 # ══════════════════════════════════════════════════════════
@@ -419,10 +527,12 @@ if results and "error" not in results:
                     yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
                     margin=dict(l=10, r=10, t=16, b=40),
                 )
-                st.plotly_chart(apply_chart_theme(figg), use_container_width=True)
+                st.plotly_chart(apply_chart_theme(figg), use_container_width=True,
+                                on_select="rerun", key=_genome_key)
                 st.caption(
                     "Categories are ordered worst-performing at the top. "
-                    "Hover any tile for the metric behind it."
+                    "**Click any tile to filter every chart on this page to "
+                    "that category.** Hover for the metric behind it."
                 )
 
                 # ══════════════════════════════════════════════════════════
@@ -516,12 +626,14 @@ if results and "error" not in results:
                                    gridcolor="rgba(0,0,0,0.07)", range=[-5, 105]),
                         margin=dict(l=10, r=10, t=10, b=40), showlegend=False,
                     )
-                    st.plotly_chart(apply_chart_theme(figq), use_container_width=True)
+                    st.plotly_chart(apply_chart_theme(figq), use_container_width=True,
+                                    on_select="rerun", key=_quad_key)
 
                 st.caption(
                     "Each dot is one metric. Left of the vertical line means "
                     "it moved down this year; below the dotted line means "
-                    "fewer than half the business units are on target."
+                    "fewer than half the business units are on target. "
+                    "**Click a dot to focus the page on that single metric.**"
                 )
 
                 # ══════════════════════════════════════════════════════════
@@ -545,8 +657,9 @@ if results and "error" not in results:
                     )
                     srcs = sorted({c for c, _ in flows})
                     dsts = sorted({f for _, f in flows})
-                    nodes = srcs + dsts
-                    idx = {n: i for i, n in enumerate(nodes)}
+                    nodes = srcs + [fw_friendly(f) for f in dsts]
+                    idx = {n: i for i, n in enumerate(srcs)}
+                    idx.update({f: len(srcs) + i for i, f in enumerate(dsts)})
                     cat_attain = {c: float(rolled[rolled["category"] == c]["attainment"].mean())
                                   for c in srcs}
 
@@ -616,6 +729,86 @@ if results and "error" not in results:
                     st.plotly_chart(apply_chart_theme(figw), use_container_width=True)
 
 
+            elif _PLOTLY:
+                # ══════════════════════════════════════════════════════════
+                # FOCUSED VIEW — one metric (or a couple)
+                # ══════════════════════════════════════════════════════════
+                # At this size the interesting question changes: not "which
+                # metric is worst" but "who inside the company is dragging
+                # this one down".
+                for _, _m in rolled.iterrows():
+                    section_header(_m["base_metric"],
+                                   f"{_m['category']} · reported by "
+                                   f"{int(_m['business_units'])} business units")
+                    d1, d2, d3, d4 = st.columns(4)
+                    _unit_txt = f" {_m['unit']}" if _m["unit"] else ""
+                    with d1:
+                        verdict_kpi("This Year",
+                                    f"{_m['value_2024']:,.1f}{_unit_txt}"
+                                    if _m["value_2024"] is not None else "—",
+                                    "Company-wide figure for the current year.",
+                                    verdict="neutral", verdict_label="")
+                    with d2:
+                        verdict_kpi("Target",
+                                    f"{_m['target_2024']:,.1f}{_unit_txt}"
+                                    if _m["target_2024"] is not None else "—",
+                                    "What the company committed to.",
+                                    verdict="neutral", verdict_label="")
+                    with d3:
+                        _yoy = _m["yoy_change_pct"]
+                        verdict_kpi("Vs Last Year",
+                                    f"{_yoy:+.1f}%" if _yoy is not None else "—",
+                                    "Direction of travel — check the metric "
+                                    "before reading this as good or bad.",
+                                    verdict="neutral", verdict_label="")
+                    with d4:
+                        verdict_kpi("Units On Target",
+                                    f"{int(_m['met_count'])}/{int(_m['business_units'])}",
+                                    "How widely the target is actually met.",
+                                    verdict=("good" if _m["attainment"] >= ATTAINMENT_MET
+                                             else "watch" if _m["attainment"] >= ATTAINMENT_ON_TRACK
+                                             else "poor"),
+                                    verdict_label=f"{_m['attainment']:.0f}%")
+
+                    _det = raw_metrics[raw_metrics["metric_id"] == _m["metric_id"]].copy()
+                    if not _det.empty and "business_unit" in _det.columns:
+                        _det = _det.sort_values("value_2024", ascending=False).head(30)
+                        _cols = {"Met": "#2E8540", "On Track": "#FFB600",
+                                 "Not Met": "#C8102E"}
+                        figd = go.Figure(go.Bar(
+                            x=_det["business_unit"], y=_det["value_2024"],
+                            marker=dict(color=[_cols.get(s, "#8b949e")
+                                               for s in _det.get("status", [])]),
+                            customdata=list(zip(_det.get("status", []),
+                                                _det.get("target_2024", []))),
+                            hovertemplate="<b>%{x}</b><br>Value: %{y:,.2f}<br>"
+                                          "Target: %{customdata[1]:,.2f}<br>"
+                                          "Status: %{customdata[0]}<extra></extra>",
+                        ))
+                        figd.update_layout(
+                            height=340, plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            font=dict(family="Inter, sans-serif", size=11),
+                            xaxis=dict(title="business unit", tickangle=-45,
+                                       gridcolor="rgba(0,0,0,0.07)"),
+                            yaxis=dict(title=f"value{_unit_txt}",
+                                       gridcolor="rgba(0,0,0,0.07)"),
+                            margin=dict(l=10, r=10, t=16, b=90), showlegend=False,
+                        )
+                        st.plotly_chart(apply_chart_theme(figd),
+                                        use_container_width=True)
+                        st.caption(
+                            f"Each bar is one business unit's contribution, "
+                            f"coloured by whether it met its own target. "
+                            f"Showing the {len(_det)} largest of "
+                            f"{int(_m['business_units'])}."
+                        )
+
+                    _tags = [t.strip() for t in str(_m["frameworks"]).split(",")
+                             if t.strip()]
+                    if _tags:
+                        st.markdown("**This metric feeds:**")
+                        glossary(fw_glossary(_tags))
             # ── Which disclosures this pillar feeds ──────────────────────
             tags = {}
             for s in rolled["frameworks"].dropna().astype(str):
@@ -626,7 +819,8 @@ if results and "error" not in results:
                                "Which reporting standards depend on these "
                                "metrics.")
                 score_bars([
-                    {"name": tag,
+                    {"name": fw_friendly(tag),
+                     "subtitle": fw_issuer(tag),
                      "score": 100 * count / _total,
                      "status": "good" if count >= 6 else "watch" if count >= 3 else "poor",
                      "meta": f"{count} metrics"}
